@@ -1,0 +1,21 @@
+[llm]
+active_profile = "deepinfra"
+
+# Puedes cambiar los valores o crear perfiles adicionales.
+[profiles.deepinfra]
+provider = "openai_compatible"
+endpoint = "https://api.deepinfra.com/v1/openai/chat/completions"
+model = "elige-un-modelo"
+api_key_env = "DEEPINFRA_API_KEY"
+max_output_tokens = 1000
+max_context_chars = 48000
+temperature = 0.5
+
+[profiles.deepseek]
+provider = "openai_compatible"
+endpoint = "https://api.deepseek.com/chat/completions"
+model = "elige-un-modelo"
+api_key_env = "DEEPSEEK_API_KEY"
+max_output_tokens = 1000
+max_context_chars = 48000
+temperature = 0.5

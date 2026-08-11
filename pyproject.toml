@@ -1,0 +1,12 @@
+[project]
+name = "articulador"
+version = "0.1.0"
+description = "Editor conversacional local para artículos Markdown"
+requires-python = ">=3.11"
+dependencies = ["tomli-w>=1.0"]
+
+[project.optional-dependencies]
+secure-credentials = ["keyring>=25"]
+
+[tool.setuptools]
+packages = ["articulador_core", "articulador_ui"]
