@@ -11,21 +11,37 @@ from articulador_ui.app import ArticuladorApp
 
 
 def open_initial_document(app: ArticuladorApp, path: Path) -> None:
-    """Open an optional CLI document without leaving a half-loaded session."""
-    try:
-        content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        app.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
-        return
-    app.load_document_content(path, content)
+    """Abre el documento opcional de la línea de órdenes.
+
+    La lectura, el manejo de errores y la sesión limpia los resuelve
+    DocumentManager a través de app.load_document.
+    """
+    app.load_document(path)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Editor conversacional local para artículos Markdown.")
     parser.add_argument("--config", type=Path, default=storage.CONFIG_PATH, help="Ruta al archivo TOML de perfiles LLM")
     parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="Carpeta de artículos usada como contexto local")
+    parser.add_argument("--health", action="store_true", help="Imprime el diagnóstico de la instalación y sale")
     parser.add_argument("document", type=Path, nargs="?", help="Artículo Markdown para abrir")
     args = parser.parse_args()
+
+    if args.health:
+        # Diagnóstico sin abrir ventana: útil cuando la app no arranca o el
+        # llavero/config no están accesibles.
+        from articulador_core.health import check_health, status_string
+
+        # Debe diagnosticar el config que pidió la CLI, no siempre el de por defecto.
+        status = check_health(args.config)
+        print(status_string(status))
+        # Salida 1 solo si algo está roto: una instalación nueva tiene avisos
+        # (sin carpeta de config, sin perfiles) y sigue siendo utilizable.
+        raise SystemExit(1 if status.has_errors else 0)
+
+    if not args.workspace.is_dir():
+        parser.error(f"El workspace no es una carpeta existente: {args.workspace}")
+
     app = ArticuladorApp(args.config, args.workspace)
     if args.document:
         open_initial_document(app, args.document)

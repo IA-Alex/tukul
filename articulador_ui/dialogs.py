@@ -4,12 +4,17 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from articulador_core import storage
-from articulador_core.llm import PROVIDERS, provider_spec
+from articulador_core.llm import PROVIDERS, LlmError, provider_spec, validate_endpoint
 from articulador_core.models import LlmProfile
 
 
 def show_context_dialog(app) -> None:
-    if not app.last_context_files:
+    # Un archivo excluido deja de aparecer en las consultas siguientes, así que
+    # listar solo `last_context_files` hacía la exclusión irreversible: hay que
+    # ofrecer también los ya excluidos para poder volver a incluirlos.
+    excluded = app.context.excluded_context
+    names = sorted(set(app.scope.context_files) | set(excluded))
+    if not names:
         messagebox.showinfo(
             "Contexto",
             "Envía primero una consulta para que Articulador proponga archivos relevantes.",
@@ -21,12 +26,13 @@ def show_context_dialog(app) -> None:
     dialog.grab_set()
     frame = ttk.Frame(dialog, padding=14)
     frame.pack()
-    ttk.Label(frame, text="Archivos usados en la última consulta:").pack(anchor="w")
+    ttk.Label(frame, text="Archivos disponibles como contexto local:").pack(anchor="w")
     values = []
-    for name in app.last_context_files:
-        variable = tk.BooleanVar(value=name not in app.context.excluded_context)
+    for name in names:
+        variable = tk.BooleanVar(value=name not in excluded)
         values.append((name, variable))
-        ttk.Checkbutton(frame, text=name, variable=variable).pack(anchor="w")
+        etiqueta = name if name in app.scope.context_files else f"{name}  (excluido)"
+        ttk.Checkbutton(frame, text=etiqueta, variable=variable).pack(anchor="w")
 
     def apply() -> None:
         for name, variable in values:
@@ -44,7 +50,41 @@ def show_context_dialog(app) -> None:
     ).pack(anchor="e", pady=(10, 0))
 
 
-def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
+def _apply_suggestion(app, dialog, item: dict[str, str]) -> bool:
+    """Sustituye el fragmento en el editor. False si no se pudo aplicar.
+
+    Solo actúa sobre coincidencias únicas: un fragmento repetido no permite saber
+    cuál pretendía corregir el modelo.
+    """
+    text = app.editor.get("1.0", "end-1c")
+    original = item["original"]
+    first, last = text.find(original), text.rfind(original)
+    if first < 0:
+        messagebox.showinfo(
+            "No encontrado", "El fragmento ya cambió o no existe.", parent=dialog
+        )
+        return False
+    if first != last:
+        messagebox.showinfo(
+            "Fragmento ambiguo",
+            "El texto aparece varias veces. Edita manualmente o pide una sugerencia más específica.",
+            parent=dialog,
+        )
+        return False
+    app.snapshot_for_undo(text)
+    app.editor.delete("1.0", "end")
+    app.editor.insert("1.0", text[:first] + item["suggestion"] + text[first + len(original):])
+    app.session.dirty = True
+    return True
+
+
+def show_review_dialog(app, findings: list[dict[str, str]]):
+    """Muestra los hallazgos de una revisión. Devuelve el Toplevel creado.
+
+    Los hallazgos se calcularon sobre un artículo concreto: el diálogo queda
+    anclado al ámbito de ese documento para no aplicar un fragmento sobre otro.
+    """
+    scope = app.scope
     dialog = tk.Toplevel(app)
     dialog.title("Revisión del artículo")
     dialog.geometry("720x560")
@@ -86,33 +126,19 @@ def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
     def decide(apply: bool) -> None:
         if not items.curselection():
             return
-        index = items.curselection()[0]
-        item = findings[index]
-        if apply:
-            text = app.editor.get("1.0", "end-1c")
-            original = item["original"]
-            first, last = text.find(original), text.rfind(original)
-            if first < 0:
-                messagebox.showinfo(
-                    "No encontrado",
-                    "El fragmento ya cambió o no existe.",
-                    parent=dialog,
-                )
-                return
-            if first != last:
-                messagebox.showinfo(
-                    "Fragmento ambiguo",
-                    "El texto aparece varias veces. Edita manualmente o pide una sugerencia más específica.",
-                    parent=dialog,
-                )
-                return
-            updated = (
-                text[:first] + item["suggestion"] + text[first + len(original) :]
+        if apply and (app.scope is not scope or not scope.owns(app.session.document_path)):
+            # Un diálogo que sobrevivió a un cambio de documento aplicaría la
+            # sugerencia de un artículo sobre otro, dejándolo sucio y erróneo.
+            messagebox.showinfo(
+                "Revisión caducada",
+                "Estos hallazgos son de otro artículo. Vuelve a revisar el actual.",
+                parent=dialog,
             )
-            app.last_review_before = text
-            app.editor.delete("1.0", "end")
-            app.editor.insert("1.0", updated)
-            app.session.dirty = True
+            dialog.destroy()
+            return
+        index = items.curselection()[0]
+        if apply and not _apply_suggestion(app, dialog, findings[index]):
+            return
         findings.pop(index)
         items.delete(index)
         if findings:
@@ -131,6 +157,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
         actions, text="Ignorar", command=lambda: decide(False)
     ).pack(side="right", padx=(0, 6))
     ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
+    return dialog
 
 
 def show_settings_dialog(app) -> None:
@@ -224,7 +251,11 @@ def show_settings_dialog(app) -> None:
                     values["output_price_per_million"].get()
                 ),
             )
-        except ValueError as error:
+            # Fallar aquí y no en el primer envío: un endpoint http:// remoto mandaría
+            # la API key en claro y un esquema no HTTP ni siquiera es transportable.
+            if updated.endpoint:
+                validate_endpoint(updated.endpoint)
+        except (ValueError, LlmError) as error:
             messagebox.showerror(
                 "Configuración", str(error), parent=dialog
             )
@@ -242,10 +273,18 @@ def show_settings_dialog(app) -> None:
             app.profile_chip.config(text=f"Modelo: {updated.model or 'sin configurar'}")
 
             # 3. Guardar credenciales (llavero/sesión)
-            if key.get().strip():
-                app._add_session_key(app.active_profile, key.get().strip())
+            entered = key.get().strip()
+            if entered:
+                app._add_session_key(app.active_profile, entered)
                 if remember.get():
-                    storage.save_key(app.active_profile, key.get().strip())
+                    storage.save_key(app.active_profile, entered)
+                else:
+                    # Desmarcar «Recordar» debe revocar lo ya guardado; antes la
+                    # credencial seguía en el llavero indefinidamente.
+                    storage.delete_key(app.active_profile)
+            else:
+                app.session_keys.pop(app.active_profile, None)
+                storage.delete_key(app.active_profile)
 
             messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
             dialog.destroy()

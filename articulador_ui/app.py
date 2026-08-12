@@ -11,6 +11,7 @@ from tkinter.scrolledtext import ScrolledText
 from typing import TypeAlias
 
 from articulador_core import storage
+from articulador_core.config_validator import validate_startup_config
 from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
@@ -18,6 +19,7 @@ from articulador_core.review import parse_findings
 from articulador_ui.context_orchestrator import ContextOrchestrator
 from articulador_ui.dialogs import show_context_dialog, show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
+from articulador_ui.document_scope import DocumentScope
 from articulador_ui.llm_session_manager import LLMSessionManager
 
 ContextApprovalKey: TypeAlias = tuple[str, str, tuple[str, ...], str]
@@ -46,6 +48,9 @@ class ArticuladorApp(tk.Tk):
         # LLM profiles
         self.config_path = config_path
         self.profiles, self.active_profile = storage.load_profiles(config_path)
+        # Auditoría de arranque: deja en el log por qué un perfil no responderá,
+        # sin interrumpir con diálogos al abrir.
+        validate_startup_config(self.profiles, self.active_profile)
         self.session_keys: dict[str, str] = {}
         self._session_keys_max = 32
 
@@ -56,16 +61,21 @@ class ArticuladorApp(tk.Tk):
         self.llm = LLMSessionManager()
 
         # Session & UI state (referencia dinámica a través de property)
-        self.approved_contexts: set[ContextApprovalKey] = set()
-        self.review_mode = False
-        self.last_review_before = ""
-        self.last_response = ""
+        # dict-como-conjunto-ordenado: permite desalojo FIFO real (ver confirm_and_send).
+        self.approved_contexts: dict[ContextApprovalKey, None] = {}
+        # Todo el estado derivado del documento vive en un único objeto que se
+        # reemplaza entero al cambiar de artículo (ver DocumentScope).
+        self.scope = DocumentScope()
+        self.review_dialogs: list[tk.Toplevel] = []
         self.stats_after = None
         self.report_callback_exception = self.handle_callback_error
         self.cancel_event: threading.Event | None = None
         self.streaming_request: int | None = None
         self.streaming_text = ""
         self.closing = False
+        # Tk encola <<Modified>> de forma asíncrona: sin esta bandera, el documento
+        # recién abierto se marcaba como "Cambios sin guardar" en el ciclo siguiente.
+        self._suppress_modified = False
 
         # Contador de generación global (nunca reinicia) para prevenir contaminación de respuestas
         self.generation_counter = 0
@@ -76,9 +86,6 @@ class ArticuladorApp(tk.Tk):
         self.ui_event_queue: queue.Queue = queue.Queue(maxsize=1000)
         # Buffer para coalescer chunks (evitar procesar cada chunk por separado)
         self.pending_chunks: dict[int, list[str]] = {}  # request_id -> chunks acumulados
-
-        # Initialize widgets (will be properly set by _build)
-        self.last_context_files: list[str] = []
 
         self._theme()
         self._build()
@@ -97,9 +104,15 @@ class ArticuladorApp(tk.Tk):
     def key(self) -> str: return os.environ.get(self.profile.api_key_env) or self.session_keys.get(self.active_profile, "") or storage.load_key(self.active_profile)
 
     def _add_session_key(self, profile: str, key: str) -> None:
-        """Agrega key a sesión con límite de tamaño para evitar memory leak."""
-        if len(self.session_keys) >= self._session_keys_max:
-            # Remover la primera (más antigua) cuando se llena
+        """Agrega o actualiza una key de sesión con desalojo LRU real.
+
+        Actualizar un perfil ya presente no hace crecer el diccionario, así que no
+        debe desalojar a nadie: antes, reconfigurar un perfil borraba la key de otro.
+        """
+        already_known = profile in self.session_keys
+        if already_known:
+            self.session_keys.pop(profile)  # Reinsertar lo mueve al final (más reciente).
+        elif len(self.session_keys) >= self._session_keys_max:
             self.session_keys.pop(next(iter(self.session_keys)), None)
         self.session_keys[profile] = key
 
@@ -141,7 +154,7 @@ class ArticuladorApp(tk.Tk):
     def _build(self) -> None:
         bar=ttk.Frame(self,padding=8); bar.pack(fill="x")
         file_menu=tk.Menu(self,tearoff=False,background=COLORS["raised"],foreground=COLORS["text"])
-        for text, command in (("Abrir…",self.open_document),("Guardar",self.save_document),("Guardar como…",lambda:self.save_document()),("Guardar proyecto…",self.save_project),("Abrir proyecto…",self.open_project)):
+        for text, command in (("Abrir…",self.open_document),("Guardar",self.save_document),("Guardar como…",lambda:self.save_document(save_as=True)),("Guardar proyecto…",self.save_project),("Abrir proyecto…",self.open_project)):
             file_menu.add_command(label=text,command=command)
         file_button=ttk.Menubutton(bar,text="Archivo",menu=file_menu); file_button.pack(side="left",padx=(0,6))
         ttk.Button(bar,text="Guardar",style="Accent.TButton",command=self.save_document).pack(side="left")
@@ -169,11 +182,14 @@ class ArticuladorApp(tk.Tk):
         self.history.tag_configure("you",foreground=COLORS["accent"],font=(FONT,10,"bold")); self.history.tag_configure("bot",foreground=COLORS["assistant"],font=(FONT,10,"bold","italic"))
         composer=ttk.Labelframe(chat,text="Mensaje",padding=8); composer.pack(fill="x",pady=(8,0))
         self.input=self._text(composer,height=4,wrap="word",padx=8,pady=7); self.input.pack(fill="x"); self.input.bind("<Return>",lambda e:self.send_message() or "break"); self.input.bind("<Control-Return>",lambda e:self.input.insert("insert","\n") or "break")
-        row=ttk.Frame(composer); row.pack(fill="x",pady=(5,0)); self.send_button=ttk.Button(row,text="Enviar",style="Accent.TButton",command=self.send_message); self.send_button.pack(side="right"); self.cancel_button=ttk.Button(row,text="Cancelar",style="Secondary.TButton",command=self.cancel_request,state="disabled"); self.cancel_button.pack(side="right",padx=(0,6)); ttk.Button(row,text="Revisar artículo",style="Secondary.TButton",command=self.review).pack(side="left"); ttk.Button(row,text="Limpiar",style="Secondary.TButton",command=self.clear_history).pack(side="left",padx=(0,6))
+        row=ttk.Frame(composer); row.pack(fill="x",pady=(5,0)); self.send_button=ttk.Button(row,text="Enviar",style="Accent.TButton",command=self.send_message); self.send_button.pack(side="right"); self.cancel_button=ttk.Button(row,text="Cancelar",style="Secondary.TButton",command=self.cancel_request,state="disabled"); self.cancel_button.pack(side="right",padx=(0,6)); self.review_button=ttk.Button(row,text="Revisar artículo",style="Secondary.TButton",command=self.review); self.review_button.pack(side="left"); ttk.Button(row,text="Limpiar",style="Secondary.TButton",command=self.clear_history).pack(side="left",padx=(0,6))
         self.activity=tk.StringVar(value="Listo para conversar."); ttk.Label(composer,textvariable=self.activity,foreground=COLORS["muted_light"]).pack(anchor="w",padx=8,pady=(5,0))
         self.cost_label=tk.StringVar(value="Contexto y coste se mostrarán antes de enviar."); ttk.Label(composer,textvariable=self.cost_label,foreground=COLORS["muted_light"],font=(FONT,9)).pack(anchor="w",padx=8)
         editor=ttk.Labelframe(panes,text="Tu artículo · edición",padding=4); panes.add(editor,weight=65)
         self.editor=self._text(editor,undo=True,wrap="word",font=(FONT,12)); self.editor.pack(fill="both",expand=True); self.editor.bind("<<Modified>>",self.modified); self.editor.bind("<ButtonRelease-1>",lambda e:self.update_context())
+        # <<Selection>> cubre también la selección con teclado (Shift+flechas), que
+        # <ButtonRelease-1> no veía: sin esto la etiqueta del botón se desincroniza.
+        self.editor.bind("<<Selection>>",lambda e:self.update_context())
         self.editor.bind("<Control-s>",lambda e:self.save_document() or "break")
         self.editor.bind("<KeyRelease>",lambda e:self.schedule_stats())
         self.editor_stats=ttk.Label(editor,text="0 palabras · 0 min de lectura",foreground=COLORS["muted_light"]); self.editor_stats.pack(anchor="e",padx=4,pady=(4,0))
@@ -184,18 +200,24 @@ class ArticuladorApp(tk.Tk):
 
     def append(self, who:str, text:str) -> None:
         self.history.config(state="normal"); self.history.insert("end",who+"\n","you" if who=="Tú" else "bot"); self.history.insert("end",text.strip()+"\n\n"); self.history.see("end"); self.history.config(state="disabled")
-        if who=="Articulador": self.last_response=text
+        if who=="Articulador": self.scope.last_response=text
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
+        # Vaciar el historial a mitad de un streaming dejaba el texto siguiente
+        # pegándose sobre un widget ya borrado y sin encabezado.
+        if self.session.request_active:
+            messagebox.showinfo("Consulta en curso","Espera o cancela la consulta antes de limpiar."); return
         if messagebox.askyesno("Limpiar historial", "¿Limpiar el historial de conversación?"):
-            self.history.config(state="normal"); self.history.delete("1.0","end"); self.history.config(state="disabled")
-            self.session.conversation.clear(); self.status.set("Historial limpiado.")
+            self._clear_history_widget()
+            self.session.conversation.clear()
+            self.scope.last_response=""; self.streaming_text=""; self.streaming_request=None
+            self.status.set("Historial limpiado.")
     def toggle_properties(self):
         if self.properties.winfo_ismapped(): self.properties.pack_forget()
         else: self.properties.pack(fill="x",pady=(0,7),before=self.history)
     def copy_response(self):
-        if not self.last_response:return
-        self.clipboard_clear(); self.clipboard_append(self.last_response); self.status.set("Última respuesta copiada.")
+        if not self.scope.last_response:return
+        self.clipboard_clear(); self.clipboard_append(self.scope.last_response); self.status.set("Última respuesta copiada.")
     def history_menu(self,event):
         menu=tk.Menu(self,tearoff=False,background=COLORS["raised"],foreground=COLORS["text"],activebackground=COLORS["accent"],activeforeground=COLORS["accent_text"])
         menu.add_command(label="Copiar",command=lambda:self.history.event_generate("<<Copy>>"))
@@ -203,13 +225,41 @@ class ArticuladorApp(tk.Tk):
         menu.tk_popup(event.x_root,event.y_root); menu.grab_release()
         return "break"
     def modified(self,_=None):
-        if self.editor.edit_modified(): self.session.dirty=True; self.editor.edit_modified(False); self.sync_label.config(text="● Cambios sin guardar",foreground=COLORS["accent"]); self.update_context(); self.schedule_stats()
+        if not self.editor.edit_modified(): return
+        self.editor.edit_modified(False)
+        if self._suppress_modified: return  # Carga programática, no edición del usuario.
+        self.session.dirty=True; self.sync_label.config(text="● Cambios sin guardar",foreground=COLORS["accent"]); self.update_context(); self.schedule_stats()
+
+    def _replace_editor_text(self, content: str) -> None:
+        """Sustituye el contenido del editor sin que cuente como edición del usuario.
+
+        La supresión se libera en `after_idle` porque el <<Modified>> que genera Tk
+        llega como evento de ventana, siempre antes que los manejadores idle.
+        """
+        self._suppress_modified = True
+        try:
+            self.editor.delete("1.0", "end")
+            self.editor.insert("1.0", content)
+            self.editor.edit_reset()  # El deshacer no debe cruzar documentos.
+            self.editor.edit_modified(False)
+        finally:
+            self.after_idle(self._release_modified_suppression)
+
+    def _release_modified_suppression(self) -> None:
+        try:
+            self.editor.edit_modified(False)
+        except tk.TclError:
+            pass
+        self._suppress_modified = False
     def schedule_stats(self):
         if self.stats_after: self.after_cancel(self.stats_after)
         self.stats_after=self.after(300,self.update_stats)
     def update_context(self):
         selected=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
         self.context_label.config(text=f"Contexto: selección · {len(selected.split())} palabras" if selected else "Contexto: artículo completo")
+        # Revisar solo lo seleccionado es deliberado (edición granular); el botón debe
+        # decir sobre qué va a actuar en vez de prometer siempre el artículo entero.
+        self.review_button.config(text="Revisar selección" if selected else "Revisar artículo")
     def update_stats(self):
         self.stats_after=None; words=len(self.editor.get("1.0","end-1c").split()); self.editor_stats.config(text=f"{words:,} palabras · {max(1,round(words/220))} min de lectura" if words else "0 palabras · 0 min de lectura")
     def handle_callback_error(self, exc_type, exc_value, _traceback):
@@ -219,11 +269,30 @@ class ArticuladorApp(tk.Tk):
     def show_error(self, title: str, detail: str) -> None:
         self.status.set(title)
         messagebox.showerror(title, detail, parent=self)
-    def load_document_content(self, path: Path, content: str) -> None:
-        self.session.document_path=path.resolve(); self.session.article=content
-        self.editor.delete("1.0","end"); self.editor.insert("1.0",content)
+    def load_document(self, path: Path) -> bool:
+        """Abre un artículo estrenando ArticleSession. Retorna si tuvo éxito.
+
+        Cada archivo empieza con sesión limpia: arrastrar la conversación entre
+        documentos dejaba el historial hablando de otro texto y fue el vector del
+        volcado de datos entre artículos (instantánea de revisión cruzada).
+        """
+        success, error, session = self.docs.open_document(path)
+        if not success:
+            self.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
+            return False
+        self.docs.set_session(session)
+        self._enter_document_scope(session.document_path)
+        self._replace_editor_text(session.article)
+        self._clear_history_widget()
         self.session.dirty=False; self.sync_label.config(text="● Documento abierto",foreground=COLORS["muted"])
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
+        return True
+
+    def _clear_history_widget(self) -> None:
+        """Vacía el panel de conversación (el estado ya vive en la sesión)."""
+        self.history.config(state="normal")
+        self.history.delete("1.0", "end")
+        self.history.config(state="disabled")
     def send_message(self):
         message=self.input.get("1.0","end-1c").strip()
         if not message or self.session.request_active:return
@@ -232,7 +301,6 @@ class ArticuladorApp(tk.Tk):
         if not self.editor.get("1.0","end-1c").strip(): messagebox.showinfo("Falta artículo","Escribe o abre un artículo."); return
         if self.session.request_active: messagebox.showinfo("Request activa","Espera a que termine la consulta anterior."); return
         self.append("Tú", REVIEW_PROMPT)
-        # Pasar review=True; request() manejará review_mode
         self.request(REVIEW_PROMPT, request_type="review")
 
     def request(self, message: str, request_type: str = "normal"):
@@ -245,9 +313,12 @@ class ArticuladorApp(tk.Tk):
         # Guardar el tipo de solicitud para este request_id
         self.request_types[request_id] = request_type
         cancel_event=self.cancel_event
+        # Instantánea en el hilo de UI: el worker no debe leer estado mutable
+        # (el diálogo de configuración puede reemplazar self.profiles a la vez).
+        context_budget = self.profile.max_context_chars // 3
         def work():
             try:
-                success, packet, files = self.context.prepare_context(message, self.profile.max_context_chars//3)
+                success, packet, files = self.context.prepare_context(message, context_budget)
                 if not success:
                     # Publicar en queue en lugar de self.after()
                     self.ui_event_queue.put(("context_failed", request_id, "No se pudo indexar contexto"))
@@ -264,23 +335,25 @@ class ArticuladorApp(tk.Tk):
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types: return
         logger.error("No se pudo preparar el contexto: %s", error_msg)
-        self.session.request_active=False; self.send_button.state(["!disabled"]); self.cancel_button.state(["disabled"])
-        # Limpiar review_mode si esta solicitud falló antes de enviar
-        self.review_mode = False
+        self.session.request_active=False; self._reset_request_ui()
         self.request_types.pop(request_id, None)
         self.activity.set("No se pudo preparar el contexto."); self.show_error("Error de contexto", error_msg)
 
     def confirm_and_send(self, request_id, message, selected, packet, files, cancel_event):
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types or cancel_event.is_set(): return
-        self.last_context_files=files
+        self.scope.context_files=files
 
         # Obtener el tipo de solicitud (normal/review) para este request_id
         request_type = self.request_types.get(request_id, "normal")
 
+        # Instantánea única del perfil: leerlo varias veces permitiría que el diálogo
+        # de configuración cambiara los límites entre la validación y el envío.
+        profile = self.profile
+
         # Construir conversation INCLUYENDO el mensaje actual (necesario para validación y envío)
         # Tomar últimos 12 mensajes previos + el actual
-        conversation_with_message = list(self.session.conversation[-12:]) + [ChatMessage("user", message)]
+        conversation_with_message = [*self.session.conversation[-12:], ChatMessage("user", message)]
 
         from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 
@@ -292,29 +365,21 @@ class ArticuladorApp(tk.Tk):
 
             # Validar límite ENTRADA + SALIDA: entrada + max_output_tokens <= max_total_model_tokens
             # actual_tokens YA está en tokens (calculado por estimate_prompt_tokens)
-            max_allowed_tokens = self.profile.max_total_model_tokens - self.profile.max_output_tokens
+            max_allowed_tokens = profile.max_total_model_tokens - profile.max_output_tokens
             if actual_tokens > max_allowed_tokens:
-                self.session.request_active=False
-                self.send_button.state(["!disabled"])
-                self.cancel_button.state(["disabled"])
-                self.review_mode = False  # Limpiar review_mode si falla
-                self.request_types.pop(request_id, None)
+                self._abort_request(request_id)
                 self.show_error(
                     "Solicitud demasiado grande",
                     f"Entrada: ~{actual_tokens:,} tokens\n"
-                    f"Salida reservada: ~{self.profile.max_output_tokens:,} tokens\n"
-                    f"Límite total modelo: ~{self.profile.max_total_model_tokens:,} tokens\n\n"
+                    f"Salida reservada: ~{profile.max_output_tokens:,} tokens\n"
+                    f"Límite total modelo: ~{profile.max_total_model_tokens:,} tokens\n\n"
                     f"Reduce el artículo, la conversación previa o el contexto local."
                 )
                 return
         except Exception as e:
             # Validación fail-closed: si hay error, rechazar la solicitud
             logger.error("Error crítico validando tamaño del prompt: %s", e, exc_info=True)
-            self.session.request_active=False
-            self.send_button.state(["!disabled"])
-            self.cancel_button.state(["disabled"])
-            self.review_mode = False  # Limpiar review_mode si falla
-            self.request_types.pop(request_id, None)
+            self._abort_request(request_id)
             self.show_error(
                 "Error interno",
                 f"No se pudo validar el tamaño de la solicitud: {e}\n\nIntenta de nuevo."
@@ -323,31 +388,34 @@ class ArticuladorApp(tk.Tk):
 
         # Calcular tokens para UI usando actual_tokens del payload COMPLETO
         input_tokens = actual_tokens
-        output_tokens = self.profile.max_output_tokens
-        cost = (input_tokens * self.profile.input_price_per_million + output_tokens * self.profile.output_price_per_million) / 1_000_000
+        output_tokens = profile.max_output_tokens
+        cost = (input_tokens * profile.input_price_per_million + output_tokens * profile.output_price_per_million) / 1_000_000
         last_reasons=self.context.get_last_reasons()  # Cache para no llamar en loop
         reasons=" · ".join(f"{name} ({last_reasons.get(name, 'contexto disponible')})" for name in files)
         detail=f"Contexto: {reasons or 'sin archivos'} · ~{input_tokens:,} tokens entrada"
         if cost: detail+=f" · coste máx. ~${cost:.4f}"
         self.cost_label.set(detail)
-        # Construir approval key: (endpoint, provider, files tuple, content hash)
-        content_hash = hashlib.sha256(prompt_json.encode("utf-8")).hexdigest()[:16]
-        key: ContextApprovalKey = (self.profile.endpoint, self.profile.provider, tuple(files), content_hash)
+        # Lo que el usuario aprueba son los FRAGMENTOS locales: la huella cubre el
+        # paquete de contexto, no el artículo ni la conversación. Con el prompt
+        # completo el hash cambiaba en cada mensaje y el diálogo salía siempre.
+        content_hash = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
+        key: ContextApprovalKey = (profile.endpoint, profile.provider, tuple(files), content_hash)
         if files and key not in self.approved_contexts:
             if not messagebox.askyesno("Contexto que se enviará", detail+"\n\n¿Enviar estos fragmentos al proveedor configurado?"):
-                self.session.request_active=False; self.send_button.state(["!disabled"])
-                self.review_mode = False  # Limpiar review_mode si se rechaza envío
-                self.request_types.pop(request_id, None)
+                self._abort_request(request_id)
                 self.activity.set("Envío cancelado."); return
-            if len(self.approved_contexts) >= 128: self.approved_contexts.clear()
-            self.approved_contexts.add(key)
+            # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
+            # entero obligaba a reconfirmar todo de golpe.
+            while len(self.approved_contexts) >= 128:
+                self.approved_contexts.pop(next(iter(self.approved_contexts)), None)
+            self.approved_contexts[key] = None
 
         # Agregar mensaje a session para persistencia
         self.session.conversation.append(ChatMessage("user",message))
 
         # Snapshot in the UI thread: the worker must not read mutable session state.
         # IMPORTANTE: usar conversation_with_message que incluye el mensaje actual
-        profile=self.profile; api_key=self.key
+        api_key=self.key
         self.llm.cancel_event = cancel_event
         def work():
             # Usar LLMSessionManager con error handling robusto
@@ -357,28 +425,73 @@ class ArticuladorApp(tk.Tk):
                 on_chunk=lambda chunk: self.ui_event_queue.put(("chunk", request_id, chunk)),
                 on_error=lambda error: self.ui_event_queue.put(("error", request_id, f"No pude responder: {error}", files)),
                 on_complete=lambda result, usage: self.ui_event_queue.put(("complete", request_id, result, files, usage, request_type)),
-                request_id=request_id
+                request_id=request_id,
+                cancel_event=cancel_event,
             )
         threading.Thread(target=work,daemon=True).start()
+
+    def _abort_request(self, request_id: int) -> None:
+        """Descarta una petición antes de enviarla y libera la UI por completo.
+
+        Incluye el botón Cancelar, que al rechazar el envío quedaba habilitado
+        sin ninguna petición viva detrás.
+        """
+        self.session.request_active = False
+        self._reset_request_ui()
+        self.request_types.pop(request_id, None)
+        self.pending_chunks.pop(request_id, None)
 
     def finish(self, request_id: int, result: str, files: list[str], usage=(None, None), request_type: str = "normal", is_error: bool = False):
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types: return
         self.request_types.pop(request_id, None)
-        self.session.request_active=False; self.send_button.state(["!disabled"]); self.cancel_button.state(["disabled"])
-        # Diferenciar finalizaciones: solo guardar conversación en caso de éxito
-        if not is_error:
-            self.session.conversation.append(ChatMessage("assistant",result))
-        self.activity.set("Respuesta lista." if not result.startswith("No pude") else "Revisa conexión, modelo o límites.")
+        self.session.request_active=False; self._reset_request_ui()
+        usage = usage or (None, None)
+
+        # Lo ya emitido en pantalla pertenece a ESTA petición y no debe perderse.
+        streamed = self.streaming_text if self.streaming_request == request_id else ""
+        if self.streaming_request == request_id:
+            self.streaming_request = None
+        self.streaming_text = ""
+
         self.status.set("Contexto usado: "+", ".join(files) if files else "Respuesta lista.")
         if usage[0] is not None: self.cost_label.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
-        # Usar request_type en lugar de self.review_mode para evitar estado persistente
+
+        if is_error:
+            self.activity.set("Revisa conexión, modelo o límites.")
+            if streamed.strip():
+                # Antes el texto parcial quedaba cortado sin explicación y el error
+                # solo aparecía en la etiqueta de actividad.
+                self.session.conversation.append(ChatMessage("assistant", streamed))
+                self.scope.last_response = streamed
+                self._append_notice(f"[INCOMPLETO] {result}")
+            else:
+                self.append("Articulador", result)
+            return
+
+        self.activity.set("Respuesta lista.")
+        self.session.conversation.append(ChatMessage("assistant",result))
+        # El tipo viaja con la petición: no hay estado de revisión persistente.
         if request_type == "review":
             findings=self.parse_findings(result)
-            if findings: self.show_findings(findings); return
-        if self.streaming_request == request_id:
-            self.streaming_request=None; self.last_response=result
+            if findings:
+                self.scope.last_response = result
+                self.show_findings(findings)
+                return
+        if streamed: self.scope.last_response=result
         else: self.append("Articulador",result)
+
+    def _append_notice(self, text: str) -> None:
+        """Nota de sistema en el historial, sin sobrescribir lo ya emitido."""
+        self.history.config(state="normal")
+        self.history.insert("end", f"\n\n{text}\n{'─' * 60}\n\n", "bot")
+        self.history.see("end")
+        self.history.config(state="disabled")
+
+    def _reset_request_ui(self) -> None:
+        """Devuelve los botones al estado de reposo tras cerrar una petición."""
+        self.send_button.state(["!disabled"])
+        self.cancel_button.state(["disabled"])
     def stream_chunk(self, request_id, value):
         # Verificar que este request_id sigue siendo válido (no cancelado/descartado)
         if self.closing or request_id not in self.request_types:
@@ -405,82 +518,128 @@ class ArticuladorApp(tk.Tk):
         self.request_types.clear()
         self.pending_chunks.clear()  # ← Limpiar chunks acumulados
         self.streaming_request = None
+        self.streaming_text = ""
         self.session.request_active = False
-        self.send_button.state(["!disabled"])
-        self.cancel_button.state(["disabled"])
+        self._reset_request_ui()
         self.activity.set("Consulta cancelada.")
         self.status.set("La respuesta tardía será descartada.")
 
     def process_ui_events(self):
-        """Consume eventos de UI publicados por threads (thread-safe, no monopoliza UI)."""
-        # Procesar máximo 100 eventos o 10ms por ciclo (evita congelación)
-        events_processed = 0
-        max_events_per_cycle = 100
+        """Consume eventos de UI publicados por threads (thread-safe, no monopoliza UI).
 
+        El bombeo se reprograma en `finally`: si un manejador falla y la reprogramación
+        no ocurre, la aplicación sigue viva pero sorda (ninguna respuesta del modelo
+        vuelve a llegar y el botón Enviar queda deshabilitado para siempre).
+        """
         try:
-            while events_processed < max_events_per_cycle:
+            self._drain_ui_events()
+        finally:
+            if not self.closing:
+                try:
+                    self.after(50, self.process_ui_events)
+                except tk.TclError:
+                    pass  # Ventana destruida mientras se drenaba la cola.
+
+    def _drain_ui_events(self) -> None:
+        """Drena hasta 100 eventos, aislando el fallo de cada manejador."""
+        for _ in range(100):
+            try:
                 event = self.ui_event_queue.get_nowait()
-                event_type = event[0]
+            except queue.Empty:
+                return
+            try:
+                self._dispatch_ui_event(event)
+            except Exception:
+                logger.exception("Fallo procesando evento de UI: %s", event[0])
+                self._recover_from_event_failure(event)
 
-                if event_type == "chunk":
-                    # Coalescer chunks: acumular en buffer hasta complete/error
-                    _, request_id, content = event
-                    # Validar INMEDIATAMENTE antes de agregar a pending_chunks
-                    # (chunks tardíos pueden llegar después de cancel_request)
-                    if request_id not in self.request_types:
-                        continue  # Descartar chunk de request cancelado
-
-                    # Ahora es seguro agregar: request_id está confirmado como activo
-                    if request_id not in self.pending_chunks:
-                        self.pending_chunks[request_id] = []
-                    self.pending_chunks[request_id].append(content)
-
-                    # Procesar cada N chunks para UI responsiva
-                    if len(self.pending_chunks[request_id]) >= 10:
-                        coalesced = "".join(self.pending_chunks[request_id])
-                        self.pending_chunks[request_id] = []
-                        self.stream_chunk(request_id, coalesced)
-
-                elif event_type == "error":
-                    _, request_id, error_msg, files = event
-                    # Procesar chunks pendientes antes de finalizar
-                    if self.pending_chunks.get(request_id):
-                        coalesced = "".join(self.pending_chunks[request_id])
-                        self.stream_chunk(request_id, coalesced)
-                    self.pending_chunks.pop(request_id, None)
-                    self.finish(request_id, error_msg, files, (None, None), "normal", is_error=True)
-
-                elif event_type == "complete":
-                    _, request_id, result, files, usage, request_type = event
-                    # Procesar chunks pendientes antes de finalizar
-                    if self.pending_chunks.get(request_id):
-                        coalesced = "".join(self.pending_chunks[request_id])
-                        self.stream_chunk(request_id, coalesced)
-                    self.pending_chunks.pop(request_id, None)
-                    self.finish(request_id, result, files, usage, request_type)
-
-                elif event_type == "context_failed":
-                    _, request_id, error_msg = event
-                    self.pending_chunks.pop(request_id, None)
-                    self.context_failed(request_id, error_msg)
-
-                elif event_type == "confirm_and_send":
-                    _, request_id, message, selected, packet, files, cancel_event = event
-                    self.confirm_and_send(request_id, message, selected, packet, files, cancel_event)
-
-                events_processed += 1
-        except queue.Empty:
+    def _recover_from_event_failure(self, event) -> None:
+        """Desbloquea la UI cuando el manejador de un evento murió a medio camino."""
+        request_id = event[1] if len(event) > 1 and isinstance(event[1], int) else None
+        if request_id is not None:
+            self.request_types.pop(request_id, None)
+            self.pending_chunks.pop(request_id, None)
+            if self.streaming_request == request_id:
+                self.streaming_request = None
+        self._reset_request_ui()
+        try:
+            self.activity.set("Ocurrió un error interno procesando la respuesta.")
+        except tk.TclError:
             pass
 
-        # Reconsumir cada 50ms (suficiente para UI responsiva, overhead bajo)
-        self.after(50, self.process_ui_events)
+    def _dispatch_ui_event(self, event) -> None:
+        event_type = event[0]
+
+        if event_type == "chunk":
+            # Coalescer chunks: acumular en buffer hasta complete/error
+            _, request_id, content = event
+            # Validar INMEDIATAMENTE antes de agregar a pending_chunks
+            # (chunks tardíos pueden llegar después de cancel_request)
+            if request_id not in self.request_types:
+                return  # Descartar chunk de request cancelado
+
+            # Ahora es seguro agregar: request_id está confirmado como activo
+            self.pending_chunks.setdefault(request_id, []).append(content)
+
+            # Procesar cada N chunks para UI responsiva
+            if len(self.pending_chunks[request_id]) >= 10:
+                coalesced = "".join(self.pending_chunks[request_id])
+                self.pending_chunks[request_id] = []
+                self.stream_chunk(request_id, coalesced)
+
+        elif event_type == "error":
+            _, request_id, error_msg, files = event
+            self._flush_pending_chunks(request_id)
+            self.finish(request_id, error_msg, files, (None, None), "normal", is_error=True)
+
+        elif event_type == "complete":
+            _, request_id, result, files, usage, request_type = event
+            self._flush_pending_chunks(request_id)
+            self.finish(request_id, result, files, usage, request_type)
+
+        elif event_type == "context_failed":
+            _, request_id, error_msg = event
+            self.pending_chunks.pop(request_id, None)
+            self.context_failed(request_id, error_msg)
+
+        elif event_type == "confirm_and_send":
+            _, request_id, message, selected, packet, files, cancel_event = event
+            self.confirm_and_send(request_id, message, selected, packet, files, cancel_event)
+
+    def _flush_pending_chunks(self, request_id: int) -> None:
+        """Vuelca a la vista lo acumulado antes de cerrar la petición."""
+        if self.pending_chunks.get(request_id):
+            self.stream_chunk(request_id, "".join(self.pending_chunks[request_id]))
+        self.pending_chunks.pop(request_id, None)
 
     parse_findings = staticmethod(parse_findings)
     def show_findings(self,findings):
-        show_review_dialog(self, findings)
+        # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.
+        self._close_review_dialogs()
+        self.review_dialogs.append(show_review_dialog(self, findings))
+
+    def _close_review_dialogs(self) -> None:
+        """Cierra los diálogos de revisión abiertos y olvida los ya destruidos."""
+        for dialog in self.review_dialogs:
+            try:
+                if dialog.winfo_exists():
+                    dialog.destroy()
+            except tk.TclError:
+                pass
+        self.review_dialogs = []
+    def snapshot_for_undo(self, text: str) -> None:
+        """Guarda el "antes" de una sugerencia dentro del ámbito del documento."""
+        self.scope.review_before = text
+
     def undo_review(self):
-        if not self.last_review_before:return
-        self.editor.delete("1.0","end"); self.editor.insert("1.0",self.last_review_before); self.last_review_before=""; self.session.dirty=True; self.status.set("Último ajuste de revisión deshecho.")
+        if not self.scope.review_before:return
+        # El deshacer solo es válido sobre el documento del que se tomó la instantánea:
+        # sin esta comprobación volcaba el artículo anterior sobre el actual y lo
+        # marcaba como sucio, a un Ctrl+S de destruirlo.
+        if not self.scope.owns(self.session.document_path):
+            self.scope.review_before=""
+            self.status.set("El ajuste a deshacer pertenece a otro documento."); return
+        self.editor.delete("1.0","end"); self.editor.insert("1.0",self.scope.review_before); self.scope.review_before=""; self.session.dirty=True; self.status.set("Último ajuste de revisión deshecho.")
     def open_document(self):
         # Cancelar cualquier solicitud activa antes de cambiar de documento
         if self.session.request_active:
@@ -493,16 +652,21 @@ class ArticuladorApp(tk.Tk):
             return
         path=filedialog.askopenfilename(filetypes=[("Markdown", "*.md *.txt")])
         if path:
-            try: content=Path(path).read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as error: self.show_error("No se pudo abrir el documento",str(error)); return
-            self.load_document_content(Path(path),content)
+            # La lectura y el manejo de errores viven en DocumentManager: aquí solo
+            # se decide qué archivo abrir.
+            self.load_document(Path(path))
     def context_dialog(self):
         show_context_dialog(self)
-    def save_document(self)->bool:
-        if self.session.document_path is None:
-            path=filedialog.asksaveasfilename(defaultextension=".md",filetypes=[("Markdown","*.md")])
+    def save_document(self, save_as: bool = False)->bool:
+        previous_path = self.session.document_path
+        if save_as or previous_path is None:
+            options: dict = {"defaultextension": ".md", "filetypes": [("Markdown","*.md")]}
+            if previous_path is not None:
+                options["initialdir"] = str(previous_path.parent)
+                options["initialfile"] = previous_path.name
+            path=filedialog.asksaveasfilename(**options)
             if not path:return False
-            self.session.document_path=Path(path)
+            self.session.document_path=Path(path).resolve()
 
         # Actualizar contenido desde el editor
         self.session.article = self.editor.get("1.0","end-1c")
@@ -510,8 +674,16 @@ class ArticuladorApp(tk.Tk):
         # Usar DocumentManager para guardado atómico con error handling
         success, error = self.docs.save_document(self.session)
         if not success:
+            # No dejar apuntando a un destino que no se pudo escribir: el siguiente
+            # "Guardar" volvería a fallar en silencio contra la misma ruta.
+            self.session.document_path = previous_path
             messagebox.showerror("Error al guardar", f"No se pudo guardar el documento: {error}")
             return False
+
+        # "Guardar como…" renombra el destino sin cambiar de artículo: el ámbito
+        # sigue siendo el mismo y debe seguir a la ruta nueva, o el deshacer de
+        # revisión se creería huérfano.
+        self.scope.document_path = self.session.document_path
 
         # Marcar como guardado y actualizar UI
         self.sync_label.config(text="● Guardado",foreground=COLORS["muted"])
@@ -519,18 +691,27 @@ class ArticuladorApp(tk.Tk):
         return True
     def save_project(self):
         if self.session.dirty and not self.save_document():return
-        path=filedialog.asksaveasfilename(defaultextension=".articulador.json",filetypes=[("Proyecto","*.articulador.json")])
+        if self.session.document_path is None:
+            messagebox.showinfo("Falta el artículo","Guarda primero el artículo Markdown."); return
+        options: dict = {"defaultextension": ".articulador.json", "filetypes": [("Proyecto","*.articulador.json")]}
+        # El proyecto guarda rutas relativas: proponer la carpeta del artículo evita
+        # la ruta imposible (el artículo debe quedar bajo la carpeta del proyecto).
+        options["initialdir"] = str(self.session.document_path.parent)
+        options["initialfile"] = f"{self.session.document_path.stem}.articulador.json"
+        path=filedialog.asksaveasfilename(**options)
         if path:
-            try:
-                storage.save_project(self.session,Path(path))
+            # Persistencia a través del DocumentManager: era el dueño declarado de esta
+            # responsabilidad, pero la app llamaba a storage por su cuenta y mantenía
+            # una segunda implementación del mismo flujo.
+            success, error = self.docs.save_project(self.session, Path(path))
+            if success:
                 self.status.set("Proyecto guardado.")
-            except (OSError, ValueError, RuntimeError) as error:
+            else:
                 messagebox.showerror(
                     "Error al guardar proyecto",
-                    f"No se pudo guardar el proyecto:\n{error}\n\n"
-                    f"Verifica permisos y disponibilidad de disco."
+                    f"No se pudo guardar el proyecto:\n{error}"
                 )
-                logger.error("Error guardando proyecto: %s", error, exc_info=True)
+                logger.error("Error guardando proyecto: %s", error)
     def open_project(self):
         # Cancelar cualquier solicitud activa antes de cambiar de proyecto
         if self.session.request_active:
@@ -543,16 +724,33 @@ class ArticuladorApp(tk.Tk):
             return
         path=filedialog.askopenfilename(filetypes=[("Proyecto Articulador","*.articulador.json")])
         if not path:return
-        try:
-            data=storage.load_project(Path(path)); document=Path(data["document"])
-            if not document.is_file(): raise FileNotFoundError(f"No existe el artículo del proyecto: {document}")
-            article=document.read_text(encoding="utf-8")
-            session=ArticleSession(document_path=document,project_path=Path(path),article=article,corpus_path=data.get("corpus"),evidence=list(data.get("evidence",[])),conversation=data.get("conversation",[]))
-            self.docs.set_session(session)
-            self.editor.delete("1.0","end"); self.editor.insert("1.0",self.session.article); self.history.config(state="normal"); self.history.delete("1.0","end"); self.history.config(state="disabled")
-            for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Articulador",item.content)
-            self.status.set("Proyecto abierto.")
-        except (OSError, ValueError) as error: messagebox.showerror("Proyecto no válido",str(error))
+        # Carga a través del DocumentManager: el flujo estaba duplicado aquí y allí,
+        # con manejo de errores divergente y la copia del manager sin usar ni probar.
+        success, error, session = self.docs.open_project(Path(path))
+        if not success:
+            messagebox.showerror("Proyecto no válido", error); return
+        self.docs.set_session(session)
+        self._replace_editor_text(self.session.article)
+        self._clear_history_widget()
+        for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Articulador",item.content)
+        self._enter_document_scope(self.session.document_path)
+        self.session.dirty=False; self.sync_label.config(text="● Proyecto abierto",foreground=COLORS["muted"])
+        self.update_context(); self.schedule_stats()
+        self.status.set("Proyecto abierto.")
+
+    def _enter_document_scope(self, document_path: Path | None) -> None:
+        """Entra en el ámbito de un documento reemplazando el anterior por completo.
+
+        Sustituir el objeto en vez de limpiar campo a campo es lo que hace
+        imposible olvidarse de uno: cualquier campo nuevo de DocumentScope se
+        renueva aquí sin tocar este método.
+
+        `approved_contexts` queda fuera a propósito: su clave es (endpoint,
+        proveedor, archivos, huella del paquete), todo derivado del workspace y
+        no del artículo abierto. Vaciarlo añadiría un modal por documento.
+        """
+        self._close_review_dialogs()
+        self.scope = DocumentScope(document_path=document_path)
     def settings(self):
         show_settings_dialog(self)
 
@@ -564,11 +762,11 @@ class ArticuladorApp(tk.Tk):
         self.request_types.clear()
         self.pending_chunks.clear()  # ← Limpiar chunks acumulados
         self.streaming_request = None
+        self.streaming_text = ""
         # Cancelar en LLMClient
         self.llm.cancel(self.generation_counter)
         self.session.request_active = False
-        self.send_button.state(["!disabled"])
-        self.cancel_button.state(["disabled"])
+        self._reset_request_ui()
 
     def close(self):
         if self.session.dirty and not messagebox.askyesno("Cambios sin guardar","¿Cerrar sin guardar?"):return

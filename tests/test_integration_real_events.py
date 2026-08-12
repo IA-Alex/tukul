@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, Mock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from articulador_core.models import ArticleSession
+from articulador_ui.document_scope import DocumentScope
 
 
 class TestRealEventFlow(unittest.TestCase):
@@ -70,7 +71,7 @@ class TestRealEventFlow(unittest.TestCase):
                 app.activity = Mock()
                 app.send_button = Mock()
                 app.cancel_button = Mock()
-                app.last_response = ""
+                app.scope = DocumentScope()
 
                 # Simular eventos reales
                 request_id = 1
@@ -102,7 +103,7 @@ class TestRealEventFlow(unittest.TestCase):
                             # Simulamos finish():
                             if app.streaming_request == rid:
                                 partial = app.partial_output.get(rid, "")
-                                app.last_response = partial
+                                app.scope.last_response = partial
                                 # ❌ BUG: NO se limpia app.partial_output[rid]
                                 # partial_output.pop(rid, None)  # ← FALTA
                             app.request_types.pop(rid, None)
@@ -170,7 +171,7 @@ class TestRealEventFlow(unittest.TestCase):
                 app.activity = Mock()
                 app.send_button = Mock()
                 app.cancel_button = Mock()
-                app.last_response = ""
+                app.scope = DocumentScope()
 
                 request_id = 1
                 app.request_types[request_id] = "normal"
@@ -216,40 +217,6 @@ class TestRealEventFlow(unittest.TestCase):
                 print("\n  Chunks en queue descartados: 2")
                 print(f"  Chunks procesados: {chunks_processed}")
                 print("  Salida parcial perdida: CHUNK_A + CHUNK_B")
-
-
-class TestPartialOutputCleanup(unittest.TestCase):
-    """Verifica que partial_output se limpia en TODAS las rutas (DESPUÉS DE FIX #1)."""
-
-    def test_partial_output_cleaned_in_error_path_after_fix(self):
-        """
-        ✅ FIX: En finish(is_error=True), partial_output AHORA se limpia.
-
-        Rutas:
-        - finish(is_error=False) con streaming: limpia ✓
-        - finish(is_error=False) sin streaming: limpia ✓
-        - finish(is_error=True) con streaming: ✅ AHORA limpia (FIX #1)
-        - finish(is_error=True) sin streaming: ✅ AHORA limpia (FIX #1)
-        """
-        # Simular estado
-        request_id = 1
-        partial_output = {request_id: "respuesta parcial"}
-        request_types = {request_id: "normal"}
-        streaming_request = request_id
-
-        # Simular finish(is_error=True) CON FIX
-        if streaming_request == request_id:
-            partial = partial_output.get(request_id, "")
-            # Lee partial
-            last_response = partial
-            # ✅ AHORA limpia (FIX #1):
-            partial_output.pop(request_id, None)
-
-        request_types.pop(request_id, None)
-
-        # Verificar que se limpió correctamente
-        self.assertNotIn(request_id, partial_output,
-            "PASS: partial_output[request_id] fue limpiado correctamente")
 
 
 if __name__ == "__main__":

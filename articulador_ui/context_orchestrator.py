@@ -15,7 +15,8 @@ class ContextOrchestrator:
     def __init__(self, workspace_root: Path) -> None:
         self.index = ContextIndex(workspace_root)
         self.excluded_context: set[str] = set()
-        self.last_context_files: list[str] = []
+        # `last_context_files` vive en ArticuladorApp: una segunda copia aquí se
+        # escribía y no la leía nadie, con el riesgo de divergir en silencio.
 
     def prepare_context(
         self, query: str, max_chars: int
@@ -23,7 +24,6 @@ class ContextOrchestrator:
         """Prepara contexto para una consulta. Retorna (éxito, packet, files)."""
         try:
             packet, files = self.index.packet(query, max_chars, self.excluded_context)
-            self.last_context_files = files
             return True, packet, files
         except Exception as error:
             logger.error("Error preparando contexto: %s", error, exc_info=error)

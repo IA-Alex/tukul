@@ -72,5 +72,8 @@ class DocumentManager:
         try:
             storage.save_project(session, path)
             return True, ""
-        except OSError as error:
+        except (OSError, ValueError, RuntimeError) as error:
+            # ValueError: el artículo no cuelga de la carpeta del proyecto.
+            # RuntimeError: falta tomli-w. Ambos deben llegar al usuario como texto,
+            # no escapar hasta el manejador global de excepciones de Tk.
             return False, str(error)

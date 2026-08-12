@@ -10,6 +10,34 @@ MAX_FINDINGS = 12
 MAX_FIELD_LENGTH = 500  # Máximo de caracteres por campo
 
 
+def _validated_finding(item: object) -> dict[str, str] | None:
+    """Normaliza un hallazgo crudo, o None si incumple alguna regla."""
+    if not isinstance(item, dict) or not REQUIRED_FINDING_FIELDS <= item.keys():
+        return None
+    if not all(isinstance(item[key], str) for key in REQUIRED_FINDING_FIELDS):
+        return None
+
+    category = item["category"].strip().lower()
+    severity = item["severity"].strip().lower()
+    original = item["original"].strip()
+    suggestion = item["suggestion"].strip()
+    reason = item["reason"].strip()
+
+    if category not in ALLOWED_CATEGORIES or severity not in ALLOWED_SEVERITIES:
+        return None
+    if not original or not suggestion or not reason:
+        return None
+    if any(len(field) > MAX_FIELD_LENGTH for field in (original, suggestion, reason)):
+        return None
+    return {
+        "category": category,
+        "severity": severity,
+        "original": original,
+        "suggestion": suggestion,
+        "reason": reason,
+    }
+
+
 def parse_findings(result: str) -> list[dict[str, str]]:
     """Extrae hallazgos válidos de la respuesta JSON del modelo con validación estricta."""
     clean = result.strip()
@@ -24,46 +52,17 @@ def parse_findings(result: str) -> list[dict[str, str]]:
     except (ValueError, AttributeError, TypeError):
         return []
 
-    # FIX: Validar y limitar a 12 hallazgos
-    validated = []
+    # Un `findings` que no sea lista (p. ej. una cadena enorme) se recorrería
+    # carácter a carácter para descartarlo todo. Cortar antes de iterar.
+    if not isinstance(findings, list):
+        return []
+
+    validated: list[dict[str, str]] = []
     for item in findings:
-        # Validar estructura básica
-        if not isinstance(item, dict) or not REQUIRED_FINDING_FIELDS <= item.keys():
+        finding = _validated_finding(item)
+        if finding is None:
             continue
-
-        # Validar tipos de datos
-        if not all(isinstance(item[key], str) for key in REQUIRED_FINDING_FIELDS):
-            continue
-
-        # Validar valores específicos
-        category = item.get("category", "").strip().lower()
-        severity = item.get("severity", "").strip().lower()
-        original = item.get("original", "").strip()
-        suggestion = item.get("suggestion", "").strip()
-        reason = item.get("reason", "").strip()
-
-        # Rechazar campos vacíos o valores no permitidos
-        if not category or category not in ALLOWED_CATEGORIES:
-            continue
-        if not severity or severity not in ALLOWED_SEVERITIES:
-            continue
-        if not original or not suggestion or not reason:
-            continue
-
-        # Rechazar campos demasiado largos
-        if any(len(field) > MAX_FIELD_LENGTH for field in [original, suggestion, reason]):
-            continue
-
-        # Construir hallazgo validado
-        validated.append({
-            "category": category,
-            "severity": severity,
-            "original": original,
-            "suggestion": suggestion,
-            "reason": reason
-        })
-
-        # Limitar a 12 hallazgos máximo
+        validated.append(finding)
         if len(validated) >= MAX_FINDINGS:
             break
 
