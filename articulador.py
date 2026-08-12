@@ -34,7 +34,9 @@ def main() -> None:
 
         status = check_health()
         print(status_string(status))
-        raise SystemExit(0 if status.is_healthy else 1)
+        # Salida 1 solo si algo está roto: una instalación nueva tiene avisos
+        # (sin carpeta de config, sin perfiles) y sigue siendo utilizable.
+        raise SystemExit(1 if status.has_errors else 0)
 
     if not args.workspace.is_dir():
         parser.error(f"El workspace no es una carpeta existente: {args.workspace}")

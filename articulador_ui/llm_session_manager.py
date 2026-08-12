@@ -54,43 +54,13 @@ class LLMSessionManager:
                 return
 
             # Stream con captura amplia de excepciones
-            chunks = []
-            usage = (None, None)
-            # FIX: Calcular límite de RAM en función de max_output_tokens del profile
-            # Conversión: ~4 bytes/token en UTF-8 (worst case), con factor de seguridad 2x
-            # Esto evita hardcoded limits que pueden no coincidir con la config del modelo
-            max_response_bytes = max(2 * 1024 * 1024, profile.max_output_tokens * 4 * 2)
-            # Acumulador para evitar cálculo cuadrático len("".join(chunks))
-            accumulated_bytes = 0
-
             try:
-                for chunk in self.client.stream(
-                    profile, api_key, prompt, request_id, cancel_event
-                ):
-                    if cancel_event and cancel_event.is_set():
-                        return
-
-                    if chunk.content:
-                        # Validar que chunk.content es string antes de acumular
-                        if not isinstance(chunk.content, str):
-                            continue
-
-                        # Verificar solo techo de RAM (no limitar tokens, confiar en proveedor)
-                        chunk_bytes = len(chunk.content.encode("utf-8"))
-                        if accumulated_bytes + chunk_bytes > max_response_bytes:
-                            raise LlmError(f"La respuesta excede el límite de memoria de {max_response_bytes / (1024*1024):.1f}MB. Respuesta truncada.")
-
-                        chunks.append(chunk.content)
-                        accumulated_bytes += chunk_bytes  # ← Acumulador en bytes
-                        on_chunk(chunk.content)
-
-                    if (
-                        chunk.input_tokens is not None
-                        or chunk.output_tokens is not None
-                    ):
-                        usage = (chunk.input_tokens, chunk.output_tokens)
-
-                result = "".join(chunks)
+                collected = self._collect_stream(
+                    profile, api_key, prompt, request_id, cancel_event, on_chunk
+                )
+                if collected is None:
+                    return  # Cancelado a mitad: nadie espera callback.
+                result, usage = collected
                 if not result.strip():
                     raise LlmError("El proveedor devolvió una respuesta vacía.")
 
@@ -110,6 +80,50 @@ class LLMSessionManager:
         except Exception as error:
             # Catch-all para errores inesperados
             on_error(f"Error interno inesperado: {error}")
+
+    def _collect_stream(
+        self,
+        profile: LlmProfile,
+        api_key: str,
+        prompt: str,
+        request_id: int | None,
+        cancel_event: threading.Event | None,
+        on_chunk: Callable[[str], None],
+    ) -> tuple[str, tuple[int | None, int | None]] | None:
+        """Acumula la respuesta completa. Devuelve (texto, uso), o None si se canceló."""
+        chunks: list[str] = []
+        usage: tuple[int | None, int | None] = (None, None)
+        # Techo de RAM derivado del perfil (~4 bytes/token UTF-8, factor 2x) en vez
+        # de un límite fijo que puede no encajar con la configuración del modelo.
+        max_response_bytes = max(2 * 1024 * 1024, profile.max_output_tokens * 4 * 2)
+        accumulated_bytes = 0  # Evita el coste cuadrático de len("".join(chunks))
+
+        for chunk in self.client.stream(profile, api_key, prompt, request_id, cancel_event):
+            if cancel_event and cancel_event.is_set():
+                return None
+            if isinstance(chunk.content, str) and chunk.content:
+                accumulated_bytes = self._accept_chunk(
+                    chunk.content, accumulated_bytes, max_response_bytes
+                )
+                chunks.append(chunk.content)
+                on_chunk(chunk.content)
+            if chunk.input_tokens is not None or chunk.output_tokens is not None:
+                usage = (chunk.input_tokens, chunk.output_tokens)
+        return "".join(chunks), usage
+
+    @staticmethod
+    def _accept_chunk(content: str, accumulated: int, ceiling: int) -> int:
+        """Contabiliza un fragmento contra el techo de RAM. Devuelve el acumulado.
+
+        Solo mide el techo: no limita tokens, eso lo decide el proveedor.
+        """
+        chunk_bytes = len(content.encode("utf-8"))
+        if accumulated + chunk_bytes > ceiling:
+            raise LlmError(
+                f"La respuesta excede el límite de memoria de "
+                f"{ceiling / (1024 * 1024):.1f}MB. Respuesta truncada."
+            )
+        return accumulated + chunk_bytes
 
     def cancel(self, request_id: int) -> None:
         """Cancela request activo."""

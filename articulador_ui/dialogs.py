@@ -50,7 +50,41 @@ def show_context_dialog(app) -> None:
     ).pack(anchor="e", pady=(10, 0))
 
 
-def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
+def _apply_suggestion(app, dialog, item: dict[str, str]) -> bool:
+    """Sustituye el fragmento en el editor. False si no se pudo aplicar.
+
+    Solo actúa sobre coincidencias únicas: un fragmento repetido no permite saber
+    cuál pretendía corregir el modelo.
+    """
+    text = app.editor.get("1.0", "end-1c")
+    original = item["original"]
+    first, last = text.find(original), text.rfind(original)
+    if first < 0:
+        messagebox.showinfo(
+            "No encontrado", "El fragmento ya cambió o no existe.", parent=dialog
+        )
+        return False
+    if first != last:
+        messagebox.showinfo(
+            "Fragmento ambiguo",
+            "El texto aparece varias veces. Edita manualmente o pide una sugerencia más específica.",
+            parent=dialog,
+        )
+        return False
+    app.snapshot_for_undo(text)
+    app.editor.delete("1.0", "end")
+    app.editor.insert("1.0", text[:first] + item["suggestion"] + text[first + len(original):])
+    app.session.dirty = True
+    return True
+
+
+def show_review_dialog(app, findings: list[dict[str, str]]):
+    """Muestra los hallazgos de una revisión. Devuelve el Toplevel creado.
+
+    Los hallazgos se calcularon sobre un artículo concreto: el diálogo queda
+    anclado a él para no aplicar un fragmento sobre el documento equivocado.
+    """
+    documento = app.session.document_path
     dialog = tk.Toplevel(app)
     dialog.title("Revisión del artículo")
     dialog.geometry("720x560")
@@ -92,33 +126,19 @@ def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
     def decide(apply: bool) -> None:
         if not items.curselection():
             return
-        index = items.curselection()[0]
-        item = findings[index]
-        if apply:
-            text = app.editor.get("1.0", "end-1c")
-            original = item["original"]
-            first, last = text.find(original), text.rfind(original)
-            if first < 0:
-                messagebox.showinfo(
-                    "No encontrado",
-                    "El fragmento ya cambió o no existe.",
-                    parent=dialog,
-                )
-                return
-            if first != last:
-                messagebox.showinfo(
-                    "Fragmento ambiguo",
-                    "El texto aparece varias veces. Edita manualmente o pide una sugerencia más específica.",
-                    parent=dialog,
-                )
-                return
-            updated = (
-                text[:first] + item["suggestion"] + text[first + len(original) :]
+        if apply and app.session.document_path != documento:
+            # Un diálogo que sobrevivió a un cambio de documento aplicaría la
+            # sugerencia de un artículo sobre otro, dejándolo sucio y erróneo.
+            messagebox.showinfo(
+                "Revisión caducada",
+                "Estos hallazgos son de otro artículo. Vuelve a revisar el actual.",
+                parent=dialog,
             )
-            app.snapshot_for_undo(text)
-            app.editor.delete("1.0", "end")
-            app.editor.insert("1.0", updated)
-            app.session.dirty = True
+            dialog.destroy()
+            return
+        index = items.curselection()[0]
+        if apply and not _apply_suggestion(app, dialog, findings[index]):
+            return
         findings.pop(index)
         items.delete(index)
         if findings:
@@ -137,6 +157,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
         actions, text="Ignorar", command=lambda: decide(False)
     ).pack(side="right", padx=(0, 6))
     ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
+    return dialog
 
 
 def show_settings_dialog(app) -> None:

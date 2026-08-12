@@ -17,6 +17,7 @@ import queue
 import stat
 import sys
 import tempfile
+import threading
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -286,19 +287,61 @@ class TestRutasDeProyecto(unittest.TestCase):
             self.assertIsNone(loaded["corpus"])
 
 
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
 class TestAprobacionDeContexto(unittest.TestCase):
-    def test_la_huella_solo_depende_de_los_fragmentos_locales(self):
-        import hashlib
+    """La huella de aprobación no debe cambiar entre mensajes de la misma sesión."""
 
-        packet = "ARCHIVO LOCAL: notas.md\n---\ncontenido estable"
-        primera = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
-        segunda = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
-        self.assertEqual(
-            primera, segunda, "El mismo paquete no debe pedir reconfirmación"
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        (self.root / "notas.md").write_text("seguridad y contexto", encoding="utf-8")
+        config = self.root / "config.toml"
+        config.write_text(
+            '[llm]\nactive_profile = "p"\n\n[profiles.p]\n'
+            'provider = "openai_compatible"\nendpoint = "https://api.example.com/v1/chat/completions"\n'
+            'model = "m"\napi_key_env = "TEST_KEY_AUDITORIA"\n',
+            encoding="utf-8",
+        )
+        os.environ["TEST_KEY_AUDITORIA"] = "clave"
+        self.app = ArticuladorApp(config, self.root)
+
+    def tearDown(self):
+        self.app.destroy()
+        self.directory.cleanup()
+        os.environ.pop("TEST_KEY_AUDITORIA", None)
+
+    def _enviar(self, mensaje: str) -> None:
+        """Ejecuta confirm_and_send con un paquete de contexto fijo."""
+        self.app.generation_counter += 1
+        request_id = self.app.generation_counter
+        self.app.request_types[request_id] = "normal"
+        self.app.confirm_and_send(
+            request_id, mensaje, "artículo", "ARCHIVO LOCAL: notas.md\n---\nseguridad",
+            ["notas.md"], threading.Event(),
         )
 
-        otro = hashlib.sha256(b"otro paquete").hexdigest()[:16]
-        self.assertNotEqual(primera, otro, "Un paquete distinto sí debe reconfirmarse")
+    def test_el_segundo_mensaje_no_vuelve_a_pedir_confirmacion(self):
+        with patch("articulador_ui.app.messagebox.askyesno", return_value=True) as preguntar:
+            self._enviar("primer mensaje")
+            self.assertEqual(preguntar.call_count, 1, "El primer envío sí debe confirmarse")
+            self._enviar("segundo mensaje")
+            self._enviar("tercer mensaje")
+            self.assertEqual(
+                preguntar.call_count, 1,
+                "Mismo paquete local: no debe reconfirmarse en cada mensaje",
+            )
+
+    def test_un_paquete_distinto_si_vuelve_a_confirmarse(self):
+        with patch("articulador_ui.app.messagebox.askyesno", return_value=True) as preguntar:
+            self._enviar("primer mensaje")
+            self.app.generation_counter += 1
+            rid = self.app.generation_counter
+            self.app.request_types[rid] = "normal"
+            self.app.confirm_and_send(
+                rid, "otro", "artículo", "ARCHIVO LOCAL: notas.md\n---\nCONTENIDO NUEVO",
+                ["notas.md"], threading.Event(),
+            )
+            self.assertEqual(preguntar.call_count, 2)
 
 
 class TestSeguridadDelEndpoint(unittest.TestCase):
@@ -451,6 +494,179 @@ class TestDeshacerRevisionEntreDocumentos(unittest.TestCase):
         self.assertEqual(self.app.editor.get("1.0", "end-1c"), "TEXTO ORIGINAL")
 
 
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
+class TestDialogoDeRevisionAnclado(unittest.TestCase):
+    """Los hallazgos pertenecen al artículo sobre el que se calcularon."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+        self.hallazgo = {
+            "category": "gramática", "severity": "alta", "original": "floja",
+            "suggestion": "POCO SÓLIDA", "reason": "registro",
+        }
+
+    def tearDown(self):
+        self.app.destroy()
+        self.directory.cleanup()
+
+    def _settle(self):
+        for _ in range(5):
+            self.app.update()
+            self.app.update_idletasks()
+
+    def _pulsar(self, dialog, etiqueta):
+        from tkinter import ttk as _ttk
+
+        botones = []
+        def recorrer(widget):
+            for hijo in widget.winfo_children():
+                if isinstance(hijo, _ttk.Button):
+                    botones.append(hijo)
+                recorrer(hijo)
+        recorrer(dialog)
+        for boton in botones:
+            if boton.cget("text") == etiqueta:
+                boton.invoke()
+                return True
+        return False
+
+    def test_no_aplica_hallazgos_de_otro_articulo(self):
+        a = self.root / "A.md"
+        a.write_text("La introducción es floja.", encoding="utf-8")
+        b = self.root / "B.md"
+        b.write_text("Otro artículo con redacción floja también.", encoding="utf-8")
+
+        self.app.load_document(a)
+        self._settle()
+        self.app.show_findings([dict(self.hallazgo)])
+        self._settle()
+        dialogo = self.app.review_dialogs[0]
+
+        self.app.load_document(b)
+        self._settle()
+        contenido_b = self.app.editor.get("1.0", "end-1c")
+
+        if dialogo.winfo_exists():
+            with patch("articulador_ui.dialogs.messagebox.showinfo"):
+                self._pulsar(dialogo, "Aplicar")
+            self._settle()
+
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), contenido_b)
+        self.assertFalse(self.app.session.dirty, "B no debe ensuciarse con una sugerencia de A")
+
+    def test_solo_queda_un_dialogo_de_revision_abierto(self):
+        a = self.root / "A.md"
+        a.write_text("La introducción es floja.", encoding="utf-8")
+        self.app.load_document(a)
+        self._settle()
+
+        for _ in range(4):
+            self.app.show_findings([dict(self.hallazgo)])
+            self._settle()
+
+        vivos = [d for d in self.app.review_dialogs if d.winfo_exists()]
+        self.assertEqual(len(vivos), 1, "Cada revisión debe reemplazar la anterior")
+
+    def test_dentro_del_mismo_articulo_la_sugerencia_si_se_aplica(self):
+        a = self.root / "A.md"
+        a.write_text("La introducción es floja.", encoding="utf-8")
+        self.app.load_document(a)
+        self._settle()
+
+        self.app.show_findings([dict(self.hallazgo)])
+        self._settle()
+        with patch("articulador_ui.dialogs.messagebox.showinfo"):
+            self._pulsar(self.app.review_dialogs[0], "Aplicar")
+        self._settle()
+
+        self.assertIn("POCO SÓLIDA", self.app.editor.get("1.0", "end-1c"))
+        self.assertTrue(self.app.session.dirty)
+
+
+class TestSaludDeLaInstalacion(unittest.TestCase):
+    def test_instalacion_nueva_tiene_avisos_pero_no_errores(self):
+        from articulador_core import health
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(storage, "CONFIG_PATH", Path(directory) / "nada" / "config.toml"):
+                status = health.check_health()
+
+        self.assertFalse(status.is_healthy, "Sin perfiles hay avisos")
+        self.assertFalse(status.has_errors, "…pero nada roto: --health debe salir con 0")
+
+    def test_directorio_de_config_no_escribible_es_error(self):
+        from articulador_core.health import ComponentStatus, check_health
+
+        with tempfile.TemporaryDirectory() as directory:
+            solo_lectura = Path(directory) / "cfg"
+            solo_lectura.mkdir()
+            os.chmod(solo_lectura, 0o500)
+            try:
+                with patch.object(storage, "CONFIG_PATH", solo_lectura / "config.toml"):
+                    status = check_health()
+                self.assertEqual(status.components["storage"][0], ComponentStatus.ERROR)
+                self.assertTrue(status.has_errors)
+            finally:
+                os.chmod(solo_lectura, 0o700)
+
+    def test_check_health_lee_la_configuracion_una_sola_vez(self):
+        from articulador_core import health
+
+        with patch.object(storage, "load_profiles", wraps=storage.load_profiles) as leer:
+            health.check_health()
+        self.assertEqual(leer.call_count, 1, "Se parseaba config.toml dos veces")
+
+
+class TestLogging(unittest.TestCase):
+    def test_health_y_config_validator_usan_el_logger_de_la_app(self):
+        from articulador_core import config_validator, health
+        from articulador_core.logging_config import LOGGER_NAME
+
+        self.assertEqual(health.logger.name, LOGGER_NAME)
+        self.assertEqual(config_validator.logger.name, LOGGER_NAME)
+        self.assertTrue(health.logger.handlers, "Sin handlers no llega al log JSON")
+
+    def test_setup_logging_honra_una_ruta_explicita(self):
+        from articulador_core.logging_config import setup_logging
+
+        with tempfile.TemporaryDirectory() as directory:
+            deseada = Path(directory) / "sub" / "propio.log"
+            logger = setup_logging(deseada)
+            try:
+                efectivas = [
+                    Path(h.baseFilename) for h in logger.handlers if hasattr(h, "baseFilename")
+                ]
+                self.assertIn(deseada, efectivas, "El parámetro log_path se ignoraba")
+                self.assertTrue(deseada.exists())
+            finally:
+                setup_logging(Path(directory) / "descartable.log")
+
+    def test_la_rotacion_acota_el_tamano_en_disco(self):
+        import logging
+        from logging.handlers import RotatingFileHandler
+
+        with tempfile.TemporaryDirectory() as directory:
+            destino = Path(directory) / "r.log"
+            handler = RotatingFileHandler(destino, maxBytes=512_000, backupCount=2, encoding="utf-8")
+            aislado = logging.getLogger("articulador.test.rotacion")
+            aislado.propagate = False
+            aislado.addHandler(handler)
+            aislado.setLevel(logging.INFO)
+            try:
+                for _ in range(4000):
+                    aislado.info("y" * 300)
+            finally:
+                aislado.removeHandler(handler)
+                handler.close()
+
+            familia = list(destino.parent.glob(destino.name + "*"))
+            total = sum(f.stat().st_size for f in familia)
+            self.assertLessEqual(len(familia), 3, "1 activo + 2 backups")
+            self.assertLess(total, 1_600_000, "512KB x 3 es el techo teórico")
+
+
 class TestKeysDeSesion(unittest.TestCase):
     """Actualizar una key no debe desalojar la de otro perfil."""
 
@@ -509,19 +725,44 @@ class TestExclusionDeContextoReversible(unittest.TestCase):
             self.assertEqual(vueltos, ["a.md"])
 
 
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
 class TestAprobacionesDesalojoFIFO(unittest.TestCase):
     def test_al_llenarse_se_desaloja_la_mas_antigua_no_todas(self):
-        approved: dict[tuple, None] = {}
-        for i in range(128):
-            approved[("e", "p", (), f"h{i}")] = None
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        (root / "notas.md").write_text("seguridad", encoding="utf-8")
+        config = root / "config.toml"
+        config.write_text(
+            '[llm]\nactive_profile = "p"\n\n[profiles.p]\n'
+            'provider = "openai_compatible"\nendpoint = "https://api.example.com/v1/chat/completions"\n'
+            'model = "m"\napi_key_env = "TEST_KEY_FIFO"\n',
+            encoding="utf-8",
+        )
+        os.environ["TEST_KEY_FIFO"] = "clave"
+        self.addCleanup(lambda: os.environ.pop("TEST_KEY_FIFO", None))
+        app = ArticuladorApp(config, root)
+        self.addCleanup(app.destroy)
 
-        while len(approved) >= 128:
-            approved.pop(next(iter(approved)), None)
-        approved[("e", "p", (), "h-nueva")] = None
+        # Saturar con 128 aprobaciones previas, la primera identificable.
+        primera = (app.profile.endpoint, app.profile.provider, ("notas.md",), "h-primera")
+        app.approved_contexts[primera] = None
+        for i in range(127):
+            app.approved_contexts[(app.profile.endpoint, app.profile.provider, ("notas.md",), f"h{i}")] = None
 
-        self.assertEqual(len(approved), 128)
-        self.assertNotIn(("e", "p", (), "h0"), approved)
-        self.assertIn(("e", "p", (), "h127"), approved)
+        with patch("articulador_ui.app.messagebox.askyesno", return_value=True):
+            app.generation_counter += 1
+            rid = app.generation_counter
+            app.request_types[rid] = "normal"
+            app.confirm_and_send(rid, "hola", "art", "paquete nuevo", ["notas.md"], threading.Event())
+
+        self.assertEqual(len(app.approved_contexts), 128, "El tope se mantiene")
+        self.assertNotIn(primera, app.approved_contexts, "Se desaloja la más antigua")
+        self.assertIn(
+            (app.profile.endpoint, app.profile.provider, ("notas.md",), "h126"),
+            app.approved_contexts,
+            "Las demás sobreviven: no es un vaciado total",
+        )
 
 
 class TestParserFindingsNoIterable(unittest.TestCase):

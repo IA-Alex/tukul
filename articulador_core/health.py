@@ -1,11 +1,14 @@
 """Health checks y status de la aplicación."""
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+from .logging_config import setup_logging
+
+# El logger por módulo (`getLogger(__name__)`) no tiene handlers: su salida nunca
+# llegaba al log JSON de la aplicación y se escapaba sin formato por stderr.
+logger = setup_logging()
 
 
 class ComponentStatus(Enum):
@@ -28,6 +31,49 @@ class HealthStatus:
     components: dict[str, tuple[ComponentStatus, str]]  # "component": (status, message)
     timestamp: str  # ISO format
 
+    @property
+    def has_errors(self) -> bool:
+        """True solo si algún componente está roto.
+
+        `is_healthy` exige que TODO esté en HEALTHY, así que una instalación
+        recién estrenada (sin carpeta de config ni perfiles) ya cuenta como no
+        sana. Para decidir un código de salida hace falta separar «con avisos»
+        de «inservible».
+        """
+        return any(
+            status == ComponentStatus.ERROR for status, _ in self.components.values()
+        )
+
+
+def _check_storage(profiles_error: Exception | None) -> tuple[ComponentStatus, str]:
+    """Comprueba lectura y escritura de config sin dejar estado en el directorio."""
+    import tempfile
+    from pathlib import Path
+
+    from articulador_core import storage
+
+    try:
+        if profiles_error is not None:
+            raise profiles_error
+        config_dir = Path(storage.CONFIG_PATH).parent
+        if not config_dir.exists():
+            return (
+                ComponentStatus.WARNING,
+                "Config directory does not exist (will create on save)",
+            )
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=config_dir, delete=True, suffix=".tmp"
+            ) as probe:
+                probe.write("health_check_test")
+                probe.flush()
+            return (ComponentStatus.HEALTHY, "OK (read+write)")
+        except (PermissionError, OSError):
+            return (ComponentStatus.ERROR, "Config directory is read-only")
+    except Exception as e:
+        logger.warning("Health: storage failed - %s", e)
+        return (ComponentStatus.ERROR, f"Error: {e}")
+
 
 def check_health() -> HealthStatus:
     """Verifica salud de la aplicación.
@@ -46,44 +92,21 @@ def check_health() -> HealthStatus:
 
     components = {}
     timestamp = datetime.now().isoformat()
+    # Una sola lectura de config.toml para los dos componentes: se parseaba dos veces.
+    profiles: dict = {}
+    profiles_error: Exception | None = None
+    try:
+        profiles, _active = storage.load_profiles(storage.CONFIG_PATH)
+    except Exception as e:  # load_profiles es defensivo, pero no se le confía a ciegas
+        profiles_error = e
 
     # 1. Storage - verify READ and WRITE capability (without mutating user config)
-    try:
-        import tempfile
-        from pathlib import Path
-
-        config_path = storage.CONFIG_PATH
-        profiles, _ = storage.load_profiles(config_path)
-
-        # Verify WRITE capability WITHOUT creating state
-        config_dir = Path(config_path).parent
-        if not config_dir.exists():
-            components["storage"] = (
-                ComponentStatus.WARNING,
-                "Config directory does not exist (will create on save)",
-            )
-        else:
-            try:
-                # Test write en directorio existente usando tempfile
-                with tempfile.NamedTemporaryFile(
-                    mode="w", dir=config_dir, delete=True, suffix=".tmp"
-                ) as f:
-                    f.write("health_check_test")
-                    f.flush()
-                components["storage"] = (ComponentStatus.HEALTHY, "OK (read+write)")
-            except (PermissionError, OSError):
-                # Directorio existe pero no es escribible
-                components["storage"] = (
-                    ComponentStatus.ERROR,
-                    "Config directory is read-only",
-                )
-    except Exception as e:
-        components["storage"] = (ComponentStatus.ERROR, f"Error: {e}")
-        logger.warning(f"Health: storage failed - {e}")
+    components["storage"] = _check_storage(profiles_error)
 
     # 2. LLM profiles
     try:
-        profiles, _ = storage.load_profiles(storage.CONFIG_PATH)
+        if profiles_error is not None:
+            raise profiles_error
         enabled_count = sum(1 for p in profiles.values() if p.enabled)
         if enabled_count > 0:
             components["llm"] = (

@@ -1,11 +1,29 @@
 """Validación y auditoría de configuración en startup."""
 from __future__ import annotations
 
-import logging
-
+from articulador_core.logging_config import setup_logging
 from articulador_core.models import LlmProfile
 
-logger = logging.getLogger(__name__)
+# Mismo motivo que en health.py: sin esto los avisos de arranque no llegaban
+# al log JSON de la aplicación.
+logger = setup_logging()
+
+
+def _profile_warnings(profile: LlmProfile, name: str) -> list[str]:
+    """Avisos sobre campos vacíos y límites de tokens inusuales de un perfil."""
+    warnings = []
+    if not profile.enabled:
+        warnings.append(f"⚠️  Perfil '{name}' está DESHABILITADO (provider={profile.provider})")
+    for field, etiqueta in (("endpoint", "endpoint"), ("model", "model"), ("api_key_env", "api_key_env")):
+        if not getattr(profile, field):
+            warnings.append(f"⚠️  Perfil '{name}': {etiqueta} vacío")
+    if profile.max_output_tokens < 100:
+        warnings.append(f"⚠️  Perfil: max_output_tokens muy bajo ({profile.max_output_tokens})")
+    if profile.max_output_tokens > 10000:
+        warnings.append(f"⚠️  Perfil: max_output_tokens muy alto ({profile.max_output_tokens})")
+    if profile.max_total_model_tokens < profile.max_output_tokens * 2:
+        warnings.append("⚠️  Perfil: max_total_model_tokens apenas mayor que max_output_tokens")
+    return warnings
 
 
 def validate_startup_config(profiles: dict[str, LlmProfile], active_profile: str) -> tuple[bool, list[str]]:
@@ -32,30 +50,7 @@ def validate_startup_config(profiles: dict[str, LlmProfile], active_profile: str
         return False, warnings
 
     profile = profiles[active_profile]
-
-    # Validar que está habilitado
-    if not profile.enabled:
-        warnings.append(f"⚠️  Perfil '{active_profile}' está DESHABILITADO (provider={profile.provider})")
-
-    # Validar campos críticos
-    if not profile.endpoint:
-        warnings.append(f"⚠️  Perfil '{active_profile}': endpoint vacío")
-
-    if not profile.model:
-        warnings.append(f"⚠️  Perfil '{active_profile}': model vacío")
-
-    if not profile.api_key_env:
-        warnings.append(f"⚠️  Perfil '{active_profile}': api_key_env vacío")
-
-    # Validar límites de tokens (valores inusuales)
-    if profile.max_output_tokens < 100:
-        warnings.append(f"⚠️  Perfil: max_output_tokens muy bajo ({profile.max_output_tokens})")
-
-    if profile.max_output_tokens > 10000:
-        warnings.append(f"⚠️  Perfil: max_output_tokens muy alto ({profile.max_output_tokens})")
-
-    if profile.max_total_model_tokens < profile.max_output_tokens * 2:
-        warnings.append("⚠️  Perfil: max_total_model_tokens apenas mayor que max_output_tokens")
+    warnings.extend(_profile_warnings(profile, active_profile))
 
     is_valid = len(warnings) == 0
 

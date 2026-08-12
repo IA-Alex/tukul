@@ -171,6 +171,14 @@ class LLMClient:
             yield raw
 
     @staticmethod
+    def _sse_payload(raw: bytes) -> str | None:
+        """Extrae el cuerpo de una línea `data:` SSE. None si la línea no lo es."""
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data:"):
+            return None
+        return line[5:].strip()
+
+    @staticmethod
     def _usage(event: dict) -> tuple[int | None, int | None]:
         usage = event.get("usage") or event.get("usageMetadata") or {}
         input_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("promptTokenCount")
@@ -190,6 +198,23 @@ class LLMClient:
         input_tokens, output_tokens = self._usage(event)
         return StreamChunk(content, input_tokens, output_tokens)
 
+    def _consume_sse(self, profile: LlmProfile, response, cancel_event: threading.Event | None):
+        """Traduce el cuerpo SSE en StreamChunk, saltando líneas ilegibles."""
+        for raw in self._iter_lines(response):
+            if cancel_event is not None and cancel_event.is_set():
+                return
+            data = self._sse_payload(raw)
+            if data is None:
+                continue
+            if data == "[DONE]":
+                return
+            try:
+                chunk = self._stream_event(profile, json.loads(data))
+            except (ValueError, KeyError, IndexError, TypeError):
+                continue
+            if chunk.content or chunk.input_tokens is not None or chunk.output_tokens is not None:
+                yield chunk
+
     def stream(self, profile: LlmProfile, api_key: str, prompt: str, request_id: int | None = None, cancel_event: threading.Event | None = None):
         if not profile.enabled or not api_key:
             raise LlmError("Configura endpoint, modelo y API key.")
@@ -203,20 +228,7 @@ class LLMClient:
                 if cancel_event is not None and cancel_event.is_set():
                     response.close()
                     return
-                for raw in self._iter_lines(response):
-                    if cancel_event is not None and cancel_event.is_set():
-                        break
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = self._stream_event(profile, json.loads(data))
-                    except (ValueError, KeyError, IndexError, TypeError): continue
-                    if chunk.content or chunk.input_tokens is not None or chunk.output_tokens is not None:
-                        yield chunk
+                yield from self._consume_sse(profile, response, cancel_event)
         except urllib.error.HTTPError as error:
             raise LlmError(http_error_message(error.code)) from error
         except urllib.error.URLError as error:

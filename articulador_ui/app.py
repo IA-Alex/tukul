@@ -66,6 +66,7 @@ class ArticuladorApp(tk.Tk):
         # texto del artículo anterior podía volcarse sobre el recién abierto.
         self.last_review_before = ""
         self.last_review_document: Path | None = None
+        self.review_dialogs: list[tk.Toplevel] = []
         self.last_response = ""
         self.stats_after = None
         self.report_callback_exception = self.handle_callback_error
@@ -617,7 +618,19 @@ class ArticuladorApp(tk.Tk):
 
     parse_findings = staticmethod(parse_findings)
     def show_findings(self,findings):
-        show_review_dialog(self, findings)
+        # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.
+        self._close_review_dialogs()
+        self.review_dialogs.append(show_review_dialog(self, findings))
+
+    def _close_review_dialogs(self) -> None:
+        """Cierra los diálogos de revisión abiertos y olvida los ya destruidos."""
+        for dialog in self.review_dialogs:
+            try:
+                if dialog.winfo_exists():
+                    dialog.destroy()
+            except tk.TclError:
+                pass
+        self.review_dialogs = []
     def snapshot_for_undo(self, text: str) -> None:
         """Guarda el "antes" de una sugerencia junto al documento al que pertenece."""
         self.last_review_before = text
@@ -732,6 +745,7 @@ class ArticuladorApp(tk.Tk):
         archivos, huella del paquete), todo derivado del workspace y no del artículo
         abierto. Vaciarlo aquí solo añadiría un modal de confirmación por documento.
         """
+        self._close_review_dialogs()
         self.last_context_files = []
         self.last_review_before = ""
         self.last_review_document = None

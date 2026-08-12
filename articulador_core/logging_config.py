@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 LOGGER_NAME = "articulador"
+DEFAULT_LOG_PATH = Path.home() / ".local" / "state" / "articulador" / "articulador.log"
 
 
 class StructuredFormatter(logging.Formatter):
@@ -57,7 +58,14 @@ def setup_logging(log_path: Path | None = None) -> logging.Logger:
     - No includes de respuestas del modelo
     """
     logger = logging.getLogger(LOGGER_NAME)
+    path = log_path or DEFAULT_LOG_PATH
+
     if logger.handlers:
+        # Idempotente, salvo que se pida explícitamente OTRO archivo: antes el
+        # parámetro se ignoraba en silencio porque storage.py ya había configurado
+        # el logger al importarse, y quien pasaba una ruta nunca la obtenía.
+        if log_path is not None:
+            _attach_file_handler(logger, path, replace=True)
         return logger
 
     logger.setLevel(logging.DEBUG)
@@ -69,20 +77,32 @@ def setup_logging(log_path: Path | None = None) -> logging.Logger:
     console.setFormatter(StructuredFormatter(is_file=False))
     logger.addHandler(console)
 
-    # Archivo (máquina-legible)
+    _attach_file_handler(logger, path)
+    return logger
+
+
+def _attach_file_handler(logger: logging.Logger, path: Path, replace: bool = False) -> None:
+    """Instala el archivo rotativo. Si no se puede, deja constancia visible."""
+    from logging.handlers import RotatingFileHandler
+
+    existing = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
+    if existing and not replace:
+        return
+    if existing and Path(existing[0].baseFilename) == path.resolve():
+        return
     try:
-        from logging.handlers import RotatingFileHandler
-
-        path = log_path or Path.home() / ".local" / "state" / "articulador" / "articulador.log"
         path.parent.mkdir(parents=True, exist_ok=True)
-
         file_handler = RotatingFileHandler(
             path, maxBytes=512_000, backupCount=2, encoding="utf-8"
         )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(StructuredFormatter(is_file=True))
-        logger.addHandler(file_handler)
     except OSError as e:
-        logger.debug(f"No se pudo crear archivo de log: {e}")
-
-    return logger
+        # Antes era logger.debug() y la consola está en INFO: quedarse sin archivo
+        # de log era completamente invisible.
+        logger.warning("No se pudo crear el archivo de log en %s: %s", path, e)
+        return
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(StructuredFormatter(is_file=True))
+    for handler in existing:
+        logger.removeHandler(handler)
+        handler.close()
+    logger.addHandler(file_handler)
