@@ -24,6 +24,11 @@ def parse_findings(result: str) -> list[dict[str, str]]:
     except (ValueError, AttributeError, TypeError):
         return []
 
+    # Un `findings` que no sea lista (p. ej. una cadena enorme) se recorrería
+    # carácter a carácter para descartarlo todo. Cortar antes de iterar.
+    if not isinstance(findings, list):
+        return []
+
     # FIX: Validar y limitar a 12 hallazgos
     validated = []
     for item in findings:

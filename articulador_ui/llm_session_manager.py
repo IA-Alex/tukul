@@ -29,12 +29,17 @@ class LLMSessionManager:
         on_error: Callable[[str], None],
         on_complete: Callable[[str, tuple[int | None, int | None]], None],
         request_id: int | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         """
         Stream respuesta con error handling robusto.
         Ejecutar en thread separado.
         """
-        cancel_event = self.cancel_event
+        # El evento de cancelación debe viajar con la petición: leerlo del manager
+        # dejaba una ventana en la que una petición nueva sobrescribía el evento de
+        # la anterior mientras su hilo aún no lo había capturado (cancelación cruzada).
+        if cancel_event is None:
+            cancel_event = self.cancel_event
 
         # Early return si cancelado antes de iniciar
         if cancel_event and cancel_event.is_set():

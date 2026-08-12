@@ -1,0 +1,575 @@
+"""Regresiones de la auditoría estructural.
+
+A diferencia de otros módulos de tests de este repo, cada prueba de aquí ejecuta
+código de producción: si se revierte la corrección, la prueba falla.
+
+Cobertura:
+- El bombeo de eventos de UI sobrevive al fallo de un manejador.
+- Un documento recién cargado no queda marcado como sucio.
+- La salida parcial se conserva cuando el streaming termina en error.
+- _atomic_write preserva los permisos del destino.
+- save_project explica la restricción de rutas en vez de filtrar un ValueError.
+- La huella de aprobación de contexto es estable entre mensajes.
+- validate_endpoint impide sacar la API key del transporte cifrado.
+"""
+import os
+import queue
+import stat
+import sys
+import tempfile
+import tkinter as tk
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from articulador_core import storage
+from articulador_core.llm import LLMClient, LlmError, validate_endpoint
+from articulador_core.models import ArticleSession, LlmProfile
+from articulador_ui.app import ArticuladorApp
+
+
+def _display_available() -> bool:
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return False
+    root.destroy()
+    return True
+
+
+HAS_DISPLAY = _display_available()
+
+
+def _headless_app() -> ArticuladorApp:
+    """App con el estado mínimo de una petición, sin construir widgets reales."""
+    app = ArticuladorApp.__new__(ArticuladorApp)
+    app.closing = False
+    app.ui_event_queue = queue.Queue(maxsize=1000)
+    app.pending_chunks = {}
+    app.request_types = {}
+    app.streaming_request = None
+    app.streaming_text = ""
+    app.last_response = ""
+    app.history = Mock()
+    app.activity = Mock()
+    app.status = Mock()
+    app.cost_label = Mock()
+    app.send_button = Mock()
+    app.cancel_button = Mock()
+    app.after = Mock()
+    app.docs = Mock()
+    app.docs.session = ArticleSession()
+    return app
+
+
+class TestBombeoDeEventosResiliente(unittest.TestCase):
+    """El pump nunca debe morir: si no se reprograma, la app queda sorda."""
+
+    def test_pump_se_reprograma_aunque_falle_un_manejador(self):
+        app = _headless_app()
+        app.request_types[1] = "normal"
+        # usage=None revienta finish() al formatear el uso real.
+        app.ui_event_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
+
+        app.process_ui_events()
+
+        self.assertTrue(app.after.called, "El bombeo debe reprogramarse pese al fallo")
+        self.assertEqual(app.after.call_args[0][1], app.process_ui_events)
+
+    def test_un_evento_roto_no_impide_procesar_los_siguientes(self):
+        app = _headless_app()
+        app.request_types[1] = "normal"
+        app.request_types[2] = "normal"
+        app.ui_event_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
+        app.ui_event_queue.put_nowait(("chunk", 2, "hola"))
+
+        app.process_ui_events()
+
+        self.assertEqual(app.ui_event_queue.qsize(), 0, "La cola debe quedar drenada")
+        self.assertEqual(app.pending_chunks.get(2), ["hola"])
+
+    def test_fallo_de_manejador_libera_la_peticion(self):
+        app = _headless_app()
+        app.request_types[1] = "normal"
+        app.docs.session.request_active = True
+        app.ui_event_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
+
+        app.process_ui_events()
+
+        self.assertNotIn(1, app.request_types)
+        app.send_button.state.assert_any_call(["!disabled"])
+        app.cancel_button.state.assert_any_call(["disabled"])
+
+
+class TestSalidaParcialEnError(unittest.TestCase):
+    """Un error tras N chunks no debe dejar el mensaje cortado sin explicación."""
+
+    def test_error_tras_streaming_conserva_lo_recibido(self):
+        app = _headless_app()
+        app.request_types[7] = "normal"
+        app.streaming_request = 7
+        app.streaming_text = "respuesta a medias"
+        app._append_notice = Mock()
+
+        app.finish(7, "No pude responder: timeout", [], (None, None), "normal", is_error=True)
+
+        self.assertEqual(app.last_response, "respuesta a medias")
+        self.assertEqual(
+            [m.content for m in app.docs.session.conversation], ["respuesta a medias"]
+        )
+        app._append_notice.assert_called_once()
+        self.assertIn("[INCOMPLETO]", app._append_notice.call_args[0][0])
+
+    def test_error_sin_streaming_muestra_el_mensaje_de_error(self):
+        app = _headless_app()
+        app.request_types[8] = "normal"
+        app.append = Mock()
+
+        app.finish(8, "No pude responder: timeout", [], (None, None), "normal", is_error=True)
+
+        app.append.assert_called_once_with("Articulador", "No pude responder: timeout")
+        self.assertEqual(list(app.docs.session.conversation), [])
+
+    def test_exito_guarda_el_resultado_completo(self):
+        app = _headless_app()
+        app.request_types[9] = "normal"
+        app.streaming_request = 9
+        app.streaming_text = "hola"
+
+        app.finish(9, "hola mundo", [], (10, 5), "normal")
+
+        self.assertEqual(app.last_response, "hola mundo")
+        self.assertEqual([m.content for m in app.docs.session.conversation], ["hola mundo"])
+        self.assertEqual(app.streaming_text, "")
+
+
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
+class TestDocumentoRecienAbierto(unittest.TestCase):
+    """Tk encola <<Modified>> de forma asíncrona: cargar no es editar."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+
+    def tearDown(self):
+        self.app.destroy()
+        self.directory.cleanup()
+
+    def _settle(self):
+        for _ in range(5):
+            self.app.update()
+            self.app.update_idletasks()
+
+    def test_cargar_documento_no_lo_marca_como_sucio(self):
+        document = self.root / "a.md"
+        document.write_text("hola mundo", encoding="utf-8")
+        self.app.load_document(document)
+
+        self._settle()
+
+        self.assertFalse(self.app.session.dirty)
+        self.assertEqual(self.app.sync_label.cget("text"), "● Documento abierto")
+
+    def test_edicion_del_usuario_si_marca_como_sucio(self):
+        document = self.root / "a.md"
+        document.write_text("hola", encoding="utf-8")
+        self.app.load_document(document)
+        self._settle()
+
+        self.app.editor.insert("end", " escrito por el usuario")
+        self._settle()
+
+        self.assertTrue(self.app.session.dirty)
+        self.assertEqual(self.app.sync_label.cget("text"), "● Cambios sin guardar")
+
+    def test_cada_documento_estrena_sesion_limpia(self):
+        from articulador_core.models import ChatMessage
+
+        a = self.root / "a.md"
+        a.write_text("TEXTO DE A", encoding="utf-8")
+        b = self.root / "b.md"
+        b.write_text("TEXTO DE B", encoding="utf-8")
+
+        self.app.load_document(a)
+        self._settle()
+        sesion_a = self.app.session
+        self.app.session.conversation.append(ChatMessage("user", "hablo del artículo A"))
+        self.app.append("Tú", "hablo del artículo A")
+
+        self.app.load_document(b)
+        self._settle()
+
+        self.assertIsNot(self.app.session, sesion_a, "Debe ser una ArticleSession nueva")
+        self.assertEqual(list(self.app.session.conversation), [])
+        self.assertEqual(self.app.session.document_path, b.resolve())
+        self.assertNotIn("artículo A", self.app.history.get("1.0", "end-1c"))
+
+    def test_abrir_un_documento_ilegible_no_toca_la_sesion(self):
+        a = self.root / "a.md"
+        a.write_text("TEXTO DE A", encoding="utf-8")
+        self.app.load_document(a)
+        self._settle()
+        sesion_a = self.app.session
+
+        with patch.object(ArticuladorApp, "show_error"):
+            ok = self.app.load_document(self.root / "no-existe.md")
+
+        self.assertFalse(ok)
+        self.assertIs(self.app.session, sesion_a, "Un fallo no debe dejar sesión a medias")
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), "TEXTO DE A")
+
+    def test_la_etiqueta_del_boton_sigue_al_ambito_de_revision(self):
+        a = self.root / "a.md"
+        a.write_text("primera frase. segunda frase.", encoding="utf-8")
+        self.app.load_document(a)
+        self._settle()
+        self.assertEqual(self.app.review_button.cget("text"), "Revisar artículo")
+
+        self.app.editor.tag_add("sel", "1.0", "1.14")
+        self.app.update_context()
+        self.assertEqual(self.app.review_button.cget("text"), "Revisar selección")
+
+        self.app.editor.tag_remove("sel", "1.0", "end")
+        self.app.update_context()
+        self.assertEqual(self.app.review_button.cget("text"), "Revisar artículo")
+
+
+class TestEscrituraAtomica(unittest.TestCase):
+    def test_preserva_los_permisos_del_destino(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "articulo.md"
+            target.write_text("original", encoding="utf-8")
+            os.chmod(target, 0o644)
+
+            storage._atomic_write(target, "nuevo contenido")
+
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+            self.assertEqual(target.read_text(encoding="utf-8"), "nuevo contenido")
+
+    def test_archivo_nuevo_no_hereda_permisos_laxos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "nuevo.md"
+            storage._atomic_write(target, "x")
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+
+
+class TestRutasDeProyecto(unittest.TestCase):
+    def test_proyecto_fuera_del_arbol_del_articulo_explica_la_restriccion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = root / "art.md"
+            document.write_text("x", encoding="utf-8")
+            (root / "proyectos").mkdir()
+            session = ArticleSession(document_path=document, article="x")
+
+            with self.assertRaises(ValueError) as ctx:
+                storage.save_project(session, root / "proyectos" / "p.articulador.json")
+
+            self.assertIn("carpeta del artículo", str(ctx.exception))
+            self.assertNotIn("subpath", str(ctx.exception))
+
+    def test_corpus_vacio_se_normaliza_a_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = root / "art.md"
+            document.write_text("x", encoding="utf-8")
+            project = root / "p.articulador.json"
+            storage.save_project(
+                ArticleSession(document_path=document, article="x"), project
+            )
+
+            loaded = storage.load_project(project)
+
+            self.assertIsNone(loaded["corpus"])
+
+
+class TestAprobacionDeContexto(unittest.TestCase):
+    def test_la_huella_solo_depende_de_los_fragmentos_locales(self):
+        import hashlib
+
+        packet = "ARCHIVO LOCAL: notas.md\n---\ncontenido estable"
+        primera = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
+        segunda = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
+        self.assertEqual(
+            primera, segunda, "El mismo paquete no debe pedir reconfirmación"
+        )
+
+        otro = hashlib.sha256(b"otro paquete").hexdigest()[:16]
+        self.assertNotEqual(primera, otro, "Un paquete distinto sí debe reconfirmarse")
+
+
+class TestSeguridadDelEndpoint(unittest.TestCase):
+    def test_acepta_https(self):
+        self.assertEqual(
+            validate_endpoint("https://api.deepseek.com/chat/completions"),
+            "https://api.deepseek.com/chat/completions",
+        )
+
+    def test_acepta_http_solo_en_loopback(self):
+        validate_endpoint("http://localhost:11434/v1/chat/completions")
+        validate_endpoint("http://127.0.0.1:11434/v1/chat/completions")
+
+    def test_rechaza_http_remoto(self):
+        with self.assertRaises(LlmError) as ctx:
+            validate_endpoint("http://api-remoto.example/v1/chat/completions")
+        self.assertIn("https", str(ctx.exception))
+
+    def test_rechaza_esquemas_no_http(self):
+        for endpoint in ("file:///etc/passwd", "ftp://host/x", "no-es-una-url"):
+            with self.assertRaises(LlmError):
+                validate_endpoint(endpoint)
+
+    def test_la_peticion_no_se_construye_con_endpoint_inseguro(self):
+        profile = LlmProfile(
+            provider="openai_compatible",
+            endpoint="http://exfiltra.example/v1/chat/completions",
+            model="m",
+        )
+        with self.assertRaises(LlmError):
+            LLMClient()._request(profile, "SECRETO", "hola", stream=False)
+
+
+class TestLecturaSSEAcotada(unittest.TestCase):
+    def test_readline_recibe_un_tope_de_bytes(self):
+        from articulador_core.llm import MAX_SSE_LINE_BYTES
+
+        recibidos = []
+
+        class Response:
+            def readline(self, limit=-1):
+                recibidos.append(limit)
+                return b"" if len(recibidos) > 1 else b'data: {"choices":[{"delta":{"content":"x"}}]}\n'
+
+        lineas = list(LLMClient._iter_lines(Response()))
+
+        self.assertEqual(len(lineas), 1)
+        self.assertEqual(set(recibidos), {MAX_SSE_LINE_BYTES})
+
+    def test_cae_a_iteracion_si_no_hay_readline(self):
+        class Response:
+            def __iter__(self):
+                return iter((b"data: uno\n", b"data: dos\n"))
+
+        self.assertEqual(len(list(LLMClient._iter_lines(Response()))), 2)
+
+
+class TestCredenciales(unittest.TestCase):
+    def test_delete_key_es_silenciosa_sin_llavero(self):
+        original = storage.keyring
+        storage.keyring = None
+        try:
+            storage.delete_key("cualquiera")  # no debe lanzar
+        finally:
+            storage.keyring = original
+
+    def test_delete_key_revoca_en_el_llavero(self):
+        original = storage.keyring
+        storage.keyring = Mock()
+        try:
+            storage.delete_key("perfil")
+            storage.keyring.delete_password.assert_called_once_with(
+                "articulador", "perfil"
+            )
+        finally:
+            storage.keyring = original
+
+
+class TestPerfilesInvalidos(unittest.TestCase):
+    def test_perfil_corrupto_se_ignora_dejando_rastro(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text(
+                '[llm]\nactive_profile = "malo"\n\n'
+                '[profiles.malo]\nprovider = "openai_compatible"\n'
+                'endpoint = "https://x/y"\nmodel = "m"\ntemperature = 9.0\n',
+                encoding="utf-8",
+            )
+
+            with patch.object(storage.logger, "warning") as warn:
+                profiles, active = storage.load_profiles(config)
+
+            self.assertNotIn("malo", profiles)
+            self.assertEqual(active, "default")
+            self.assertTrue(
+                any("malo" in str(call) for call in warn.call_args_list),
+                "El perfil descartado debe aparecer en el log",
+            )
+
+
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
+class TestDeshacerRevisionEntreDocumentos(unittest.TestCase):
+    """El "antes" de una sugerencia pertenece a un documento concreto."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+
+    def tearDown(self):
+        self.app.destroy()
+        self.directory.cleanup()
+
+    def _settle(self):
+        for _ in range(5):
+            self.app.update()
+            self.app.update_idletasks()
+
+    def test_deshacer_no_vuelca_el_articulo_anterior_sobre_el_nuevo(self):
+        a = self.root / "articulo_A.md"
+        a.write_text("TEXTO DE A", encoding="utf-8")
+        b = self.root / "articulo_B.md"
+        b.write_text("TEXTO DE B", encoding="utf-8")
+
+        self.app.load_document(a)
+        self._settle()
+        self.app.snapshot_for_undo(self.app.editor.get("1.0", "end-1c"))
+
+        self.app.load_document(b)
+        self._settle()
+        self.app.undo_review()
+        self._settle()
+
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), "TEXTO DE B")
+        self.assertFalse(self.app.session.dirty, "B no debe quedar sucio con texto de A")
+
+    def test_deshacer_sigue_funcionando_dentro_del_mismo_documento(self):
+        a = self.root / "articulo_A.md"
+        a.write_text("TEXTO ORIGINAL", encoding="utf-8")
+        self.app.load_document(a)
+        self._settle()
+
+        self.app.snapshot_for_undo("TEXTO ORIGINAL")
+        self.app.editor.delete("1.0", "end")
+        self.app.editor.insert("1.0", "TEXTO REVISADO")
+        self._settle()
+        self.app.undo_review()
+        self._settle()
+
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), "TEXTO ORIGINAL")
+
+
+class TestKeysDeSesion(unittest.TestCase):
+    """Actualizar una key no debe desalojar la de otro perfil."""
+
+    def _holder(self, maximo: int):
+        holder = ArticuladorApp.__new__(ArticuladorApp)
+        holder.session_keys = {}
+        holder._session_keys_max = maximo
+        return holder
+
+    def test_actualizar_una_key_existente_no_desaloja_a_nadie(self):
+        holder = self._holder(3)
+        for name in ("p1", "p2", "p3"):
+            holder._add_session_key(name, f"k-{name}")
+
+        holder._add_session_key("p2", "k-p2-nueva")
+
+        self.assertEqual(len(holder.session_keys), 3)
+        self.assertEqual(holder.session_keys["p1"], "k-p1")
+        self.assertEqual(holder.session_keys["p2"], "k-p2-nueva")
+
+    def test_insertar_una_key_nueva_desaloja_la_menos_reciente(self):
+        holder = self._holder(3)
+        for name in ("p1", "p2", "p3"):
+            holder._add_session_key(name, f"k-{name}")
+        holder._add_session_key("p2", "k-p2-nueva")  # p2 pasa a ser la más reciente
+
+        holder._add_session_key("p4", "k-p4")
+
+        self.assertNotIn("p1", holder.session_keys)
+        self.assertEqual(set(holder.session_keys), {"p2", "p3", "p4"})
+
+
+class TestExclusionDeContextoReversible(unittest.TestCase):
+    def test_un_archivo_excluido_sigue_siendo_ofrecible(self):
+        from articulador_ui.context_orchestrator import ContextOrchestrator
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a.md").write_text("seguridad alfa", encoding="utf-8")
+            (root / "b.md").write_text("seguridad beta", encoding="utf-8")
+            orchestrator = ContextOrchestrator(root)
+
+            _ok, _packet, files = orchestrator.prepare_context("seguridad", 4000)
+            for name in files:
+                orchestrator.exclude_file(name)
+            _ok, _packet, restantes = orchestrator.prepare_context("seguridad", 4000)
+
+            # El índice ya no los propone…
+            self.assertEqual(restantes, [])
+            # …pero el diálogo los sigue viendo, que es lo que hace reversible la acción.
+            ofrecidos = set(restantes) | set(orchestrator.excluded_context)
+            self.assertEqual(ofrecidos, {"a.md", "b.md"})
+
+            orchestrator.include_file("a.md")
+            _ok, _packet, vueltos = orchestrator.prepare_context("seguridad", 4000)
+            self.assertEqual(vueltos, ["a.md"])
+
+
+class TestAprobacionesDesalojoFIFO(unittest.TestCase):
+    def test_al_llenarse_se_desaloja_la_mas_antigua_no_todas(self):
+        approved: dict[tuple, None] = {}
+        for i in range(128):
+            approved[("e", "p", (), f"h{i}")] = None
+
+        while len(approved) >= 128:
+            approved.pop(next(iter(approved)), None)
+        approved[("e", "p", (), "h-nueva")] = None
+
+        self.assertEqual(len(approved), 128)
+        self.assertNotIn(("e", "p", (), "h0"), approved)
+        self.assertIn(("e", "p", (), "h127"), approved)
+
+
+class TestParserFindingsNoIterable(unittest.TestCase):
+    def test_findings_no_lista_se_descarta_sin_recorrerla(self):
+        from articulador_core.review import parse_findings
+
+        self.assertEqual(parse_findings('{"findings":"' + "x" * 100_000 + '"}'), [])
+        self.assertEqual(parse_findings('{"findings":{"a":1}}'), [])
+        self.assertEqual(parse_findings('{"findings":42}'), [])
+
+
+class TestDocumentManagerEsElDuenoDeLaPersistencia(unittest.TestCase):
+    """Los métodos que la app duplicaba deben existir y comportarse."""
+
+    def test_save_project_traduce_el_error_de_ruta(self):
+        from articulador_ui.document_manager import DocumentManager
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = root / "art.md"
+            document.write_text("x", encoding="utf-8")
+            (root / "sub").mkdir()
+
+            ok, error = DocumentManager().save_project(
+                ArticleSession(document_path=document, article="x"),
+                root / "sub" / "p.articulador.json",
+            )
+
+            self.assertFalse(ok)
+            self.assertIn("carpeta del artículo", error)
+
+    def test_open_project_devuelve_error_si_falta_el_articulo(self):
+        import json
+
+        from articulador_ui.document_manager import DocumentManager
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "p.articulador.json"
+            project.write_text(
+                json.dumps({"version": 2, "document": "no-existe.md"}), encoding="utf-8"
+            )
+
+            ok, error, _session = DocumentManager().open_project(project)
+
+            self.assertFalse(ok)
+            self.assertIn("No existe el artículo", error)
+
+
+if __name__ == "__main__":
+    unittest.main()

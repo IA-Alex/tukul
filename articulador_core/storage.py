@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 import tomllib
 from dataclasses import fields as dataclass_fields
@@ -34,8 +35,32 @@ def credential_backend() -> str:
     return "llavero del sistema" if keyring is not None else "solo sesión (instala keyring para recordar la key)"
 
 
+def _fsync_directory(directory: Path) -> None:
+    """Persiste la entrada de directorio para que el os.replace sobreviva a un corte.
+
+    Best-effort: hay sistemas de archivos que no permiten abrir el directorio.
+    """
+    try:
+        descriptor = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
 def _atomic_write(path: Path, content: str, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if mode is None:
+        # mkstemp crea el temporal con 0600. Sin heredar los permisos del destino,
+        # cada guardado degradaba un artículo 0644 a 0600 (y rompía compartición).
+        try:
+            mode = stat.S_IMODE(path.stat().st_mode)
+        except OSError:
+            mode = None
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as file:
@@ -51,6 +76,7 @@ def _atomic_write(path: Path, content: str, mode: int | None = None) -> None:
         except OSError:
             pass
         raise
+    _fsync_directory(path.parent)
 
 
 def load_profiles(path: Path | str = CONFIG_PATH) -> tuple[dict[str, LlmProfile], str]:
@@ -108,11 +134,16 @@ def load_profiles(path: Path | str = CONFIG_PATH) -> tuple[dict[str, LlmProfile]
                     if isinstance(value, (int, float)):
                         kwargs[key] = float(value)
             profiles[name] = LlmProfile(name=name, **kwargs)  # type: ignore[arg-type]
-        except Exception:
-            # Perfil individual corrupto: ignorar y continuar
+        except Exception as error:
+            # Perfil individual corrupto: ignorar y continuar, pero dejar rastro.
+            # Antes desaparecía en silencio y el usuario veía "sin configurar".
+            logger.warning("Perfil '%s' ignorado por configuración inválida: %s", name, error)
             continue
 
-    return profiles, active if active in profiles else "default"
+    if active not in profiles:
+        logger.warning("Perfil activo '%s' no disponible; se usa 'default'.", active)
+        active = "default"
+    return profiles, active
 
 
 def save_profiles(
@@ -154,13 +185,31 @@ def save_key(profile: str, key: str) -> None:
         raise RuntimeError("El llavero del sistema no pudo guardar la key.") from error
 
 
+def delete_key(profile: str) -> None:
+    """Revoca la credencial guardada. Silenciosa si no hay llavero o no existe entrada."""
+    if keyring is None:
+        return
+    try:
+        keyring.delete_password("articulador", profile)
+    except Exception:
+        # keyring lanza PasswordDeleteError cuando no había nada guardado: no es un fallo.
+        pass
+
+
 def save_project(session: ArticleSession, path: Path) -> None:
     if session.document_path is None:
         raise ValueError("Guarda primero el artículo Markdown.")
-    base = path.parent
+    base = path.parent.resolve()
+
     def make_relative(value: Path) -> str:
-        """Convert path to relative (raises ValueError if not under base)."""
-        return value.relative_to(base).as_posix() if value else ""
+        """Ruta relativa al proyecto; el destino debe contener al artículo."""
+        try:
+            return Path(value).resolve().relative_to(base).as_posix()
+        except ValueError as error:
+            raise ValueError(
+                "El proyecto debe guardarse en la carpeta del artículo o en una "
+                f"carpeta superior.\nArtículo: {value}\nCarpeta elegida: {base}"
+            ) from error
 
     data = {
         "version": 2,
@@ -248,8 +297,9 @@ def load_project(path: Path) -> dict:
     base = path.parent
     try:
         data["document"] = _validate_relative_path(data["document"], base)
-        if data.get("corpus"):
-            data["corpus"] = _validate_relative_path(data["corpus"], base)
+        # Normalizar a Path|None: un corpus vacío llegaba como "" y la sesión acababa
+        # con un str donde el resto del código espera Path.
+        data["corpus"] = _validate_relative_path(corpus, base) if corpus else None
     except ValueError as e:
         raise ValueError(f"Seguridad: {e}") from e
     data["conversation"] = conversation

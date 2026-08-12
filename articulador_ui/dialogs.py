@@ -4,12 +4,17 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from articulador_core import storage
-from articulador_core.llm import PROVIDERS, provider_spec
+from articulador_core.llm import PROVIDERS, LlmError, provider_spec, validate_endpoint
 from articulador_core.models import LlmProfile
 
 
 def show_context_dialog(app) -> None:
-    if not app.last_context_files:
+    # Un archivo excluido deja de aparecer en las consultas siguientes, así que
+    # listar solo `last_context_files` hacía la exclusión irreversible: hay que
+    # ofrecer también los ya excluidos para poder volver a incluirlos.
+    excluded = app.context.excluded_context
+    names = sorted(set(app.last_context_files) | set(excluded))
+    if not names:
         messagebox.showinfo(
             "Contexto",
             "Envía primero una consulta para que Articulador proponga archivos relevantes.",
@@ -21,12 +26,13 @@ def show_context_dialog(app) -> None:
     dialog.grab_set()
     frame = ttk.Frame(dialog, padding=14)
     frame.pack()
-    ttk.Label(frame, text="Archivos usados en la última consulta:").pack(anchor="w")
+    ttk.Label(frame, text="Archivos disponibles como contexto local:").pack(anchor="w")
     values = []
-    for name in app.last_context_files:
-        variable = tk.BooleanVar(value=name not in app.context.excluded_context)
+    for name in names:
+        variable = tk.BooleanVar(value=name not in excluded)
         values.append((name, variable))
-        ttk.Checkbutton(frame, text=name, variable=variable).pack(anchor="w")
+        etiqueta = name if name in app.last_context_files else f"{name}  (excluido)"
+        ttk.Checkbutton(frame, text=etiqueta, variable=variable).pack(anchor="w")
 
     def apply() -> None:
         for name, variable in values:
@@ -109,7 +115,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
             updated = (
                 text[:first] + item["suggestion"] + text[first + len(original) :]
             )
-            app.last_review_before = text
+            app.snapshot_for_undo(text)
             app.editor.delete("1.0", "end")
             app.editor.insert("1.0", updated)
             app.session.dirty = True
@@ -224,7 +230,11 @@ def show_settings_dialog(app) -> None:
                     values["output_price_per_million"].get()
                 ),
             )
-        except ValueError as error:
+            # Fallar aquí y no en el primer envío: un endpoint http:// remoto mandaría
+            # la API key en claro y un esquema no HTTP ni siquiera es transportable.
+            if updated.endpoint:
+                validate_endpoint(updated.endpoint)
+        except (ValueError, LlmError) as error:
             messagebox.showerror(
                 "Configuración", str(error), parent=dialog
             )
@@ -242,10 +252,18 @@ def show_settings_dialog(app) -> None:
             app.profile_chip.config(text=f"Modelo: {updated.model or 'sin configurar'}")
 
             # 3. Guardar credenciales (llavero/sesión)
-            if key.get().strip():
-                app._add_session_key(app.active_profile, key.get().strip())
+            entered = key.get().strip()
+            if entered:
+                app._add_session_key(app.active_profile, entered)
                 if remember.get():
-                    storage.save_key(app.active_profile, key.get().strip())
+                    storage.save_key(app.active_profile, entered)
+                else:
+                    # Desmarcar «Recordar» debe revocar lo ya guardado; antes la
+                    # credencial seguía en el llavero indefinidamente.
+                    storage.delete_key(app.active_profile)
+            else:
+                app.session_keys.pop(app.active_profile, None)
+                storage.delete_key(app.active_profile)
 
             messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
             dialog.destroy()
