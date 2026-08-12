@@ -712,6 +712,56 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             finally:
                 os.chmod(solo_lectura, 0o700)
 
+    def test_check_health_diagnostica_el_config_indicado_no_el_por_defecto(self):
+        from articulador_core.health import check_health
+
+        with tempfile.TemporaryDirectory() as directory:
+            propio = Path(directory) / "propio.toml"
+            perfiles = "\n".join(
+                f'[profiles.p{i}]\nprovider = "openai_compatible"\n'
+                f'endpoint = "https://x.example/v1/chat/completions"\nmodel = "m{i}"'
+                for i in range(3)
+            )
+            propio.write_text(f'[llm]\nactive_profile = "p0"\n\n{perfiles}\n', encoding="utf-8")
+
+            status = check_health(propio)
+
+            self.assertEqual(status.config_path, str(propio))
+            self.assertIn("3 profile(s) enabled", status.components["llm"][1])
+
+    def test_status_string_declara_el_archivo_inspeccionado(self):
+        from articulador_core.health import check_health, status_string
+
+        with tempfile.TemporaryDirectory() as directory:
+            propio = Path(directory) / "propio.toml"
+            propio.write_text("[llm]\n", encoding="utf-8")
+
+            texto = status_string(check_health(propio))
+
+            self.assertIn(str(propio), texto)
+
+    def test_la_cli_pasa_config_al_diagnostico(self):
+        import subprocess
+
+        raiz = Path(__file__).parent.parent
+        with tempfile.TemporaryDirectory() as directory:
+            propio = Path(directory) / "cli.toml"
+            perfiles = "\n".join(
+                f'[profiles.p{i}]\nprovider = "openai_compatible"\n'
+                f'endpoint = "https://x.example/v1/chat/completions"\nmodel = "m{i}"'
+                for i in range(2)
+            )
+            propio.write_text(f'[llm]\nactive_profile = "p0"\n\n{perfiles}\n', encoding="utf-8")
+
+            proceso = subprocess.run(
+                [sys.executable, "articulador.py", "--config", str(propio), "--health"],
+                cwd=raiz, capture_output=True, text=True, timeout=60,
+            )
+
+            self.assertEqual(proceso.returncode, 0, proceso.stderr)
+            self.assertIn(str(propio), proceso.stdout)
+            self.assertIn("2 profile(s) enabled", proceso.stdout)
+
     def test_check_health_lee_la_configuracion_una_sola_vez(self):
         from articulador_core import health
 

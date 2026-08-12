@@ -32,7 +32,8 @@ def main() -> None:
         # llavero/config no están accesibles.
         from articulador_core.health import check_health, status_string
 
-        status = check_health()
+        # Debe diagnosticar el config que pidió la CLI, no siempre el de por defecto.
+        status = check_health(args.config)
         print(status_string(status))
         # Salida 1 solo si algo está roto: una instalación nueva tiene avisos
         # (sin carpeta de config, sin perfiles) y sigue siendo utilizable.
