@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .logging_config import setup_logging
+from .logging_config import file_logging_status, setup_logging
 
 # El logger por módulo (`getLogger(__name__)`) no tiene handlers: su salida nunca
 # llegaba al log JSON de la aplicación y se escapaba sin formato por stderr.
@@ -127,10 +127,18 @@ def check_health(config_path: Path | str | None = None) -> HealthStatus:
         components["llm"] = (ComponentStatus.ERROR, f"Error: {e}")
         logger.warning(f"Health: llm failed - {e}")
 
-    # 3. Logging
+    # 3. Logging - estado REAL del destino, no "logger.debug() no lanzó".
+    # Con handler de consola presente, debug() nunca lanza: el componente se
+    # declaraba sano incluso con el archivo de log inexistente por sistema de
+    # archivos de solo lectura.
     try:
-        logger.debug("Health check: logging test")
-        components["logging"] = (ComponentStatus.HEALTHY, "OK")
+        operativo, detalle = file_logging_status()
+        # Aviso, no error: la aplicación funciona sin archivo de log; lo que se
+        # pierde es la capacidad de diagnosticar después.
+        components["logging"] = (
+            (ComponentStatus.HEALTHY, detalle) if operativo
+            else (ComponentStatus.WARNING, detalle)
+        )
     except Exception as e:
         components["logging"] = (ComponentStatus.ERROR, f"Error: {e}")
 

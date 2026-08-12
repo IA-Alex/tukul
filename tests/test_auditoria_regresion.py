@@ -794,6 +794,56 @@ class TestLogging(unittest.TestCase):
             finally:
                 setup_logging(Path(directory) / "descartable.log")
 
+    def test_el_diagnostico_no_declara_sano_un_log_inexistente(self):
+        """El chequeo anterior solo comprobaba que logger.debug() no lanzara.
+
+        Con handler de consola presente nunca lanza, así que un destino de log
+        imposible (sistema de archivos de solo lectura) se reportaba como «OK».
+        """
+        import subprocess
+
+        raiz = Path(__file__).parent.parent
+        with tempfile.TemporaryDirectory() as directory:
+            hogar = Path(directory) / "hogar"
+            hogar.mkdir()
+            os.chmod(hogar, 0o500)  # sin permiso de escritura
+            try:
+                entorno = {**os.environ, "HOME": str(hogar)}
+                proceso = subprocess.run(
+                    [sys.executable, "articulador.py", "--health"],
+                    cwd=raiz, capture_output=True, text=True, timeout=60, env=entorno,
+                )
+            finally:
+                os.chmod(hogar, 0o700)
+
+            self.assertNotIn(
+                "logging: ✓", proceso.stdout,
+                "El log no pudo crearse; declararlo sano es un falso positivo",
+            )
+            self.assertIn("logging: ⚠", proceso.stdout)
+            self.assertIn("solo consola", proceso.stdout)
+
+    def test_file_logging_status_detecta_un_destino_que_deja_de_escribirse(self):
+        from articulador_core.logging_config import file_logging_status, setup_logging
+
+        with tempfile.TemporaryDirectory() as directory:
+            destino = Path(directory) / "vivo.log"
+            setup_logging(destino)
+            try:
+                operativo, detalle = file_logging_status()
+                self.assertTrue(operativo, detalle)
+                self.assertIn(str(destino), detalle)
+
+                # El sistema de archivos puede volverse de solo lectura DESPUÉS
+                # del arranque: recordar el error de inicio no bastaría.
+                os.chmod(destino, 0o400)
+                operativo, detalle = file_logging_status()
+                self.assertFalse(operativo)
+                self.assertIn("no escribible", detalle)
+            finally:
+                os.chmod(destino, 0o600)
+                setup_logging(Path(directory) / "descartable.log")
+
     def test_la_rotacion_acota_el_tamano_en_disco(self):
         import logging
         from logging.handlers import RotatingFileHandler

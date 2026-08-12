@@ -8,6 +8,9 @@ from pathlib import Path
 
 LOGGER_NAME = "articulador"
 DEFAULT_LOG_PATH = Path.home() / ".local" / "state" / "articulador" / "articulador.log"
+# Motivo del último fallo al instalar el archivo de log, para que el
+# diagnóstico pueda explicarlo en vez de limitarse a decir "OK".
+_file_handler_error: str = ""
 
 
 class StructuredFormatter(logging.Formatter):
@@ -81,9 +84,37 @@ def setup_logging(log_path: Path | None = None) -> logging.Logger:
     return logger
 
 
-def _attach_file_handler(logger: logging.Logger, path: Path, replace: bool = False) -> None:
-    """Instala el archivo rotativo. Si no se puede, deja constancia visible."""
+def file_logging_status() -> tuple[bool, str]:
+    """Estado real del registro en archivo: (operativo, detalle).
+
+    Comprobar que `logger.debug()` no lanza no dice nada: con el handler de
+    consola presente nunca lanza, así que el diagnóstico daba «OK» mientras el
+    archivo de log no existía. Aquí se verifica lo que importa: que haya handler
+    de archivo y que su destino siga siendo escribible AHORA (el sistema de
+    archivos puede pasar a solo lectura después del arranque).
+    """
     from logging.handlers import RotatingFileHandler
+
+    logger = logging.getLogger(LOGGER_NAME)
+    handlers = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
+    if not handlers:
+        motivo = _file_handler_error or "no hay archivo de log configurado"
+        return False, f"solo consola: {motivo}"
+
+    path = Path(handlers[0].baseFilename)
+    try:
+        with path.open("a", encoding="utf-8"):
+            pass
+    except OSError as error:
+        return False, f"archivo de log no escribible ({path}): {error}"
+    return True, f"OK (archivo: {path})"
+
+
+def _attach_file_handler(logger: logging.Logger, path: Path, replace: bool = False) -> None:
+    """Instala el archivo rotativo. Si no se puede, deja constancia consultable."""
+    from logging.handlers import RotatingFileHandler
+
+    global _file_handler_error
 
     existing = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
     if existing and not replace:
@@ -97,9 +128,12 @@ def _attach_file_handler(logger: logging.Logger, path: Path, replace: bool = Fal
         )
     except OSError as e:
         # Antes era logger.debug() y la consola está en INFO: quedarse sin archivo
-        # de log era completamente invisible.
+        # de log era completamente invisible. Además de avisar, se guarda el
+        # motivo para que check_health pueda informar de él.
+        _file_handler_error = str(e)
         logger.warning("No se pudo crear el archivo de log en %s: %s", path, e)
         return
+    _file_handler_error = ""
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(StructuredFormatter(is_file=True))
     for handler in existing:
