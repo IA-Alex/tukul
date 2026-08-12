@@ -1,19 +1,26 @@
 import io
-import os
 import json
+import os
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
-import urllib.error
-
+import articulador_core.storage as storage
 from articulador_core.context import ContextIndex
-from articulador_core.llm import LLMClient, PROVIDERS, SYSTEM_PROMPT, StreamChunk, LlmError, http_error_message, provider_spec
+from articulador_core.llm import (
+    PROVIDERS,
+    SYSTEM_PROMPT,
+    LLMClient,
+    LlmError,
+    StreamChunk,
+    http_error_message,
+    provider_spec,
+)
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
-import articulador_core.storage as storage
 
 
 class CoreTests(unittest.TestCase):
@@ -381,7 +388,7 @@ model = "test-model"
 
     def test_estimate_prompt_tokens_counts_complete_prompt(self):
         """Verificar que estimate_prompt_tokens cuenta SYSTEM + payload JSON (sin doble conteo)."""
-        from articulador_core.llm import estimate_prompt_tokens, SYSTEM_PROMPT
+        from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
         from articulador_core.prompting import build_editor_prompt
 
         message = "¿Cómo mejoro el texto?"
@@ -439,7 +446,7 @@ model = "test-model"
         ]
 
         # Simular lo que confirm_and_send hace: agregar el mensaje a la conversation
-        conversation_with_message = list(previous_conversation) + [ChatMessage("user", current_message)]
+        conversation_with_message = [*list(previous_conversation), ChatMessage("user", current_message)]
 
         article = "Artículo de prueba"
         context = "Contexto relevante"

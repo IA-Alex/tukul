@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from articulador_core.context import ContextIndex
 from articulador_core.logging_config import setup_logging
 

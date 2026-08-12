@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Callable, Iterable
+from collections.abc import Callable, Iterable
 
-from articulador_core.llm import LLMClient, LlmError, StreamChunk
-from articulador_core.models import LlmProfile, ChatMessage
+from articulador_core.llm import LLMClient, LlmError
+from articulador_core.models import ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 
 
@@ -51,11 +51,12 @@ class LLMSessionManager:
             # Stream con captura amplia de excepciones
             chunks = []
             usage = (None, None)
-            # Límite de caracteres de respuesta (prevent unbounded memory)
-            # Usar max_output_tokens * 4 chars/token como aproximación
-            max_response_chars = (profile.max_output_tokens or 2000) * 4
+            # FIX: Calcular límite de RAM en función de max_output_tokens del profile
+            # Conversión: ~4 bytes/token en UTF-8 (worst case), con factor de seguridad 2x
+            # Esto evita hardcoded limits que pueden no coincidir con la config del modelo
+            max_response_bytes = max(2 * 1024 * 1024, profile.max_output_tokens * 4 * 2)
             # Acumulador para evitar cálculo cuadrático len("".join(chunks))
-            accumulated_chars = 0
+            accumulated_bytes = 0
 
             try:
                 for chunk in self.client.stream(
@@ -69,12 +70,13 @@ class LLMSessionManager:
                         if not isinstance(chunk.content, str):
                             continue
 
-                        # Verificar límite de respuesta (O(1), no O(n))
-                        if accumulated_chars + len(chunk.content) > max_response_chars:
-                            raise LlmError(f"La respuesta excede el límite de {profile.max_output_tokens} tokens de salida.")
+                        # Verificar solo techo de RAM (no limitar tokens, confiar en proveedor)
+                        chunk_bytes = len(chunk.content.encode("utf-8"))
+                        if accumulated_bytes + chunk_bytes > max_response_bytes:
+                            raise LlmError(f"La respuesta excede el límite de memoria de {max_response_bytes / (1024*1024):.1f}MB. Respuesta truncada.")
 
                         chunks.append(chunk.content)
-                        accumulated_chars += len(chunk.content)  # ← Acumulador
+                        accumulated_bytes += chunk_bytes  # ← Acumulador en bytes
                         on_chunk(chunk.content)
 
                     if (

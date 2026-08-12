@@ -6,8 +6,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from articulador_ui.app import ArticuladorApp
 from articulador_core import storage
+from articulador_ui.app import ArticuladorApp
 
 
 def open_initial_document(app: ArticuladorApp, path: Path) -> None:

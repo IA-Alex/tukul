@@ -1,12 +1,104 @@
 [project]
 name = "articulador"
-version = "0.1.0"
-description = "Editor conversacional local para artículos Markdown"
+version = "0.2.0"
+description = "Editor conversacional inteligente con análisis de contexto"
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["tomli-w>=1.0"]
+authors = [
+    {name = "Israel Alexis H", email = "israelalexish@gmail.com"}
+]
+dependencies = [
+    "tomli-w>=1.0.0",  # For writing TOML files
+]
 
 [project.optional-dependencies]
-secure-credentials = ["keyring>=25"]
+keyring = ["keyring>=24.0.0"]  # For secure credential storage
+dev = [
+    "ruff>=0.1.0",      # Fast Python linter
+    "mypy>=1.0.0",      # Type checker
+    "black>=23.0.0",    # Code formatter
+    "isort>=5.12.0",    # Import sorter
+    "pylint>=2.0.0",    # Code analyzer
+]
 
-[tool.setuptools]
-packages = ["articulador_core", "articulador_ui"]
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# Archivos a excluir
+exclude = [
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# Selectores de linting (habilitados)
+select = [
+    "E",      # Errores pycodestyle
+    "W",      # Warnings pycodestyle
+    "F",      # Pyflakes (undefined names, etc)
+    "I",      # isort (imports)
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C90",    # McCabe complexity
+    "RUF",    # ruff-specific rules
+]
+
+ignore = [
+    "E501",   # Line too long (BLACK handles this)
+    "E203",   # Whitespace before ':'
+]
+# NOTE: W503 (line break before binary operator) was removed from modern ruff
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports OK en __init__
+"tests/*" = ["F401", "F841"]  # Unused variables OK en tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["articulador_core", "articulador_ui"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"

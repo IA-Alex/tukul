@@ -10,15 +10,24 @@ from articulador_core.models import LlmProfile
 
 def show_context_dialog(app) -> None:
     if not app.last_context_files:
-        messagebox.showinfo("Contexto", "Envía primero una consulta para que Articulador proponga archivos relevantes.")
+        messagebox.showinfo(
+            "Contexto",
+            "Envía primero una consulta para que Articulador proponga archivos relevantes.",
+        )
         return
-    dialog = tk.Toplevel(app); dialog.title("Contexto local"); dialog.transient(app); dialog.grab_set()
-    frame = ttk.Frame(dialog, padding=14); frame.pack()
+    dialog = tk.Toplevel(app)
+    dialog.title("Contexto local")
+    dialog.transient(app)
+    dialog.grab_set()
+    frame = ttk.Frame(dialog, padding=14)
+    frame.pack()
     ttk.Label(frame, text="Archivos usados en la última consulta:").pack(anchor="w")
     values = []
     for name in app.last_context_files:
         variable = tk.BooleanVar(value=name not in app.context.excluded_context)
-        values.append((name, variable)); ttk.Checkbutton(frame, text=name, variable=variable).pack(anchor="w")
+        values.append((name, variable))
+        ttk.Checkbutton(frame, text=name, variable=variable).pack(anchor="w")
+
     def apply() -> None:
         for name, variable in values:
             if not variable.get():
@@ -26,71 +35,200 @@ def show_context_dialog(app) -> None:
             else:
                 app.context.include_file(name)
         dialog.destroy()
-    ttk.Button(frame, text="Aplicar selección", style="Accent.TButton", command=apply).pack(anchor="e", pady=(10, 0))
+
+    ttk.Button(
+        frame,
+        text="Aplicar selección",
+        style="Accent.TButton",
+        command=apply,
+    ).pack(anchor="e", pady=(10, 0))
 
 
 def show_review_dialog(app, findings: list[dict[str, str]]) -> None:
-    dialog = tk.Toplevel(app); dialog.title("Revisión del artículo"); dialog.geometry("720x560"); dialog.transient(app)
-    body = ttk.PanedWindow(dialog, orient="horizontal"); body.pack(fill="both", expand=True, padx=8, pady=8)
-    left = ttk.Frame(body); body.add(left, weight=1); right = ttk.Frame(body); body.add(right, weight=2)
-    items = tk.Listbox(left, exportselection=False); items.pack(fill="both", expand=True)
-    for item in findings: items.insert("end", f"{item['category'].title()} · {item['severity']}")
-    box = app._text(right, wrap="word", padx=12, pady=10, state="disabled"); box.pack(fill="both", expand=True)
+    dialog = tk.Toplevel(app)
+    dialog.title("Revisión del artículo")
+    dialog.geometry("720x560")
+    dialog.transient(app)
+    body = ttk.PanedWindow(dialog, orient="horizontal")
+    body.pack(fill="both", expand=True, padx=8, pady=8)
+    left = ttk.Frame(body)
+    body.add(left, weight=1)
+    right = ttk.Frame(body)
+    body.add(right, weight=2)
+    items = tk.Listbox(left, exportselection=False)
+    items.pack(fill="both", expand=True)
+    for item in findings:
+        items.insert("end", f"{item['category'].title()} · {item['severity']}")
+    box = app._text(right, wrap="word", padx=12, pady=10, state="disabled")
+    box.pack(fill="both", expand=True)
+
     def show(_event=None) -> None:
-        if not items.curselection(): return
+        if not items.curselection():
+            return
         item = findings[items.curselection()[0]]
-        text = f"{item['category'].upper()} · {item['severity'].upper()}\n\nOriginal\n{item['original']}\n\nSugerencia\n{item['suggestion']}\n\nMotivo\n{item['reason']}"
-        box.config(state="normal"); box.delete("1.0", "end"); box.insert("1.0", text); box.config(state="disabled")
-    items.bind("<<ListboxSelect>>", show); items.select_set(0); show()
-    actions = ttk.Frame(dialog, padding=8); actions.pack(fill="x")
+        text = (
+            f"{item['category'].upper()} · {item['severity'].upper()}\n\n"
+            f"Original\n{item['original']}\n\n"
+            f"Sugerencia\n{item['suggestion']}\n\n"
+            f"Motivo\n{item['reason']}"
+        )
+        box.config(state="normal")
+        box.delete("1.0", "end")
+        box.insert("1.0", text)
+        box.config(state="disabled")
+
+    items.bind("<<ListboxSelect>>", show)
+    items.select_set(0)
+    show()
+    actions = ttk.Frame(dialog, padding=8)
+    actions.pack(fill="x")
+
     def decide(apply: bool) -> None:
-        if not items.curselection(): return
-        index = items.curselection()[0]; item = findings[index]
+        if not items.curselection():
+            return
+        index = items.curselection()[0]
+        item = findings[index]
         if apply:
-            text = app.editor.get("1.0", "end-1c"); original = item["original"]
+            text = app.editor.get("1.0", "end-1c")
+            original = item["original"]
             first, last = text.find(original), text.rfind(original)
-            if first < 0: messagebox.showinfo("No encontrado", "El fragmento ya cambió o no existe.", parent=dialog); return
-            if first != last: messagebox.showinfo("Fragmento ambiguo", "El texto aparece varias veces. Edita manualmente o pide una sugerencia más específica.", parent=dialog); return
-            updated = text[:first] + item["suggestion"] + text[first + len(original):]
-            app.last_review_before = text; app.editor.delete("1.0", "end"); app.editor.insert("1.0", updated); app.session.dirty = True
-        findings.pop(index); items.delete(index)
-        if findings: items.select_set(min(index, len(findings) - 1)); show()
-        else: dialog.destroy()
-    ttk.Button(actions, text="Aplicar", style="Accent.TButton", command=lambda: decide(True)).pack(side="right")
-    ttk.Button(actions, text="Deshacer último", command=app.undo_review).pack(side="right", padx=(0, 6))
-    ttk.Button(actions, text="Ignorar", command=lambda: decide(False)).pack(side="right", padx=(0, 6))
+            if first < 0:
+                messagebox.showinfo(
+                    "No encontrado",
+                    "El fragmento ya cambió o no existe.",
+                    parent=dialog,
+                )
+                return
+            if first != last:
+                messagebox.showinfo(
+                    "Fragmento ambiguo",
+                    "El texto aparece varias veces. Edita manualmente o pide una sugerencia más específica.",
+                    parent=dialog,
+                )
+                return
+            updated = (
+                text[:first] + item["suggestion"] + text[first + len(original) :]
+            )
+            app.last_review_before = text
+            app.editor.delete("1.0", "end")
+            app.editor.insert("1.0", updated)
+            app.session.dirty = True
+        findings.pop(index)
+        items.delete(index)
+        if findings:
+            items.select_set(min(index, len(findings) - 1))
+            show()
+        else:
+            dialog.destroy()
+
+    ttk.Button(
+        actions, text="Aplicar", style="Accent.TButton", command=lambda: decide(True)
+    ).pack(side="right")
+    ttk.Button(actions, text="Deshacer último", command=app.undo_review).pack(
+        side="right", padx=(0, 6)
+    )
+    ttk.Button(
+        actions, text="Ignorar", command=lambda: decide(False)
+    ).pack(side="right", padx=(0, 6))
     ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
 
 
 def show_settings_dialog(app) -> None:
-    dialog = tk.Toplevel(app); dialog.title("Configurar LLM"); dialog.transient(app); dialog.grab_set(); frame = ttk.Frame(dialog, padding=14); frame.pack()
+    dialog = tk.Toplevel(app)
+    dialog.title("Configurar LLM")
+    dialog.transient(app)
+    dialog.grab_set()
+    frame = ttk.Frame(dialog, padding=14)
+    frame.pack()
     profile = app.profile
-    provider = tk.StringVar(value=profile.provider if profile.provider in PROVIDERS else "openai_compatible")
-    fields = ("endpoint", "model", "api_key_env", "max_total_model_tokens", "max_output_tokens", "max_context_chars", "temperature", "input_price_per_million", "output_price_per_million")
+    provider = tk.StringVar(
+        value=profile.provider if profile.provider in PROVIDERS else "openai_compatible"
+    )
+    fields = (
+        "endpoint",
+        "model",
+        "api_key_env",
+        "max_total_model_tokens",
+        "max_output_tokens",
+        "max_context_chars",
+        "temperature",
+        "input_price_per_million",
+        "output_price_per_million",
+    )
     values = {name: tk.StringVar(value=str(getattr(profile, name))) for name in fields}
-    key = tk.StringVar(value=storage.load_key(app.active_profile)); remember = tk.BooleanVar(value=bool(key.get()))
+    key = tk.StringVar(value=storage.load_key(app.active_profile))
+    remember = tk.BooleanVar(value=bool(key.get()))
     ttk.Label(frame, text="Proveedor").grid(row=0, column=0, sticky="w")
-    selector = ttk.Combobox(frame, textvariable=provider, values=list(PROVIDERS), state="readonly", width=45); selector.grid(row=0, column=1, pady=3)
-    hint = ttk.Label(frame, text="", foreground=app.COLORS["muted"], wraplength=380); hint.grid(row=1, column=1, sticky="w")
+    selector = ttk.Combobox(
+        frame, textvariable=provider, values=list(PROVIDERS), state="readonly", width=45
+    )
+    selector.grid(row=0, column=1, pady=3)
+    hint = ttk.Label(
+        frame, text="", foreground=app.COLORS["muted"], wraplength=380
+    )
+    hint.grid(row=1, column=1, sticky="w")
     previous_provider = provider.get()
+
     def update_provider_hint(_event=None) -> None:
         nonlocal previous_provider
-        selected = provider_spec(provider.get()); old_hint = provider_spec(previous_provider).endpoint_hint
-        if not values["endpoint"].get().strip() or values["endpoint"].get().strip() == old_hint: values["endpoint"].set(selected.endpoint_hint)
-        hint.config(text=f"Protocolo: {selected.protocol}. Endpoint sugerido: {selected.endpoint_hint}"); previous_provider = provider.get()
-    selector.bind("<<ComboboxSelected>>", update_provider_hint); update_provider_hint()
+        selected = provider_spec(provider.get())
+        old_hint = provider_spec(previous_provider).endpoint_hint
+        if (
+            not values["endpoint"].get().strip()
+            or values["endpoint"].get().strip() == old_hint
+        ):
+            values["endpoint"].set(selected.endpoint_hint)
+        hint.config(
+            text=f"Protocolo: {selected.protocol}. Endpoint sugerido: {selected.endpoint_hint}"
+        )
+        previous_provider = provider.get()
+
+    selector.bind("<<ComboboxSelected>>", update_provider_hint)
+    update_provider_hint()
     for row, (name, variable) in enumerate(values.items(), start=2):
-        ttk.Label(frame, text=name).grid(row=row, column=0, sticky="w"); ttk.Entry(frame, textvariable=variable, width=48).grid(row=row, column=1, pady=3)
+        ttk.Label(frame, text=name).grid(row=row, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=variable, width=48).grid(row=row, column=1, pady=3)
     # API key va en fila siguiente a los campos dinámicos
     api_key_row = 2 + len(values)
-    ttk.Label(frame, text="API key").grid(row=api_key_row, column=0, sticky="w"); ttk.Entry(frame, textvariable=key, show="•", width=48).grid(row=api_key_row, column=1)
-    ttk.Checkbutton(frame, text="Recordar en este equipo", variable=remember).grid(row=api_key_row+1, columnspan=2, sticky="w")
-    ttk.Label(frame, text=f"Almacenamiento: {storage.credential_backend()}", foreground=app.COLORS["muted"]).grid(row=api_key_row+2, columnspan=2, sticky="w")
+    ttk.Label(frame, text="API key").grid(row=api_key_row, column=0, sticky="w")
+    ttk.Entry(frame, textvariable=key, show="•", width=48).grid(
+        row=api_key_row, column=1
+    )
+    ttk.Checkbutton(
+        frame, text="Recordar en este equipo", variable=remember
+    ).grid(row=api_key_row + 1, columnspan=2, sticky="w")
+    ttk.Label(
+        frame,
+        text=f"Almacenamiento: {storage.credential_backend()}",
+        foreground=app.COLORS["muted"],
+    ).grid(row=api_key_row + 2, columnspan=2, sticky="w")
+
     def save() -> None:
         try:
-            updated = LlmProfile(name=app.active_profile, provider=provider.get(), endpoint=values["endpoint"].get().strip(), model=values["model"].get().strip(), api_key_env=values["api_key_env"].get().strip(), max_total_model_tokens=int(values["max_total_model_tokens"].get()), max_output_tokens=int(values["max_output_tokens"].get()), max_context_chars=int(values["max_context_chars"].get()), temperature=float(values["temperature"].get()), input_price_per_million=float(values["input_price_per_million"].get()), output_price_per_million=float(values["output_price_per_million"].get()))
+            updated = LlmProfile(
+                name=app.active_profile,
+                provider=provider.get(),
+                endpoint=values["endpoint"].get().strip(),
+                model=values["model"].get().strip(),
+                api_key_env=values["api_key_env"].get().strip(),
+                max_total_model_tokens=int(
+                    values["max_total_model_tokens"].get()
+                ),
+                max_output_tokens=int(values["max_output_tokens"].get()),
+                max_context_chars=int(values["max_context_chars"].get()),
+                temperature=float(values["temperature"].get()),
+                input_price_per_million=float(
+                    values["input_price_per_million"].get()
+                ),
+                output_price_per_million=float(
+                    values["output_price_per_million"].get()
+                ),
+            )
         except ValueError as error:
-            messagebox.showerror("Configuración", str(error), parent=dialog); return
+            messagebox.showerror(
+                "Configuración", str(error), parent=dialog
+            )
+            return
 
         # Transaccional: persistir PRIMERO, actualizar app solo si éxito
         try:

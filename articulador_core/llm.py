@@ -158,9 +158,11 @@ class LLMClient:
                     if cancel_event is not None and cancel_event.is_set():
                         break
                     line = raw.decode("utf-8", errors="replace").strip()
-                    if not line.startswith("data:"): continue
+                    if not line.startswith("data:"):
+                        continue
                     data = line[5:].strip()
-                    if data == "[DONE]": break
+                    if data == "[DONE]":
+                        break
                     try:
                         chunk = self._stream_event(profile, json.loads(data))
                     except (ValueError, KeyError, IndexError, TypeError): continue

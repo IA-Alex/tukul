@@ -6,20 +6,28 @@ import tempfile
 import tomllib
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
+from typing import Any
 
 from .logging_config import setup_logging
 from .models import ArticleSession, ChatMessage, LlmProfile
 
 logger = setup_logging()
 
+# Optional dependencies (may be None if not installed)
+keyring: Any = None
+tomli_w: Any = None
+
 try:
-    import keyring
+    import keyring as keyring_module
+    keyring = keyring_module
 except ImportError:
-    keyring = None
+    pass
+
 try:
-    import tomli_w
+    import tomli_w as tomli_w_module
+    tomli_w = tomli_w_module
 except ImportError:
-    tomli_w = None
+    pass
 
 CONFIG_PATH = Path.home() / ".config" / "articulador" / "config.toml"
 def credential_backend() -> str:
@@ -45,8 +53,13 @@ def _atomic_write(path: Path, content: str, mode: int | None = None) -> None:
         raise
 
 
-def load_profiles(path: Path = CONFIG_PATH) -> tuple[dict[str, LlmProfile], str]:
-    """Carga perfiles LLM de forma defensiva. Nunca falla; usa defaults si hay problemas."""
+def load_profiles(path: Path | str = CONFIG_PATH) -> tuple[dict[str, LlmProfile], str]:
+    """Carga perfiles LLM de forma defensiva. Nunca falla; usa defaults si hay problemas.
+
+    Args:
+        path: Path to config file (Path object or string)
+    """
+    path = Path(path) if isinstance(path, str) else path
     profiles = {"default": LlmProfile()}
     active = "default"
 
@@ -79,7 +92,7 @@ def load_profiles(path: Path = CONFIG_PATH) -> tuple[dict[str, LlmProfile], str]
             continue
         try:
             # Solo incluir campos válidos y del tipo correcto
-            kwargs = {}
+            kwargs: dict[str, int | float | str] = {}
             for key in allowed:
                 if key == "name" or key not in raw:
                     continue
@@ -94,7 +107,7 @@ def load_profiles(path: Path = CONFIG_PATH) -> tuple[dict[str, LlmProfile], str]
                 elif key in ("temperature", "input_price_per_million", "output_price_per_million"):
                     if isinstance(value, (int, float)):
                         kwargs[key] = float(value)
-            profiles[name] = LlmProfile(name=name, **kwargs)
+            profiles[name] = LlmProfile(name=name, **kwargs)  # type: ignore[arg-type]
         except Exception:
             # Perfil individual corrupto: ignorar y continuar
             continue
@@ -102,12 +115,22 @@ def load_profiles(path: Path = CONFIG_PATH) -> tuple[dict[str, LlmProfile], str]
     return profiles, active if active in profiles else "default"
 
 
-def save_profiles(profiles: dict[str, LlmProfile], active: str, path: Path = CONFIG_PATH) -> None:
+def save_profiles(
+    profiles: dict[str, LlmProfile], active: str, path: Path | str = CONFIG_PATH
+) -> None:
+    """Save profiles to TOML file.
+
+    Args:
+        profiles: Dict of LLM profiles
+        active: Name of active profile
+        path: Path to config file (Path object or string)
+    """
+    path = Path(path) if isinstance(path, str) else path
     if tomli_w is None:
-        raise RuntimeError("Falta tomli-w. Instala dependencias con: pip install -r requirements.txt")
+        raise RuntimeError("tomli-w no está instalado. Ejecuta: pip install tomli-w")
     # Usar dinámicamente todos los campos excepto 'name' (que ya está en la clave)
     field_names = {field.name for field in dataclass_fields(LlmProfile) if field.name != "name"}
-    payload = {"llm": {"active_profile": active}, "profiles": {}}
+    payload: dict[str, Any] = {"llm": {"active_profile": active}, "profiles": {}}
     for name, profile in sorted(profiles.items()):
         payload["profiles"][name] = {field: getattr(profile, field) for field in field_names}
     _atomic_write(path, tomli_w.dumps(payload))
@@ -135,15 +158,44 @@ def save_project(session: ArticleSession, path: Path) -> None:
     if session.document_path is None:
         raise ValueError("Guarda primero el artículo Markdown.")
     base = path.parent
-    relative = lambda value: os.path.relpath(value, base)
+    def make_relative(value: Path) -> str:
+        """Convert path to relative (raises ValueError if not under base)."""
+        return value.relative_to(base).as_posix() if value else ""
+
     data = {
         "version": 2,
-        "document": relative(session.document_path),
-        "corpus": relative(session.corpus_path) if session.corpus_path else "",
+        "document": make_relative(session.document_path),
+        "corpus": make_relative(session.corpus_path) if session.corpus_path else "",
         "evidence": session.evidence,
         "conversation": [{"role": item.role, "content": item.content} for item in session.conversation[-30:]],
     }
     _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _validate_relative_path(path_str: str, base_dir: Path) -> Path:
+    """Valida que una ruta sea relativa y descendiente del directorio base (cross-platform).
+
+    Raises ValueError si la ruta es absoluta o intenta escapar del directorio base.
+    """
+    if not path_str:
+        raise ValueError("Ruta no puede estar vacía.")
+
+    # Detectar rutas absolutas de forma cross-platform usando pathlib
+    path_obj=Path(path_str)
+    if path_obj.is_absolute():
+        raise ValueError(f"Ruta no puede ser absoluta: {path_str}")
+
+    # Resuelve la ruta contra el base directory
+    resolved=(base_dir / path_str).resolve()
+    base_resolved=base_dir.resolve()
+
+    # Verifica que el resultado sea descendiente de base_dir
+    try:
+        resolved.relative_to(base_resolved)
+    except ValueError as e:
+        raise ValueError(f"Ruta intenta escapar del directorio del proyecto: {path_str}") from e
+
+    return resolved
 
 
 def load_project(path: Path) -> dict:
@@ -194,8 +246,11 @@ def load_project(path: Path) -> dict:
                 continue
 
     base = path.parent
-    data["document"] = (base / data["document"]).resolve()
-    if data.get("corpus"):
-        data["corpus"] = (base / data["corpus"]).resolve()
+    try:
+        data["document"] = _validate_relative_path(data["document"], base)
+        if data.get("corpus"):
+            data["corpus"] = _validate_relative_path(data["corpus"], base)
+    except ValueError as e:
+        raise ValueError(f"Seguridad: {e}") from e
     data["conversation"] = conversation
     return data

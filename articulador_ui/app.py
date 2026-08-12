@@ -1,23 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import queue
 import threading
-from pathlib import Path
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
+from typing import TypeAlias
 
-from articulador_core.llm import LlmError
-from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core import storage
 from articulador_core.logging_config import setup_logging
+from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
+from articulador_ui.context_orchestrator import ContextOrchestrator
 from articulador_ui.dialogs import show_context_dialog, show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
-from articulador_ui.context_orchestrator import ContextOrchestrator
 from articulador_ui.llm_session_manager import LLMSessionManager
+
+ContextApprovalKey: TypeAlias = tuple[str, str, tuple[str, ...], str]
 
 COLORS = {"bg":"#151a20", "panel":"#1d252e", "raised":"#25313b", "field":"#10161c", "text":"#edf2f6", "muted":"#a9b7c4", "muted_light":"#bcc4d0", "accent":"#69c7b2", "accent_text":"#09231e", "border":"#3a4856", "selection":"#365f69", "assistant":"#c9b3ff"}
 FONT = "DejaVu Sans"
@@ -53,7 +56,7 @@ class ArticuladorApp(tk.Tk):
         self.llm = LLMSessionManager()
 
         # Session & UI state (referencia dinámica a través de property)
-        self.approved_contexts: set[tuple[str, ...]] = set()
+        self.approved_contexts: set[ContextApprovalKey] = set()
         self.review_mode = False
         self.last_review_before = ""
         self.last_response = ""
@@ -74,21 +77,7 @@ class ArticuladorApp(tk.Tk):
         # Buffer para coalescer chunks (evitar procesar cada chunk por separado)
         self.pending_chunks: dict[int, list[str]] = {}  # request_id -> chunks acumulados
 
-        # Inicializar widgets de UI explícitamente para evitar atributos implícitos
-        self.panes: ttk.PanedWindow | None = None
-        self.properties: ttk.Frame | None = None
-        self.sync_label: ttk.Label | None = None
-        self.profile_chip: ttk.Button | None = None
-        self.context_label: ttk.Button | None = None
-        self.history: ScrolledText | None = None
-        self.input: ScrolledText | None = None
-        self.send_button: ttk.Button | None = None
-        self.cancel_button: ttk.Button | None = None
-        self.activity: tk.StringVar | None = None
-        self.cost_label: tk.StringVar | None = None
-        self.editor: ScrolledText | None = None
-        self.editor_stats: ttk.Label | None = None
-        self.status: tk.StringVar | None = None
+        # Initialize widgets (will be properly set by _build)
         self.last_context_files: list[str] = []
 
         self._theme()
@@ -179,8 +168,8 @@ class ArticuladorApp(tk.Tk):
         self.history.bind("<Control-c>",lambda e:self.history.event_generate("<<Copy>>") or "break")
         self.history.tag_configure("you",foreground=COLORS["accent"],font=(FONT,10,"bold")); self.history.tag_configure("bot",foreground=COLORS["assistant"],font=(FONT,10,"bold","italic"))
         composer=ttk.Labelframe(chat,text="Mensaje",padding=8); composer.pack(fill="x",pady=(8,0))
-        self.input=self._text(composer,height=4,wrap="word",padx=8,pady=7); self.input.pack(fill="x"); self.input.bind("<Return>",lambda e:self.send() or "break"); self.input.bind("<Control-Return>",lambda e:self.input.insert("insert","\n") or "break")
-        row=ttk.Frame(composer); row.pack(fill="x",pady=(5,0)); self.send_button=ttk.Button(row,text="Enviar",style="Accent.TButton",command=self.send); self.send_button.pack(side="right"); self.cancel_button=ttk.Button(row,text="Cancelar",style="Secondary.TButton",command=self.cancel_request,state="disabled"); self.cancel_button.pack(side="right",padx=(0,6)); ttk.Button(row,text="Revisar artículo",style="Secondary.TButton",command=self.review).pack(side="left"); ttk.Button(row,text="Limpiar",style="Secondary.TButton",command=self.clear_history).pack(side="left",padx=(0,6))
+        self.input=self._text(composer,height=4,wrap="word",padx=8,pady=7); self.input.pack(fill="x"); self.input.bind("<Return>",lambda e:self.send_message() or "break"); self.input.bind("<Control-Return>",lambda e:self.input.insert("insert","\n") or "break")
+        row=ttk.Frame(composer); row.pack(fill="x",pady=(5,0)); self.send_button=ttk.Button(row,text="Enviar",style="Accent.TButton",command=self.send_message); self.send_button.pack(side="right"); self.cancel_button=ttk.Button(row,text="Cancelar",style="Secondary.TButton",command=self.cancel_request,state="disabled"); self.cancel_button.pack(side="right",padx=(0,6)); ttk.Button(row,text="Revisar artículo",style="Secondary.TButton",command=self.review).pack(side="left"); ttk.Button(row,text="Limpiar",style="Secondary.TButton",command=self.clear_history).pack(side="left",padx=(0,6))
         self.activity=tk.StringVar(value="Listo para conversar."); ttk.Label(composer,textvariable=self.activity,foreground=COLORS["muted_light"]).pack(anchor="w",padx=8,pady=(5,0))
         self.cost_label=tk.StringVar(value="Contexto y coste se mostrarán antes de enviar."); ttk.Label(composer,textvariable=self.cost_label,foreground=COLORS["muted_light"],font=(FONT,9)).pack(anchor="w",padx=8)
         editor=ttk.Labelframe(panes,text="Tu artículo · edición",padding=4); panes.add(editor,weight=65)
@@ -235,7 +224,7 @@ class ArticuladorApp(tk.Tk):
         self.editor.delete("1.0","end"); self.editor.insert("1.0",content)
         self.session.dirty=False; self.sync_label.config(text="● Documento abierto",foreground=COLORS["muted"])
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
-    def send(self):
+    def send_message(self):
         message=self.input.get("1.0","end-1c").strip()
         if not message or self.session.request_active:return
         self.input.delete("1.0","end"); self.append("Tú",message); self.request(message)
@@ -293,7 +282,6 @@ class ArticuladorApp(tk.Tk):
         # Tomar últimos 12 mensajes previos + el actual
         conversation_with_message = list(self.session.conversation[-12:]) + [ChatMessage("user", message)]
 
-        from articulador_core.prompting import build_editor_prompt
         from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 
         # Validar límite GLOBAL contra el payload EXACTO (fail-closed)
@@ -333,16 +321,18 @@ class ArticuladorApp(tk.Tk):
             )
             return
 
-        # Calcular tokens para UI (puede diferir de actual_tokens)
-        input_tokens=max(1,(len(message)+len(selected)+len(packet))//4)
-        output_tokens=self.profile.max_output_tokens
-        cost=(input_tokens*self.profile.input_price_per_million+output_tokens*self.profile.output_price_per_million)/1_000_000
+        # Calcular tokens para UI usando actual_tokens del payload COMPLETO
+        input_tokens = actual_tokens
+        output_tokens = self.profile.max_output_tokens
+        cost = (input_tokens * self.profile.input_price_per_million + output_tokens * self.profile.output_price_per_million) / 1_000_000
         last_reasons=self.context.get_last_reasons()  # Cache para no llamar en loop
         reasons=" · ".join(f"{name} ({last_reasons.get(name, 'contexto disponible')})" for name in files)
         detail=f"Contexto: {reasons or 'sin archivos'} · ~{input_tokens:,} tokens entrada"
         if cost: detail+=f" · coste máx. ~${cost:.4f}"
         self.cost_label.set(detail)
-        key=tuple(files)
+        # Construir approval key: (endpoint, provider, files tuple, content hash)
+        content_hash = hashlib.sha256(prompt_json.encode("utf-8")).hexdigest()[:16]
+        key: ContextApprovalKey = (self.profile.endpoint, self.profile.provider, tuple(files), content_hash)
         if files and key not in self.approved_contexts:
             if not messagebox.askyesno("Contexto que se enviará", detail+"\n\n¿Enviar estos fragmentos al proveedor configurado?"):
                 self.session.request_active=False; self.send_button.state(["!disabled"])
@@ -371,11 +361,16 @@ class ArticuladorApp(tk.Tk):
             )
         threading.Thread(target=work,daemon=True).start()
 
-    def finish(self, request_id: int, result: str, files: list[str], usage=(None, None), request_type: str = "normal"):
+    def finish(self, request_id: int, result: str, files: list[str], usage=(None, None), request_type: str = "normal", is_error: bool = False):
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types: return
         self.request_types.pop(request_id, None)
-        self.session.request_active=False; self.send_button.state(["!disabled"]); self.cancel_button.state(["disabled"]); self.session.conversation.append(ChatMessage("assistant",result)); self.activity.set("Respuesta lista." if not result.startswith("No pude") else "Revisa conexión, modelo o límites."); self.status.set("Contexto usado: "+", ".join(files) if files else "Respuesta lista.")
+        self.session.request_active=False; self.send_button.state(["!disabled"]); self.cancel_button.state(["disabled"])
+        # Diferenciar finalizaciones: solo guardar conversación en caso de éxito
+        if not is_error:
+            self.session.conversation.append(ChatMessage("assistant",result))
+        self.activity.set("Respuesta lista." if not result.startswith("No pude") else "Revisa conexión, modelo o límites.")
+        self.status.set("Contexto usado: "+", ".join(files) if files else "Respuesta lista.")
         if usage[0] is not None: self.cost_label.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
         # Usar request_type en lugar de self.review_mode para evitar estado persistente
         if request_type == "review":
@@ -449,16 +444,16 @@ class ArticuladorApp(tk.Tk):
                 elif event_type == "error":
                     _, request_id, error_msg, files = event
                     # Procesar chunks pendientes antes de finalizar
-                    if request_id in self.pending_chunks and self.pending_chunks[request_id]:
+                    if self.pending_chunks.get(request_id):
                         coalesced = "".join(self.pending_chunks[request_id])
                         self.stream_chunk(request_id, coalesced)
                     self.pending_chunks.pop(request_id, None)
-                    self.finish(request_id, error_msg, files, (None, None), "normal")
+                    self.finish(request_id, error_msg, files, (None, None), "normal", is_error=True)
 
                 elif event_type == "complete":
                     _, request_id, result, files, usage, request_type = event
                     # Procesar chunks pendientes antes de finalizar
-                    if request_id in self.pending_chunks and self.pending_chunks[request_id]:
+                    if self.pending_chunks.get(request_id):
                         coalesced = "".join(self.pending_chunks[request_id])
                         self.stream_chunk(request_id, coalesced)
                     self.pending_chunks.pop(request_id, None)
@@ -496,7 +491,7 @@ class ArticuladorApp(tk.Tk):
         # Verificar cambios sin guardar antes de abrir otro documento
         if self.session.dirty and not messagebox.askyesno("Cambios sin guardar", "¿Descartar cambios locales?"):
             return
-        path=filedialog.askopenfilename(filetypes=[("Markdown", "*.md *.txt")]);
+        path=filedialog.askopenfilename(filetypes=[("Markdown", "*.md *.txt")])
         if path:
             try: content=Path(path).read_text(encoding="utf-8")
             except (OSError, UnicodeError) as error: self.show_error("No se pudo abrir el documento",str(error)); return
@@ -505,7 +500,7 @@ class ArticuladorApp(tk.Tk):
         show_context_dialog(self)
     def save_document(self)->bool:
         if self.session.document_path is None:
-            path=filedialog.asksaveasfilename(defaultextension=".md",filetypes=[("Markdown","*.md")]);
+            path=filedialog.asksaveasfilename(defaultextension=".md",filetypes=[("Markdown","*.md")])
             if not path:return False
             self.session.document_path=Path(path)
 
@@ -524,7 +519,7 @@ class ArticuladorApp(tk.Tk):
         return True
     def save_project(self):
         if self.session.dirty and not self.save_document():return
-        path=filedialog.asksaveasfilename(defaultextension=".articulador.json",filetypes=[("Proyecto","*.articulador.json")]);
+        path=filedialog.asksaveasfilename(defaultextension=".articulador.json",filetypes=[("Proyecto","*.articulador.json")])
         if path:
             try:
                 storage.save_project(self.session,Path(path))

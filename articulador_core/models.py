@@ -58,18 +58,6 @@ class ChatMessage:
 
 
 @dataclass
-class RequestState:
-    """Ciclo de vida de una solicitud LLM tipado y centralizado."""
-    request_id: int  # Identificador único (generation_counter)
-    request_type: str  # "normal" | "review"
-    active: bool = False  # ¿Está siendo procesada?
-
-    def invalidate(self) -> None:
-        """Marca la solicitud como inválida (cancelada, completada, etc.)"""
-        self.active = False
-
-
-@dataclass
 class ArticleSession:
     document_path: Path | None = None
     project_path: Path | None = None

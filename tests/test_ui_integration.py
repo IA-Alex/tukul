@@ -1,12 +1,12 @@
 """Tests aislados de UI con mocks de Tkinter para max_total_model_tokens."""
 import tempfile
+import tkinter as tk
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import tkinter as tk
 
-from articulador_core.models import LlmProfile
 from articulador_core import storage
+from articulador_core.models import LlmProfile
 
 
 class UISettingsDialogTests(unittest.TestCase):

@@ -126,14 +126,16 @@ class ContextIndex:
                         score += idf * 2
                 ranked.append((score, path, content))
             excluded = excluded or set()
-            # Calcular rutas relativas una sola vez
-            ranked_with_relative = [(score, path, content, path.relative_to(self.root).as_posix()) for score, path, content in ranked]
-            sorted_ranked = sorted(ranked_with_relative, key=lambda item: (item[0], item[1].name.lower()), reverse=True)
-            permitted = [item for item in sorted_ranked if item[3] not in excluded]
+            # Sortear por score y nombre (sin crear lista intermedia de rutas relativas)
+            sorted_ranked = sorted(ranked, key=lambda item: (item[0], item[1].name.lower()), reverse=True)
+            # Filtrar excluidos Y calcular relative on-demand (evita duplicación de memoria)
+            permitted = [(score, path, content) for score, path, content in sorted_ranked
+                        if path.relative_to(self.root).as_posix() not in excluded]
             selected = [item for item in permitted if item[0] > 0][:MAX_CONTEXT_FILES] or permitted[:FALLBACK_CONTEXT_FILES]
             remaining, parts, used = min(limit, MAX_CONTEXT_PACKET_CHARS), [], []
             self.last_reasons = {}
-            for score, path, content, relative in selected:
+            for score, path, content in selected:
+                relative = path.relative_to(self.root).as_posix()
                 if remaining <= 0:
                     break
                 excerpt = content[:min(MAX_CONTEXT_EXCERPT_CHARS, remaining)]
