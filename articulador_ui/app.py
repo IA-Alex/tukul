@@ -357,7 +357,7 @@ class ArticuladorApp(tk.Tk):
 
         # Construir conversation INCLUYENDO el mensaje actual (necesario para validación y envío)
         # Tomar últimos 12 mensajes previos + el actual
-        conversation_with_message = list(self.session.conversation[-12:]) + [ChatMessage("user", message)]
+        conversation_with_message = [*self.session.conversation[-12:], ChatMessage("user", message)]
 
         from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 

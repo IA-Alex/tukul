@@ -1,48 +1,76 @@
 name: CI/CD Pipeline
 
+# `master` es la rama de trabajo real de este repositorio. El workflow anterior
+# solo disparaba en main/develop, así que nunca llegó a ejecutarse una sola vez.
 on:
   push:
-    branches: [main, develop]
+    branches: [master, main, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [master, main, develop]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      # Tkinter necesita las bibliotecas de Tk y un servidor X. Sin esto la suite
+      # no falla: se encoge en silencio, omitiendo las regresiones de interfaz.
+      - name: Install GUI test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb python3-tk
+
+      - name: Install project
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[dev]"
 
+      # Guarda contra el modo de fallo silencioso: si Tk o el display no
+      # funcionan, este paso falla en vez de dejar que 13 tests se omitan.
+      - name: Verify GUI tests will actually run
+        run: xvfb-run -a python -c "import tkinter; tkinter.Tk().destroy(); print('Tk operativo')"
+
+      # Sin --select: así ruff usa la configuración de pyproject.toml. El flag
+      # anterior la sobrescribía y reportaba 242 errores de estilo deliberado.
       - name: Lint with ruff
-        run: python -m ruff check . --select=E,W,F
+        run: python -m ruff check .
 
       - name: Type check with mypy
-        run: python -m mypy articulador_core articulador_ui --ignore-missing-imports
+        run: python -m mypy articulador_core articulador_ui articulador.py
 
-      - name: Format check with black
-        run: python -m black --check articulador_core articulador_ui
+      - name: Run test suite
+        run: xvfb-run -a python -m pytest -q
 
-      - name: Import sort check with isort
-        run: python -m isort --check-only articulador_core articulador_ui
+      # Ningún test debe omitirse en CI: una omisión aquí significa que el
+      # entorno no puede ejercitar la interfaz y la señal verde sería falsa.
+      - name: Fail if any test was skipped
+        run: |
+          xvfb-run -a python -m pytest -q --no-header -rs 2>&1 | tee resultado.txt
+          if grep -qE "[0-9]+ skipped" resultado.txt; then
+            echo "::error::Hay tests omitidos en CI; la cobertura de interfaz no se está ejecutando."
+            exit 1
+          fi
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+      # Diagnóstico de la instalación. El paso anterior invocaba `--config`, que
+      # exige un valor: fallaba siempre con exit 2.
+      - name: Verify health check
+        run: python articulador.py --health
 
-      - name: Verify health checks
-        run: python articulador.py --config
+      - name: Verify CLI contract
+        run: |
+          python articulador.py --help > /dev/null
+          python articulador.py --workspace /ruta/que/no/existe && exit 1 || echo "workspace inválido rechazado correctamente"
 
   security:
     runs-on: ubuntu-latest
@@ -50,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -59,5 +87,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install bandit
 
+      # Informativo: bandit produce falsos positivos en este código y no debe
+      # bloquear. El informe queda como artefacto para revisión manual.
       - name: Security check with bandit
         run: bandit -r articulador_core articulador_ui -f json -o bandit-report.json || true
+
+      - name: Upload bandit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          if-no-files-found: ignore

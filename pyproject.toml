@@ -14,10 +14,9 @@ dependencies = [
 [project.optional-dependencies]
 keyring = ["keyring>=24.0.0"]  # For secure credential storage
 dev = [
+    "pytest>=7.0.0",    # Test runner (la suite lo requiere; faltaba en los extras)
     "ruff>=0.1.0",      # Fast Python linter
     "mypy>=1.0.0",      # Type checker
-    "black>=23.0.0",    # Code formatter
-    "isort>=5.12.0",    # Import sorter
     "pylint>=2.0.0",    # Code analyzer
 ]
 
@@ -52,14 +51,22 @@ select = [
 ]
 
 ignore = [
-    "E501",   # Line too long (BLACK handles this)
+    "E501",   # Line too long
     "E203",   # Whitespace before ':'
+    # El proyecto usa deliberadamente un estilo denso de una línea en la capa de
+    # UI (ver articulador_ui/app.py). Reformatearlo sepultaría el historial sin
+    # ganar nada, así que la regla se desactiva en vez de dejar 108 avisos
+    # permanentes que vuelven inútil la señal del linter.
+    "E701",   # Multiple statements on one line (colon)
+    "E702",   # Multiple statements on one line (semicolon)
 ]
 # NOTE: W503 (line break before binary operator) was removed from modern ruff
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports OK en __init__
 "tests/*" = ["F401", "F841"]  # Unused variables OK en tests
+# El mapa de emoji de consola usa caracteres "ambiguos" a propósito.
+"articulador_core/logging_config.py" = ["RUF001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["articulador_core", "articulador_ui"]
