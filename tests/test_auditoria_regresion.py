@@ -29,6 +29,7 @@ from articulador_core import storage
 from articulador_core.llm import LLMClient, LlmError, validate_endpoint
 from articulador_core.models import ArticleSession, LlmProfile
 from articulador_ui.app import ArticuladorApp
+from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.document_scope import DocumentScope
 
 
@@ -48,8 +49,8 @@ def _headless_app() -> ArticuladorApp:
     """App con el estado mínimo de una petición, sin construir widgets reales."""
     app = ArticuladorApp.__new__(ArticuladorApp)
     app.closing = False
-    app.ui_event_queue = queue.Queue(maxsize=1000)
-    app.pending_chunks = {}
+    app.control_queue = queue.Queue()
+    app.chunks = ChunkBuffer()
     app.request_types = {}
     app.streaming_request = None
     app.streaming_text = ""
@@ -61,6 +62,7 @@ def _headless_app() -> ArticuladorApp:
     app.send_button = Mock()
     app.cancel_button = Mock()
     app.after = Mock()
+    app.stream_chunk = Mock()
     app.docs = Mock()
     app.docs.session = ArticleSession()
     return app
@@ -73,7 +75,7 @@ class TestBombeoDeEventosResiliente(unittest.TestCase):
         app = _headless_app()
         app.request_types[1] = "normal"
         # usage=None revienta finish() al formatear el uso real.
-        app.ui_event_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
+        app.control_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
 
         app.process_ui_events()
 
@@ -84,19 +86,19 @@ class TestBombeoDeEventosResiliente(unittest.TestCase):
         app = _headless_app()
         app.request_types[1] = "normal"
         app.request_types[2] = "normal"
-        app.ui_event_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
-        app.ui_event_queue.put_nowait(("chunk", 2, "hola"))
+        app.control_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
+        app.chunks.append(2, "hola")
 
         app.process_ui_events()
 
-        self.assertEqual(app.ui_event_queue.qsize(), 0, "La cola debe quedar drenada")
-        self.assertEqual(app.pending_chunks.get(2), ["hola"])
+        self.assertEqual(app.control_queue.qsize(), 0, "La cola de control debe quedar drenada")
+        app.stream_chunk.assert_called_with(2, "hola")
 
     def test_fallo_de_manejador_libera_la_peticion(self):
         app = _headless_app()
         app.request_types[1] = "normal"
         app.docs.session.request_active = True
-        app.ui_event_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
+        app.control_queue.put_nowait(("complete", 1, "ok", [], None, "normal"))
 
         app.process_ui_events()
 

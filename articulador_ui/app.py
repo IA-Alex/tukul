@@ -16,6 +16,7 @@ from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
+from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.context_orchestrator import ContextOrchestrator
 from articulador_ui.dialogs import show_context_dialog, show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
@@ -81,11 +82,14 @@ class ArticuladorApp(tk.Tk):
         self.generation_counter = 0
         # Tipos de solicitud asociados a cada request_id
         self.request_types: dict[int, str] = {}  # request_id -> "normal"|"review"
-        # Queue para thread-safety de Tkinter (worker → UI)
-        # maxsize=1000 previene crecimiento descontrolado de memoria por eventos
-        self.ui_event_queue: queue.Queue = queue.Queue(maxsize=1000)
-        # Buffer para coalescer chunks (evitar procesar cada chunk por separado)
-        self.pending_chunks: dict[int, list[str]] = {}  # request_id -> chunks acumulados
+        # Dos canales worker → UI, con garantías distintas a propósito:
+        #  - control: SIN tope y con put_nowait. Un complete/error jamás debe
+        #    perderse ni bloquear al worker detrás de una ráfaga de texto.
+        #  - chunks: acumulador con lock, no bloqueante y coalescible.
+        # Compartir una sola cola limitada hacía que una ráfaga pudiera dejar la
+        # finalización de la petición esperando con la conexión abierta.
+        self.control_queue: queue.Queue = queue.Queue()
+        self.chunks = ChunkBuffer()
 
         self._theme()
         self._build()
@@ -321,15 +325,15 @@ class ArticuladorApp(tk.Tk):
                 success, packet, files = self.context.prepare_context(message, context_budget)
                 if not success:
                     # Publicar en queue en lugar de self.after()
-                    self.ui_event_queue.put(("context_failed", request_id, "No se pudo indexar contexto"))
+                    self.control_queue.put_nowait(("context_failed", request_id, "No se pudo indexar contexto"))
                     return
             except Exception as error:
                 # Publicar en queue en lugar de self.after()
-                self.ui_event_queue.put(("context_failed", request_id, str(error)))
+                self.control_queue.put_nowait(("context_failed", request_id, str(error)))
                 return
             if cancel_event.is_set(): return
             # Publicar en queue en lugar de self.after()
-            self.ui_event_queue.put(("confirm_and_send", request_id, message, selected, packet, files, cancel_event))
+            self.control_queue.put_nowait(("confirm_and_send", request_id, message, selected, packet, files, cancel_event))
         threading.Thread(target=work,daemon=True).start()
     def context_failed(self, request_id: int, error_msg: str) -> None:
         # Verificar que este request_id sigue siendo válido
@@ -422,9 +426,9 @@ class ArticuladorApp(tk.Tk):
             # Publicar eventos en queue para thread-safety (no self.after() desde thread)
             self.llm.stream_response(
                 profile, api_key, selected, packet, conversation_with_message,
-                on_chunk=lambda chunk: self.ui_event_queue.put(("chunk", request_id, chunk)),
-                on_error=lambda error: self.ui_event_queue.put(("error", request_id, f"No pude responder: {error}", files)),
-                on_complete=lambda result, usage: self.ui_event_queue.put(("complete", request_id, result, files, usage, request_type)),
+                on_chunk=lambda chunk: self.chunks.append(request_id, chunk),
+                on_error=lambda error: self.control_queue.put_nowait(("error", request_id, f"No pude responder: {error}", files)),
+                on_complete=lambda result, usage: self.control_queue.put_nowait(("complete", request_id, result, files, usage, request_type)),
                 request_id=request_id,
                 cancel_event=cancel_event,
             )
@@ -439,7 +443,7 @@ class ArticuladorApp(tk.Tk):
         self.session.request_active = False
         self._reset_request_ui()
         self.request_types.pop(request_id, None)
-        self.pending_chunks.pop(request_id, None)
+        self.chunks.discard(request_id)
 
     def finish(self, request_id: int, result: str, files: list[str], usage=(None, None), request_type: str = "normal", is_error: bool = False):
         # Verificar que este request_id sigue siendo válido
@@ -516,7 +520,7 @@ class ArticuladorApp(tk.Tk):
         self.llm.cancel(self.generation_counter)
         # Limpiar TODOS los buffers pendientes (evitar memory leak)
         self.request_types.clear()
-        self.pending_chunks.clear()  # ← Limpiar chunks acumulados
+        self.chunks.clear()  # ← Descartar texto pendiente de pintar
         self.streaming_request = None
         self.streaming_text = ""
         self.session.request_active = False
@@ -541,10 +545,16 @@ class ArticuladorApp(tk.Tk):
                     pass  # Ventana destruida mientras se drenaba la cola.
 
     def _drain_ui_events(self) -> None:
-        """Drena hasta 100 eventos, aislando el fallo de cada manejador."""
+        """Pinta el texto acumulado y despacha los eventos de control.
+
+        Los chunks se recogen ANTES que el control para conservar el orden
+        dentro de cada petición: el texto ya emitido se pinta antes de que su
+        `complete` cierre la petición.
+        """
+        self._render_pending_chunks()
         for _ in range(100):
             try:
-                event = self.ui_event_queue.get_nowait()
+                event = self.control_queue.get_nowait()
             except queue.Empty:
                 return
             try:
@@ -553,12 +563,23 @@ class ArticuladorApp(tk.Tk):
                 logger.exception("Fallo procesando evento de UI: %s", event[0])
                 self._recover_from_event_failure(event)
 
+    def _render_pending_chunks(self) -> None:
+        """Vuelca el texto acumulado por los workers desde el ciclo anterior.
+
+        Coalescencia natural: cuanto más se retrase la interfaz, más texto trae
+        cada vuelta, no más eventos que procesar.
+        """
+        for request_id, texto in self.chunks.take_all():
+            # Los chunks tardíos de una petición cancelada se descartan aquí.
+            if request_id in self.request_types:
+                self.stream_chunk(request_id, texto)
+
     def _recover_from_event_failure(self, event) -> None:
         """Desbloquea la UI cuando el manejador de un evento murió a medio camino."""
         request_id = event[1] if len(event) > 1 and isinstance(event[1], int) else None
         if request_id is not None:
             self.request_types.pop(request_id, None)
-            self.pending_chunks.pop(request_id, None)
+            self.chunks.discard(request_id)
             if self.streaming_request == request_id:
                 self.streaming_request = None
         self._reset_request_ui()
@@ -568,26 +589,10 @@ class ArticuladorApp(tk.Tk):
             pass
 
     def _dispatch_ui_event(self, event) -> None:
+        """Despacha un evento de CONTROL. Los chunks no pasan por aquí."""
         event_type = event[0]
 
-        if event_type == "chunk":
-            # Coalescer chunks: acumular en buffer hasta complete/error
-            _, request_id, content = event
-            # Validar INMEDIATAMENTE antes de agregar a pending_chunks
-            # (chunks tardíos pueden llegar después de cancel_request)
-            if request_id not in self.request_types:
-                return  # Descartar chunk de request cancelado
-
-            # Ahora es seguro agregar: request_id está confirmado como activo
-            self.pending_chunks.setdefault(request_id, []).append(content)
-
-            # Procesar cada N chunks para UI responsiva
-            if len(self.pending_chunks[request_id]) >= 10:
-                coalesced = "".join(self.pending_chunks[request_id])
-                self.pending_chunks[request_id] = []
-                self.stream_chunk(request_id, coalesced)
-
-        elif event_type == "error":
+        if event_type == "error":
             _, request_id, error_msg, files = event
             self._flush_pending_chunks(request_id)
             self.finish(request_id, error_msg, files, (None, None), "normal", is_error=True)
@@ -599,7 +604,7 @@ class ArticuladorApp(tk.Tk):
 
         elif event_type == "context_failed":
             _, request_id, error_msg = event
-            self.pending_chunks.pop(request_id, None)
+            self.chunks.discard(request_id)
             self.context_failed(request_id, error_msg)
 
         elif event_type == "confirm_and_send":
@@ -607,10 +612,14 @@ class ArticuladorApp(tk.Tk):
             self.confirm_and_send(request_id, message, selected, packet, files, cancel_event)
 
     def _flush_pending_chunks(self, request_id: int) -> None:
-        """Vuelca a la vista lo acumulado antes de cerrar la petición."""
-        if self.pending_chunks.get(request_id):
-            self.stream_chunk(request_id, "".join(self.pending_chunks[request_id]))
-        self.pending_chunks.pop(request_id, None)
+        """Vuelca lo acumulado de una petición antes de cerrarla.
+
+        Garantiza que ningún fragmento recibido se pierda por llegar el
+        `complete` en el mismo ciclo que los últimos chunks.
+        """
+        texto = self.chunks.take(request_id)
+        if texto and request_id in self.request_types:
+            self.stream_chunk(request_id, texto)
 
     parse_findings = staticmethod(parse_findings)
     def show_findings(self,findings):
@@ -760,7 +769,7 @@ class ArticuladorApp(tk.Tk):
             self.cancel_event.set()
         # Limpiar TODOS los buffers pendientes (evitar memory leak)
         self.request_types.clear()
-        self.pending_chunks.clear()  # ← Limpiar chunks acumulados
+        self.chunks.clear()  # ← Descartar texto pendiente de pintar
         self.streaming_request = None
         self.streaming_text = ""
         # Cancelar en LLMClient

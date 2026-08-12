@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.document_scope import DocumentScope
 
 # No import de tkinter - vamos a mockear solo lo mínimo
@@ -29,7 +30,7 @@ class TestRealEventFlow(unittest.TestCase):
         """REAL: chunk("A") + chunk("B") + error(...) → partial conservado.
 
         Flujo REAL - EJECUTA process_ui_events() que LLAMA finish():
-        1. Acumular chunks en pending_chunks (ciclo anterior)
+        1. Acumular chunks en el ChunkBuffer (ciclo anterior)
         2. Inyectar error en control_queue
         3. LLAMAR process_ui_events() REAL
         4. Verificar que finish() limpió state correctamente
@@ -41,8 +42,8 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Inicializar ESTADO REAL
                     app.closing = False
-                    app.ui_event_queue = queue.Queue(maxsize=1000)
-                    app.pending_chunks = {}
+                    app.control_queue = queue.Queue()
+                    app.chunks = ChunkBuffer()
                     app.request_types = {}
                     app.streaming_request = None
 
@@ -66,10 +67,10 @@ class TestRealEventFlow(unittest.TestCase):
                     app.request_types[request_id] = "normal"
 
                     # SIMULAR chunks acumulados
-                    app.pending_chunks[request_id] = ["A", "B"]
+                    app.chunks.append(request_id, "A"); app.chunks.append(request_id, "B")
 
                     # INYECTAR error
-                    app.ui_event_queue.put_nowait(
+                    app.control_queue.put_nowait(
                         ("error", request_id, "Connection timeout", [])
                     )
 
@@ -85,8 +86,8 @@ class TestRealEventFlow(unittest.TestCase):
     def test_chunk_queue_saturation_doesnt_block_error(self):
         """REAL: incluso con chunks en la queue, el error se procesa correctamente.
 
-        Garantía: en single-queue architecture, los chunks y errores se procesan
-        en orden FIFO, y process_ui_events() maneja ambos correctamente.
+        Garantía: los chunks viajan por un canal propio y el error por la cola de
+        control; process_ui_events() pinta el texto pendiente antes de finalizar.
         """
         with patch("tkinter.Tk.__init__", return_value=None):
             with patch("tkinter.Tk.after"):
@@ -95,8 +96,8 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Setup real
                     app.closing = False
-                    app.ui_event_queue = queue.Queue(maxsize=1000)
-                    app.pending_chunks = {}
+                    app.control_queue = queue.Queue()
+                    app.chunks = ChunkBuffer()
                     app.request_types = {}
                     app.streaming_request = None
 
@@ -118,12 +119,12 @@ class TestRealEventFlow(unittest.TestCase):
                     request_id = 1
                     app.request_types[request_id] = "normal"
 
-                    # INYECTAR chunks en ui_event_queue
+                    # INYECTAR chunks en el ChunkBuffer (canal separado del control)
                     for i in range(5):
-                        app.ui_event_queue.put_nowait(("chunk", request_id, f"chunk_{i}"))
+                        app.chunks.append(request_id, f"chunk_{i}")
 
-                    # INYECTAR error en ui_event_queue
-                    app.ui_event_queue.put_nowait(
+                    # INYECTAR error en la cola de control
+                    app.control_queue.put_nowait(
                         ("error", request_id, "Failed", [])
                     )
 
@@ -148,8 +149,8 @@ class TestRealEventFlow(unittest.TestCase):
                     app = self.ArticuladorApp.__new__(self.ArticuladorApp)
 
                     app.closing = False
-                    app.ui_event_queue = queue.Queue(maxsize=1000)
-                    app.pending_chunks = {}
+                    app.control_queue = queue.Queue()
+                    app.chunks = ChunkBuffer()
                     app.request_types = {}
                     app.streaming_request = None
 
@@ -173,11 +174,11 @@ class TestRealEventFlow(unittest.TestCase):
                     app.request_types[rid2] = "normal"
 
                     # Chunks para ambos requests
-                    app.pending_chunks[rid1] = ["A1", "B1"]
-                    app.pending_chunks[rid2] = ["A2", "B2"]
+                    app.chunks.append(rid1, "A1"); app.chunks.append(rid1, "B1")
+                    app.chunks.append(rid2, "A2"); app.chunks.append(rid2, "B2")
 
                     # Inyectar error solo para rid1
-                    app.ui_event_queue.put_nowait(
+                    app.control_queue.put_nowait(
                         ("error", rid1, "Failed", [])
                     )
 
@@ -190,12 +191,10 @@ class TestRealEventFlow(unittest.TestCase):
                         "finish() debería haber removido rid1"
                     )
 
-                    # Verificar que rid2 NO fue afectado
+                    # Verificar que rid2 NO fue afectado: su texto se pintó coalescido
+                    # y sigue siendo una petición viva.
                     self.assertIn(rid2, app.request_types, "rid2 debe seguir válido")
-                    self.assertEqual(
-                        app.pending_chunks[rid2], ["A2", "B2"],
-                        "rid2 chunks no debería haber cambiado"
-                    )
+                    app.stream_chunk.assert_any_call(rid2, "A2B2")
 
 
 class TestHealthCheckReal(unittest.TestCase):
