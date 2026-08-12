@@ -13,9 +13,15 @@ from typing import TypeAlias
 
 from articulador_core import storage
 from articulador_core.config_validator import validate_startup_config
+from articulador_core.context import (
+    MAX_CONTEXT_EXCERPT_CHARS,
+    MAX_CONTEXT_PACKET_CHARS,
+    MAX_INDEXED_FILE_BYTES,
+)
 from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
+
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
 from articulador_ui import estilo as es
@@ -78,9 +84,14 @@ class ArticuladorApp(tk.Tk):
         # Todo el estado derivado del documento vive en un único objeto que se
         # reemplaza entero al cambiar de artículo (ver DocumentScope).
         self.scope = DocumentScope()
+        # Referencias elegidas de forma explícita. No pertenecen al documento
+        # activo ni se descubren recorriendo el workspace: permanecen durante
+        # esta sesión hasta que la persona las quite.
+        self.reference_files: list[Path] = []
         self.review_dialogs: list[tk.Toplevel] = []
         self.stats_after = None
         self.report_callback_exception = self.handle_callback_error
+
         self.cancel_event: threading.Event | None = None
         self.streaming_request: int | None = None
         self.streaming_text = ""
@@ -271,10 +282,11 @@ class ArticuladorApp(tk.Tk):
             ("Guardar proyecto…", self.save_project, ""),
             None,
             ("Configurar modelo…", self.settings, ""),
-            ("Contexto local…", self.context_dialog, ""),
+            ("Referencias…", self.manage_references, ""),
             ("Limpiar conversación", self.clear_history, ""),
         ]
         for entrada in entradas:
+
             if entrada is None:
                 menu_archivo.add_separator()
             else:
@@ -284,6 +296,9 @@ class ArticuladorApp(tk.Tk):
         ttk.Menubutton(barra, text="Menú", menu=menu_archivo).pack(side="left")
         ttk.Button(barra, text="Guardar", style="Primaria.TButton",
                    command=self.save_document).pack(side="left", padx=(es.ESP["sm"], 0))
+        self.references_button = ttk.Button(barra, text="Referencias: 0",
+                                            command=self.manage_references)
+        self.references_button.pack(side="left", padx=(es.ESP["sm"], 0))
 
         # Estado de sincronía del documento: símbolo + texto, nunca solo color.
         self.sync_label = ttk.Label(barra, text="○  Sin cambios", style="Tenue.TLabel")
@@ -621,36 +636,67 @@ class ArticuladorApp(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     def request(self, message: str, request_type: str = "normal"):
+        """Envía una consulta sobre el artículo, sin explorar archivos locales.
+
+        El artículo abierto (o la selección) es el único contexto automático.
+        Las referencias de archivos deben ser una acción explícita del usuario;
+        buscar el workspace por cada mensaje hacía que una consulta normal se
+        detuviera pidiendo permiso para compartir documentación no solicitada.
+        """
         if not self.profile.enabled or not self.key: self.append("Articulador","Configura un perfil LLM y una key para responder."); return
         article = self.editor.get("1.0","end-1c")
         selected = self.editor.get("sel.first","sel.last") if self.editor.tag_ranges("sel") else article
-        self.session.request_active=True; self.cancel_event=threading.Event(); self.set_estado(EstadoUI.PREPARANDO)
+        self.session.request_active=True; self.cancel_event=threading.Event(); self.set_estado(EstadoUI.TRANSMITIENDO)
         # Usar generation_counter global (nunca reinicia) para prevenir contaminación
         self.generation_counter += 1; request_id = self.generation_counter
         # Guardar el tipo de solicitud para este request_id
         self.request_types[request_id] = request_type
         cancel_event=self.cancel_event
-        # Instantánea en el hilo de UI: el worker no debe leer estado mutable
-        # (el diálogo de configuración puede reemplazar self.profiles a la vez).
-        context_budget = self.profile.max_context_chars // 3
-        def work():
+        # El artículo abierto siempre se envía como artículo. Solo las referencias
+        # que la persona añadió expresamente forman el paquete adicional y activan
+        # la confirmación de privacidad ya existente.
+        packet, files, unavailable = self._reference_packet()
+        if unavailable:
+            messagebox.showwarning(
+                "Algunas referencias no están disponibles",
+                "No se pudieron leer: " + ", ".join(unavailable) +
+                "\n\nSe enviarán las referencias que sí siguen disponibles.",
+                parent=self,
+            )
+        self.confirm_and_send(request_id, message, selected, packet, files, cancel_event)
+
+    def _reference_packet(self) -> tuple[str, list[str], list[str]]:
+        """Lee exclusivamente las referencias añadidas por la persona.
+
+        El límite por archivo y el límite total evitan que una selección grande
+        haga crecer el prompt sin control. Los nombres, no las rutas absolutas,
+        son los que se envían al proveedor dentro del contenido.
+        """
+        remaining = min(self.profile.max_context_chars // 3, MAX_CONTEXT_PACKET_CHARS)
+        parts: list[str] = []
+        files: list[str] = []
+        unavailable: list[str] = []
+        for path in self.reference_files:
+            if remaining <= 0:
+                break
             try:
-                success, packet, files = self.context.prepare_context(message, context_budget)
-                if not success:
-                    # Publicar en queue en lugar de self.after()
-                    self.control_queue.put_nowait(("context_failed", request_id, "No se pudo indexar contexto"))
-                    return
-            except Exception as error:
-                # Publicar en queue en lugar de self.after()
-                self.control_queue.put_nowait(("context_failed", request_id, str(error)))
-                return
-            if cancel_event.is_set(): return
-            # Publicar en queue en lugar de self.after()
-            self.control_queue.put_nowait(("confirm_and_send", request_id, message, selected, packet, files, cancel_event))
-        threading.Thread(target=work,daemon=True).start()
+                with path.open("rb") as source:
+                    raw = source.read(MAX_INDEXED_FILE_BYTES)
+                content = raw.decode("utf-8", errors="replace")
+            except OSError:
+                unavailable.append(path.name)
+                continue
+            excerpt = content[:min(MAX_CONTEXT_EXCERPT_CHARS, remaining)]
+            if not excerpt:
+                continue
+            parts.append(f"REFERENCIA LOCAL: {path.name}\n---\n{excerpt}")
+            files.append(path.name)
+            remaining -= len(excerpt)
+        return "\n\n".join(parts), files, unavailable
     def context_failed(self, request_id: int, error_msg: str) -> None:
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types: return
+
         logger.error("No se pudo preparar el contexto: %s", error_msg)
         self.session.request_active=False; self._reset_request_ui()
         self.request_types.pop(request_id, None)
@@ -1050,9 +1096,95 @@ class ArticuladorApp(tk.Tk):
             self.load_document(Path(path))
     def context_dialog(self):
         show_context_dialog(self)
+
+    def _update_references_button(self) -> None:
+        self.references_button.config(text=f"Referencias: {len(self.reference_files)}")
+
+    def _add_references(self, paths: tuple[str, ...] | list[str]) -> int:
+        """Añade archivos de referencia sin alterar el artículo del editor."""
+        added = 0
+        active_path = self.session.document_path.resolve() if self.session.document_path else None
+        known = set(self.reference_files)
+        for raw_path in paths:
+            try:
+                path = Path(raw_path).resolve()
+            except OSError:
+                continue
+            if (not path.is_file() or path.suffix.lower() not in {".md", ".txt"}
+                    or path == active_path or path in known):
+                continue
+            self.reference_files.append(path)
+            known.add(path)
+            added += 1
+        self._update_references_button()
+        return added
+
+    def manage_references(self) -> None:
+        """Permite conservar varios artículos de apoyo durante esta sesión."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Referencias para el asistente")
+        dialog.transient(self)
+        dialog.configure(bg=es.SUPERFICIE)
+        dialog.minsize(460, 280)
+        dialog.geometry("580x360")
+        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Referencias incluidas en las consultas", style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(frame, text=("Añade artículos anteriores (.md o .txt). Se mantienen durante esta sesión "
+                               "y se enviarán solo cuando confirmes el contexto."),
+                  style="TenueSuperficie.TLabel", wraplength=520, justify="left").pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
+        # La fila de acciones se reserva ANTES de la lista expansible: con pack,
+        # lo colocado después es lo que se recorta al estrechar la ventana.
+        actions = ttk.Frame(frame, style="Superficie.TFrame")
+        actions.pack(side="bottom", fill="x", pady=(es.ESP["lg"], 0))
+        entries = tk.Listbox(frame, selectmode="extended", background=es.SUPERFICIE_ALTA,
+                             foreground=es.TEXTO, selectbackground=es.SELECCION,
+                             selectforeground=es.TEXTO, relief="flat", highlightthickness=1,
+                             highlightbackground=es.BORDE, highlightcolor=es.FOCO,
+                             font=es.fuente())
+        entries.pack(fill="both", expand=True)
+
+        def refresh() -> None:
+            entries.delete(0, "end")
+            for path in self.reference_files:
+                entries.insert("end", str(path))
+
+        def add() -> None:
+            paths = filedialog.askopenfilenames(
+                parent=dialog, title="Añadir artículos de referencia",
+                filetypes=[("Artículos", "*.md *.txt"), ("Todos los archivos", "*.*")],
+            )
+            # Tk declara una cadena vacía al cancelar, aunque normalmente devuelve
+            # una tupla. No iterar esa cadena evita tratar cada carácter como ruta.
+            selected_paths = paths if isinstance(paths, tuple) else ()
+            count = self._add_references(selected_paths)
+            refresh()
+            if count:
+                self.status.set(f"{count} referencia(s) añadida(s).")
+
+        def remove() -> None:
+            selected = list(entries.curselection())
+            if not selected:
+                return
+            self.reference_files = [path for index, path in enumerate(self.reference_files)
+                                    if index not in selected]
+            self._update_references_button()
+            refresh()
+            self.status.set("Referencias actualizadas.")
+
+        # Acción primaria a la derecha, como en el resto de diálogos.
+        ttk.Button(actions, text="Añadir archivos…", style="Primaria.TButton",
+                   command=add).pack(side="right")
+        ttk.Button(actions, text="Quitar seleccionadas", command=remove).pack(
+            side="right", padx=(0, es.ESP["sm"]))
+        ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        refresh()
+        entries.focus_set()
     def save_document(self, save_as: bool = False)->bool:
         previous_path = self.session.document_path
         if save_as or previous_path is None:
+
             options: dict = {"defaultextension": ".md", "filetypes": [("Markdown","*.md")]}
             if previous_path is not None:
                 options["initialdir"] = str(previous_path.parent)

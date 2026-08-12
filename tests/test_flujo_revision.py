@@ -255,7 +255,7 @@ class TestContextoSinRepliegue(unittest.TestCase):
 
 @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
 class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
-    """Los mensajes normales siguen usando contexto local cuando es relevante."""
+    """El artículo visible es directo; las referencias son siempre explícitas."""
 
     def setUp(self):
         self.directorio = tempfile.TemporaryDirectory()
@@ -280,18 +280,28 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
         self.directorio.cleanup()
         os.environ.pop("CLAVE_PRUEBA_NORMAL", None)
 
-    def test_un_mensaje_normal_si_prepara_contexto(self):
-        with patch.object(self.app.context, "prepare_context",
-                          return_value=(True, "", [])) as buscar:
+    def _asentar(self):
+        for _ in range(5):
+            self.app.update()
+            self.app.update_idletasks()
+
+    def test_un_mensaje_normal_no_explora_el_workspace(self):
+        with patch.object(self.app.context, "prepare_context") as buscar, \
+             patch.object(self.app.llm, "stream_response") as enviar:
             self.app.request("¿Cómo mejoro la tesis?")
-            for _ in range(20):
+            for _ in range(5):
                 self.app.update()
-        buscar.assert_called_once()
+        buscar.assert_not_called()
+        self.assertEqual(
+            enviar.call_args[0][2],
+            self.app.editor.get("1.0", "end-1c"),
+            "El LLM recibe el artículo visible, no un campo vacío",
+        )
+        self.assertEqual(enviar.call_args[0][3], "", "No envía archivos locales")
 
     def test_un_mensaje_normal_si_aparece_en_el_historial(self):
         self.app.input.insert("1.0", "¿Cómo mejoro la tesis?")
-        with patch.object(self.app.context, "prepare_context",
-                          return_value=(True, "", [])):
+        with patch.object(self.app.llm, "stream_response"):
             self.app.send_message()
             for _ in range(10):
                 self.app.update()
@@ -306,6 +316,28 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             for _ in range(5):
                 self.app.update()
         self.assertFalse(self.app.barra_aprobacion.winfo_ismapped())
+
+    def test_referencias_elegidas_se_conservan_y_piden_confirmacion(self):
+        anterior = self.raiz / "articulo-anterior.md"
+        anterior.write_text("La tesis anterior trataba seguridad y criterio.", encoding="utf-8")
+        self.app.editor.insert("1.0", "Artículo actual sobre criterio humano.")
+        self.assertEqual(self.app._add_references([str(anterior)]), 1)
+        self.assertEqual(self.app._add_references([str(anterior)]), 0, "No duplica una referencia")
+        self.assertEqual(self.app.references_button.cget("text"), "Referencias: 1")
+
+        with patch.object(self.app.llm, "stream_response") as enviar:
+            self.app.request("Compara ambos artículos")
+            self._asentar()
+            self.assertTrue(self.app.barra_aprobacion.winfo_ismapped())
+            self.assertIn("articulo-anterior.md", self.app.aprobacion_texto.get())
+            enviar.assert_not_called()
+
+            self.app.boton_aprobar.invoke()
+            self._asentar()
+
+        self.assertEqual(enviar.call_args[0][2], "Artículo actual sobre criterio humano.\n")
+        self.assertIn("REFERENCIA LOCAL: articulo-anterior.md", enviar.call_args[0][3])
+        self.assertIn("tesis anterior", enviar.call_args[0][3])
 
 
 if __name__ == "__main__":
