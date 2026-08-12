@@ -31,6 +31,20 @@ from articulador_core.models import ArticleSession, LlmProfile
 from articulador_ui.app import ArticuladorApp
 from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.document_scope import DocumentScope
+from articulador_ui.estado import EstadoUI
+
+
+class _Var:
+    """StringVar mínimo: los ayudantes sin ventana no tienen raíz Tk."""
+
+    def __init__(self, valor: str = "") -> None:
+        self._valor = valor
+
+    def set(self, valor) -> None:
+        self._valor = valor
+
+    def get(self):
+        return self._valor
 
 
 def _display_available() -> bool:
@@ -55,6 +69,10 @@ def _headless_app() -> ArticuladorApp:
     app.streaming_request = None
     app.streaming_text = ""
     app.scope = DocumentScope()
+    app.estado_actual = EstadoUI.REPOSO
+    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
+    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+    app.estado_label = Mock()
     app.history = Mock()
     app.activity = Mock()
     app.status = Mock()
@@ -175,7 +193,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self._settle()
 
         self.assertFalse(self.app.session.dirty)
-        self.assertEqual(self.app.sync_label.cget("text"), "● Documento abierto")
+        self.assertEqual(self.app.sync_label.cget("text"), "○  Sin cambios")
 
     def test_edicion_del_usuario_si_marca_como_sucio(self):
         document = self.root / "a.md"
@@ -187,7 +205,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self._settle()
 
         self.assertTrue(self.app.session.dirty)
-        self.assertEqual(self.app.sync_label.cget("text"), "● Cambios sin guardar")
+        self.assertIn("Cambios sin guardar", self.app.sync_label.cget("text"))
 
     def test_cada_documento_estrena_sesion_limpia(self):
         from articulador_core.models import ChatMessage
@@ -323,28 +341,38 @@ class TestAprobacionDeContexto(unittest.TestCase):
             ["notas.md"], threading.Event(),
         )
 
+    def _aceptar_si_pregunta(self) -> bool:
+        """Acepta la confirmación en línea si apareció. Devuelve si preguntó."""
+        self.app.update()
+        if self.app.barra_aprobacion.winfo_ismapped():
+            self.app.boton_aprobar.invoke()
+            self.app.update()
+            return True
+        return False
+
     def test_el_segundo_mensaje_no_vuelve_a_pedir_confirmacion(self):
-        with patch("articulador_ui.app.messagebox.askyesno", return_value=True) as preguntar:
-            self._enviar("primer mensaje")
-            self.assertEqual(preguntar.call_count, 1, "El primer envío sí debe confirmarse")
-            self._enviar("segundo mensaje")
-            self._enviar("tercer mensaje")
-            self.assertEqual(
-                preguntar.call_count, 1,
-                "Mismo paquete local: no debe reconfirmarse en cada mensaje",
-            )
+        self._enviar("primer mensaje")
+        self.assertTrue(self._aceptar_si_pregunta(), "El primer envío sí debe confirmarse")
+
+        self._enviar("segundo mensaje")
+        self.assertFalse(self._aceptar_si_pregunta(),
+                         "Mismo paquete local: no debe reconfirmarse en cada mensaje")
+        self._enviar("tercer mensaje")
+        self.assertFalse(self._aceptar_si_pregunta())
 
     def test_un_paquete_distinto_si_vuelve_a_confirmarse(self):
-        with patch("articulador_ui.app.messagebox.askyesno", return_value=True) as preguntar:
-            self._enviar("primer mensaje")
-            self.app.generation_counter += 1
-            rid = self.app.generation_counter
-            self.app.request_types[rid] = "normal"
-            self.app.confirm_and_send(
-                rid, "otro", "artículo", "ARCHIVO LOCAL: notas.md\n---\nCONTENIDO NUEVO",
-                ["notas.md"], threading.Event(),
-            )
-            self.assertEqual(preguntar.call_count, 2)
+        self._enviar("primer mensaje")
+        self.assertTrue(self._aceptar_si_pregunta())
+
+        self.app.generation_counter += 1
+        rid = self.app.generation_counter
+        self.app.request_types[rid] = "normal"
+        self.app.confirm_and_send(
+            rid, "otro", "artículo", "ARCHIVO LOCAL: notas.md\n---\nCONTENIDO NUEVO",
+            ["notas.md"], threading.Event(),
+        )
+        self.assertTrue(self._aceptar_si_pregunta(),
+                        "Otro paquete de contexto sí debe reconfirmarse")
 
 
 class TestSeguridadDelEndpoint(unittest.TestCase):
@@ -953,11 +981,13 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         for i in range(127):
             app.approved_contexts[(app.profile.endpoint, app.profile.provider, ("notas.md",), f"h{i}")] = None
 
-        with patch("articulador_ui.app.messagebox.askyesno", return_value=True):
-            app.generation_counter += 1
-            rid = app.generation_counter
-            app.request_types[rid] = "normal"
-            app.confirm_and_send(rid, "hola", "art", "paquete nuevo", ["notas.md"], threading.Event())
+        app.generation_counter += 1
+        rid = app.generation_counter
+        app.request_types[rid] = "normal"
+        app.confirm_and_send(rid, "hola", "art", "paquete nuevo", ["notas.md"], threading.Event())
+        app.update()
+        app.boton_aprobar.invoke()   # confirmación en línea, no modal
+        app.update()
 
         self.assertEqual(len(app.approved_contexts), 128, "El tope se mantiene")
         self.assertNotIn(primera, app.approved_contexts, "Se desaloja la más antigua")

@@ -5,6 +5,7 @@ import os
 import queue
 import threading
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -16,17 +17,24 @@ from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
+from articulador_ui import estilo as es
 from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.context_orchestrator import ContextOrchestrator
 from articulador_ui.dialogs import show_context_dialog, show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
 from articulador_ui.document_scope import DocumentScope
+from articulador_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from articulador_ui.llm_session_manager import LLMSessionManager
 
 ContextApprovalKey: TypeAlias = tuple[str, str, tuple[str, ...], str]
 
-COLORS = {"bg":"#151a20", "panel":"#1d252e", "raised":"#25313b", "field":"#10161c", "text":"#edf2f6", "muted":"#a9b7c4", "muted_light":"#bcc4d0", "accent":"#69c7b2", "accent_text":"#09231e", "border":"#3a4856", "selection":"#365f69", "assistant":"#c9b3ff"}
-FONT = "DejaVu Sans"
+# Compatibilidad para los diálogos, que leen app.COLORS. El sistema visual vive
+# en articulador_ui/estilo.py y es la fuente única.
+COLORS = {"bg": es.FONDO, "panel": es.SUPERFICIE, "raised": es.SUPERFICIE_ALTA,
+          "field": es.SUPERFICIE_ALTA, "text": es.TEXTO, "muted": es.TEXTO_TENUE,
+          "muted_light": es.TEXTO_TENUE, "accent": es.ACENTO,
+          "accent_text": es.ACENTO_TEXTO, "border": es.BORDE,
+          "selection": es.SELECCION, "assistant": es.VOZ_ASISTENTE}
 REVIEW_PROMPT = (
     'Revisa el artículo y responde SOLO JSON válido: '
     '{"findings":[{"category":"ortografía|gramática|semántica|redundancia|estructura",'
@@ -134,77 +142,252 @@ class ArticuladorApp(tk.Tk):
             self.minsize(min_width, min_height)
 
     def _theme(self) -> None:
-        self.configure(bg=COLORS["bg"]); style = ttk.Style(self)
+        """Aplica el sistema visual: un fondo, dos superficies, un acento."""
+        self.configure(bg=es.FONDO)
+        style = ttk.Style(self)
         try: style.theme_use("clam")
         except tk.TclError: pass
-        style.configure(".", background=COLORS["bg"], foreground=COLORS["text"], font=(FONT,10))
-        style.configure("TFrame", background=COLORS["bg"]); style.configure("Panel.TFrame", background=COLORS["raised"])
-        style.configure("TLabelframe", background=COLORS["panel"], bordercolor=COLORS["border"])
-        style.configure("TLabelframe.Label", background=COLORS["panel"], foreground=COLORS["accent"], font=(FONT,10,"bold"))
-        style.configure("TButton", background=COLORS["raised"], foreground=COLORS["text"], bordercolor=COLORS["border"], padding=(8,5))
-        # Estilos de botones diferenciados
-        style.configure("Accent.TButton", background=COLORS["accent"], foreground=COLORS["accent_text"], padding=(12,7), font=(FONT,10,"bold"))
-        style.map("Accent.TButton", background=[("active", "#8cdbc8")])
-        style.configure("Secondary.TButton", background=COLORS["raised"], foreground=COLORS["accent"], bordercolor=COLORS["border"], padding=(8,5))
-        style.map("Secondary.TButton", background=[("active", COLORS["panel"])])
-        style.configure("Config.TButton", background=COLORS["panel"], foreground=COLORS["accent"], relief="flat", padding=(6,4))
-        style.map("Config.TButton", background=[("active", COLORS["raised"])])
+
+        style.configure(".", background=es.FONDO, foreground=es.TEXTO, font=es.fuente(),
+                        focuscolor=es.FOCO)
+        style.configure("TFrame", background=es.FONDO)
+        style.configure("Superficie.TFrame", background=es.SUPERFICIE)
+        style.configure("Alta.TFrame", background=es.SUPERFICIE_ALTA)
+        style.configure("TLabel", background=es.FONDO, foreground=es.TEXTO)
+        style.configure("Superficie.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO)
+        style.configure("Tenue.TLabel", background=es.FONDO, foreground=es.TEXTO_TENUE,
+                        font=es.fuente(es.TIPO_SM))
+        style.configure("TenueSuperficie.TLabel", background=es.SUPERFICIE,
+                        foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
+        style.configure("Titulo.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO,
+                        font=es.fuente(negrita=True))
+        style.configure("TPanedwindow", background=es.FONDO)
+        style.configure("TLabelframe", background=es.SUPERFICIE, bordercolor=es.BORDE)
+        style.configure("TLabelframe.Label", background=es.SUPERFICIE,
+                        foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM, negrita=True))
+
+        # Un solo acento: la acción primaria. El resto son botones tranquilos.
+        style.configure("TButton", background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                        bordercolor=es.BORDE, focuscolor=es.FOCO,
+                        padding=(es.ESP["sm"], es.ESP["xs"] + 1))
+        style.map("TButton",
+                  background=[("active", es.BORDE), ("disabled", es.SUPERFICIE)],
+                  foreground=[("disabled", es.BORDE)])
+        style.configure("Primaria.TButton", background=es.ACENTO, foreground=es.ACENTO_TEXTO,
+                        bordercolor=es.ACENTO, focuscolor=es.ACENTO_TEXTO,
+                        font=es.fuente(negrita=True), padding=(es.ESP["md"], es.ESP["xs"] + 2))
+        style.map("Primaria.TButton",
+                  background=[("active", es.ACENTO_ACTIVO), ("disabled", es.SUPERFICIE_ALTA)],
+                  foreground=[("disabled", es.TEXTO_TENUE)])
+        style.configure("Plana.TButton", background=es.SUPERFICIE, foreground=es.TEXTO_TENUE,
+                        bordercolor=es.SUPERFICIE, relief="flat", focuscolor=es.FOCO,
+                        font=es.fuente(es.TIPO_SM), padding=(es.ESP["sm"], es.ESP["xs"]))
+        style.map("Plana.TButton",
+                  background=[("active", es.SUPERFICIE_ALTA)],
+                  foreground=[("active", es.TEXTO)])
+        style.configure("TMenubutton", background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                        focuscolor=es.FOCO, padding=(es.ESP["sm"], es.ESP["xs"] + 1))
+        style.configure("TCheckbutton", background=es.SUPERFICIE, foreground=es.TEXTO,
+                        focuscolor=es.FOCO)
+        style.map("TCheckbutton", background=[("active", es.SUPERFICIE)])
+        # Las barras de desplazamiento por defecto son claras y rompen el conjunto.
+        style.configure("Vertical.TScrollbar", background=es.SUPERFICIE_ALTA,
+                        troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
+                        arrowcolor=es.TEXTO_TENUE, relief="flat")
+        style.map("Vertical.TScrollbar", background=[("active", es.BORDE)])
+        style.configure("Horizontal.TScrollbar", background=es.SUPERFICIE_ALTA,
+                        troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
+                        arrowcolor=es.TEXTO_TENUE, relief="flat")
 
     def _text(self, parent, **kwargs):
-        options = {"background": COLORS["field"], "foreground": COLORS["text"], "insertbackground": COLORS["accent"], "selectbackground": COLORS["selection"], "relief": "flat", "borderwidth": 0, "font": (FONT, 10)}
+        """Área de texto del sistema, con foco visible por teclado."""
+        options = {
+            "background": es.SUPERFICIE_ALTA, "foreground": es.TEXTO,
+            "insertbackground": es.ACENTO, "selectbackground": es.SELECCION,
+            "relief": "flat", "borderwidth": 0, "font": es.fuente(),
+            # El recuadro de foco es obligatorio para navegar con teclado.
+            "highlightthickness": 1, "highlightbackground": es.SUPERFICIE,
+            "highlightcolor": es.FOCO,
+        }
         options.update(kwargs)
         return ScrolledText(parent, **options)
 
     def _build(self) -> None:
-        bar=ttk.Frame(self,padding=8); bar.pack(fill="x")
-        file_menu=tk.Menu(self,tearoff=False,background=COLORS["raised"],foreground=COLORS["text"])
-        for text, command in (("Abrir…",self.open_document),("Guardar",self.save_document),("Guardar como…",lambda:self.save_document(save_as=True)),("Guardar proyecto…",self.save_project),("Abrir proyecto…",self.open_project)):
-            file_menu.add_command(label=text,command=command)
-        file_button=ttk.Menubutton(bar,text="Archivo",menu=file_menu); file_button.pack(side="left",padx=(0,6))
-        ttk.Button(bar,text="Guardar",style="Accent.TButton",command=self.save_document).pack(side="left")
-        self.sync_label = ttk.Label(bar, text="● Cambios locales", foreground=COLORS["muted"])
-        self.sync_label.pack(side="right")
+        self._build_barra()
+        # El pie se ancla antes que el área expansible: con pack, lo colocado
+        # después es lo que se recorta al faltar espacio.
+        self._build_pie()
         panes = ttk.PanedWindow(self, orient="horizontal")
-        panes.pack(fill="both", expand=True, padx=8, pady=(0,6))
+        panes.pack(fill="both", expand=True, padx=es.ESP["sm"], pady=(0, es.ESP["xs"]))
         self.panes = panes
-        chat=ttk.Labelframe(panes,text="Asistencia de Articulador",padding=8); panes.add(chat,weight=35)
-        header=ttk.Frame(chat,style="Panel.TFrame",padding=8); header.pack(fill="x",pady=(0,7))
-        ttk.Label(header,text="¿Qué quieres trabajar?",background=COLORS["raised"],font=(FONT,11,"bold")).pack(side="left")
-        ttk.Button(header,text="Propiedades",style="Secondary.TButton",command=self.toggle_properties).pack(side="right")
-        self.properties = ttk.Frame(chat, style="Panel.TFrame", padding=(8,0))
-        self.properties.pack(fill="x", pady=(0,7))
-        self.profile_chip = ttk.Button(self.properties, text=f"Modelo: {self.profile.model or 'sin configurar'}", style="Config.TButton", command=self.settings)
-        self.profile_chip.pack(side="left", padx=(0,8), pady=6)
-        self.context_label = ttk.Button(self.properties, text="Contexto: artículo completo", style="Config.TButton", command=self.context_dialog)
-        self.context_label.pack(side="left", pady=6)
-        self.properties.pack_forget()
-        self.history = self._text(chat, wrap="word", state="disabled", padx=10, pady=9)
-        self.history.configure(background=COLORS["raised"])
-        self.history.pack(fill="both", expand=True)
-        self.history.bind("<Button-3>",self.history_menu)
-        self.history.bind("<Control-c>",lambda e:self.history.event_generate("<<Copy>>") or "break")
-        self.history.tag_configure("you",foreground=COLORS["accent"],font=(FONT,10,"bold")); self.history.tag_configure("bot",foreground=COLORS["assistant"],font=(FONT,10,"bold","italic"))
-        composer=ttk.Labelframe(chat,text="Mensaje",padding=8); composer.pack(fill="x",pady=(8,0))
-        self.input=self._text(composer,height=4,wrap="word",padx=8,pady=7); self.input.pack(fill="x"); self.input.bind("<Return>",lambda e:self.send_message() or "break"); self.input.bind("<Control-Return>",lambda e:self.input.insert("insert","\n") or "break")
-        row=ttk.Frame(composer); row.pack(fill="x",pady=(5,0)); self.send_button=ttk.Button(row,text="Enviar",style="Accent.TButton",command=self.send_message); self.send_button.pack(side="right"); self.cancel_button=ttk.Button(row,text="Cancelar",style="Secondary.TButton",command=self.cancel_request,state="disabled"); self.cancel_button.pack(side="right",padx=(0,6)); self.review_button=ttk.Button(row,text="Revisar artículo",style="Secondary.TButton",command=self.review); self.review_button.pack(side="left"); ttk.Button(row,text="Limpiar",style="Secondary.TButton",command=self.clear_history).pack(side="left",padx=(0,6))
-        self.activity=tk.StringVar(value="Listo para conversar."); ttk.Label(composer,textvariable=self.activity,foreground=COLORS["muted_light"]).pack(anchor="w",padx=8,pady=(5,0))
-        self.cost_label=tk.StringVar(value="Contexto y coste se mostrarán antes de enviar."); ttk.Label(composer,textvariable=self.cost_label,foreground=COLORS["muted_light"],font=(FONT,9)).pack(anchor="w",padx=8)
-        editor=ttk.Labelframe(panes,text="Tu artículo · edición",padding=4); panes.add(editor,weight=65)
-        self.editor=self._text(editor,undo=True,wrap="word",font=(FONT,12)); self.editor.pack(fill="both",expand=True); self.editor.bind("<<Modified>>",self.modified); self.editor.bind("<ButtonRelease-1>",lambda e:self.update_context())
-        # <<Selection>> cubre también la selección con teclado (Shift+flechas), que
-        # <ButtonRelease-1> no veía: sin esto la etiqueta del botón se desincroniza.
-        self.editor.bind("<<Selection>>",lambda e:self.update_context())
-        self.editor.bind("<Control-s>",lambda e:self.save_document() or "break")
-        self.editor.bind("<KeyRelease>",lambda e:self.schedule_stats())
-        self.editor_stats=ttk.Label(editor,text="0 palabras · 0 min de lectura",foreground=COLORS["muted_light"]); self.editor_stats.pack(anchor="e",padx=4,pady=(4,0))
-        self.status=tk.StringVar(value="Listo."); ttk.Label(self,textvariable=self.status,padding=7,foreground=COLORS["muted"]).pack(fill="x")
-        self.append("Articulador","Cuéntame qué quieres explorar o mejorar. Puedo usar el artículo completo o una selección."); self.input.focus_set()
+        # El artículo va primero y con más peso: es el foco del trabajo.
+        self._build_editor(panes)
+        self._build_asistente(panes)
+        self._registrar_atajos()
+        self.append("Articulador", "Cuéntame qué quieres explorar o mejorar. Puedo usar el artículo completo o una selección.", es_respuesta=False)
+        self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
 
-    def append(self, who:str, text:str) -> None:
+    def _build_barra(self) -> None:
+        """Barra mínima: solo lo que se usa a diario. El resto, en el menú."""
+        barra = ttk.Frame(self, padding=(es.ESP["sm"], es.ESP["sm"], es.ESP["sm"], es.ESP["xs"]))
+        barra.pack(fill="x")
+
+        menu_archivo = tk.Menu(self, tearoff=False, background=es.SUPERFICIE_ALTA,
+                               foreground=es.TEXTO, activebackground=es.ACENTO,
+                               activeforeground=es.ACENTO_TEXTO, font=es.fuente())
+        entradas: list[tuple[str, Callable[[], object], str] | None] = [
+            ("Abrir artículo…", self.open_document, "Ctrl+O"),
+            ("Guardar", self.save_document, "Ctrl+S"),
+            ("Guardar como…", lambda: self.save_document(save_as=True), "Ctrl+Mayús+S"),
+            None,
+            ("Abrir proyecto…", self.open_project, ""),
+            ("Guardar proyecto…", self.save_project, ""),
+            None,
+            ("Configurar modelo…", self.settings, ""),
+            ("Contexto local…", self.context_dialog, ""),
+            ("Limpiar conversación", self.clear_history, ""),
+        ]
+        for entrada in entradas:
+            if entrada is None:
+                menu_archivo.add_separator()
+            else:
+                etiqueta, orden, acelerador = entrada
+                menu_archivo.add_command(label=etiqueta, command=orden, accelerator=acelerador)
+        self.menu_archivo = menu_archivo
+        ttk.Menubutton(barra, text="Menú", menu=menu_archivo).pack(side="left")
+        ttk.Button(barra, text="Guardar", style="Primaria.TButton",
+                   command=self.save_document).pack(side="left", padx=(es.ESP["sm"], 0))
+
+        # Estado de sincronía del documento: símbolo + texto, nunca solo color.
+        self.sync_label = ttk.Label(barra, text="○  Sin cambios", style="Tenue.TLabel")
+        self.sync_label.pack(side="left", padx=(es.ESP["md"], 0))
+
+        self.boton_panel = ttk.Button(barra, text="Ocultar asistente  (F6)",
+                                      command=self.toggle_asistente)
+        self.boton_panel.pack(side="right")
+        self.profile_chip = ttk.Button(
+            barra, text=f"Modelo: {self.profile.model or 'sin configurar'}",
+            style="Plana.TButton", command=self.settings)
+        self.profile_chip.pack(side="right", padx=(0, es.ESP["sm"]))
+
+    def _build_editor(self, panes) -> None:
+        editor = ttk.Labelframe(panes, text="TU ARTÍCULO", padding=es.ESP["xs"])
+        panes.add(editor, weight=68)
+        self.panel_editor = editor
+        self.editor = self._text(editor, undo=True, wrap="word", font=es.fuente(es.TIPO_LG),
+                                 padx=es.ESP["md"], pady=es.ESP["sm"])
+        self.editor.pack(fill="both", expand=True)
+        self.editor.bind("<<Modified>>", self.modified)
+        self.editor.bind("<ButtonRelease-1>", lambda e: self.update_context())
+        # <<Selection>> cubre también la selección con teclado (Shift+flechas), que
+        # <ButtonRelease-1> no veía: sin esto la etiqueta del botón se desincroniza.
+        self.editor.bind("<<Selection>>", lambda e: self.update_context())
+        self.editor.bind("<KeyRelease>", lambda e: self.schedule_stats())
+        self.editor_stats = ttk.Label(editor, text="0 palabras · 0 min de lectura",
+                                      style="TenueSuperficie.TLabel")
+        self.editor_stats.pack(anchor="e", padx=es.ESP["xs"], pady=(es.ESP["xs"], 0))
+
+    def _build_asistente(self, panes) -> None:
+        chat = ttk.Labelframe(panes, text="ASISTENTE", padding=es.ESP["sm"])
+        panes.add(chat, weight=32)
+        self.panel_asistente = chat
+
+        # Los controles se anclan abajo ANTES que el historial. Con pack, lo que
+        # se coloca después es lo que se recorta al faltar espacio: al reservar
+        # primero el compositor, las acciones primarias nunca desaparecen aunque
+        # el panel se estreche.
+        self.cost_label = tk.StringVar(value="El contexto y el coste se muestran antes de enviar.")
+        ttk.Label(chat, textvariable=self.cost_label, style="TenueSuperficie.TLabel",
+                  wraplength=300, justify="left").pack(side="bottom", fill="x",
+                                                       pady=(es.ESP["xs"], 0))
+
+        fila = ttk.Frame(chat, style="Superficie.TFrame")
+        fila.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
+        self.send_button = ttk.Button(fila, text="Enviar", style="Primaria.TButton",
+                                      command=self.send_message)
+        self.send_button.pack(side="right")
+        self.cancel_button = ttk.Button(fila, text="Cancelar", command=self.cancel_request,
+                                        state="disabled")
+        self.cancel_button.pack(side="right", padx=(0, es.ESP["sm"]))
+        self.review_button = ttk.Button(fila, text="Revisar artículo", command=self.review)
+        self.review_button.pack(side="left")
+
+        self.input = self._text(chat, height=3, wrap="word",
+                                padx=es.ESP["sm"], pady=es.ESP["sm"])
+        self.input.pack(side="bottom", fill="x")
+        self.input.bind("<Return>", lambda e: self.send_message() or "break")
+        self.input.bind("<Control-Return>", lambda e: self.input.insert("insert", "\n") or "break")
+
+        # Indicador de estado: símbolo + texto + color, y nombre accesible propio.
+        self.estado_ayuda = tk.StringVar(value=EstadoUI.REPOSO.ayuda)
+        ttk.Label(chat, textvariable=self.estado_ayuda, style="TenueSuperficie.TLabel",
+                  wraplength=300, justify="left").pack(side="bottom", fill="x",
+                                                       pady=(2, es.ESP["sm"]))
+        self.activity = tk.StringVar(value=EstadoUI.REPOSO.etiqueta())
+        self.estado_actual = EstadoUI.REPOSO
+        self.estado_label = ttk.Label(chat, textvariable=self.activity,
+                                      style="Superficie.TLabel",
+                                      foreground=EstadoUI.REPOSO.color)
+        self.estado_label.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
+
+        # Confirmación de contexto en línea. Se crea oculta y solo aparece cuando
+        # hay algo que decidir; sustituye al modal que salía antes de cada envío.
+        self.barra_aprobacion = ttk.Frame(chat, style="Alta.TFrame",
+                                          padding=(es.ESP["sm"], es.ESP["sm"]))
+        self.aprobacion_texto = tk.StringVar(value="")
+        ttk.Label(self.barra_aprobacion, textvariable=self.aprobacion_texto,
+                  background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                  font=es.fuente(es.TIPO_SM), wraplength=300,
+                  justify="left").pack(fill="x")
+        acciones = ttk.Frame(self.barra_aprobacion, style="Alta.TFrame")
+        acciones.pack(fill="x", pady=(es.ESP["sm"], 0))
+        self.boton_aprobar = ttk.Button(acciones, text="Enviar contexto",
+                                        style="Primaria.TButton")
+        self.boton_aprobar.pack(side="right")
+        self.boton_rechazar = ttk.Button(acciones, text="No enviar")
+        self.boton_rechazar.pack(side="right", padx=(0, es.ESP["sm"]))
+
+        self.history = self._text(chat, wrap="word", state="disabled",
+                                  padx=es.ESP["md"], pady=es.ESP["sm"],
+                                  background=es.SUPERFICIE_ALTA)
+        self.history.pack(fill="both", expand=True)
+        self.history.bind("<Button-3>", self.history_menu)
+        self.history.bind("<Control-c>", lambda e: self.history.event_generate("<<Copy>>") or "break")
+        self.history.tag_configure("you", foreground=es.VOZ_USUARIO, font=es.fuente(negrita=True))
+        self.history.tag_configure("bot", foreground=es.VOZ_ASISTENTE, font=es.fuente(negrita=True))
+
+    def _build_pie(self) -> None:
+        self.status = tk.StringVar(value="Listo.")
+        ttk.Label(self, textvariable=self.status, style="Tenue.TLabel",
+                  padding=(es.ESP["sm"], es.ESP["xs"])).pack(side="bottom", fill="x")
+
+    def _registrar_atajos(self) -> None:
+        """Atajos globales: la interfaz debe poder manejarse solo con teclado."""
+        atajos: list[tuple[str, Callable[[], object]]] = [
+            ("<Control-s>", self.save_document),
+            ("<Control-S>", lambda: self.save_document(save_as=True)),
+            ("<Control-o>", self.open_document),
+            ("<F6>", self.toggle_asistente),
+            ("<Escape>", self.cancel_request),
+        ]
+        for secuencia, accion in atajos:
+            self.bind_all(secuencia, self._manejador_atajo(accion))
+
+    @staticmethod
+    def _manejador_atajo(accion: Callable[[], object]) -> Callable[[object], str]:
+        """Envuelve una acción como manejador de evento que detiene la propagación."""
+        def manejador(_evento: object) -> str:
+            accion()
+            return "break"
+        return manejador
+
+    def append(self, who:str, text:str, es_respuesta: bool = True) -> None:
+        """Escribe en el historial. `es_respuesta=False` para textos de orientación,
+        que no deben contar como «última respuesta» copiable ni ensuciar el ámbito."""
         self.history.config(state="normal"); self.history.insert("end",who+"\n","you" if who=="Tú" else "bot"); self.history.insert("end",text.strip()+"\n\n"); self.history.see("end"); self.history.config(state="disabled")
-        if who=="Articulador": self.scope.last_response=text
+        if who=="Articulador" and es_respuesta: self.scope.last_response=text
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
         # Vaciar el historial a mitad de un streaming dejaba el texto siguiente
@@ -216,14 +399,53 @@ class ArticuladorApp(tk.Tk):
             self.session.conversation.clear()
             self.scope.last_response=""; self.streaming_text=""; self.streaming_request=None
             self.status.set("Historial limpiado.")
-    def toggle_properties(self):
-        if self.properties.winfo_ismapped(): self.properties.pack_forget()
-        else: self.properties.pack(fill="x",pady=(0,7),before=self.history)
+    def set_estado(self, estado: EstadoUI, detalle: str = "") -> None:
+        """Punto único donde cambia el estado visible de la conversación.
+
+        Actualiza a la vez los tres portadores (símbolo, texto, color), el texto
+        de ayuda que explica qué ocurre sin documentación, el nombre accesible
+        para lectores de pantalla y la habilitación de los botones. Antes cada
+        rama del flujo escribía su propia cadena y no había estado consultable.
+        """
+        self.estado_actual = estado
+        self.activity.set(estado.etiqueta(detalle))
+        self.estado_ayuda.set(estado.ayuda)
+        try:
+            self.estado_label.config(foreground=estado.color)
+            # El nombre accesible viaja aparte del color y del símbolo.
+            self.estado_label.config(text=self.activity.get())
+        except tk.TclError:
+            pass
+        activo = estado in ESTADOS_ACTIVOS
+        self.send_button.state(["disabled"] if activo else ["!disabled"])
+        self.cancel_button.state(["!disabled"] if activo else ["disabled"])
+
+    def estado_accesible(self, detalle: str = "") -> str:
+        """Descripción del estado para lectores de pantalla y para pruebas."""
+        return self.estado_actual.descripcion_accesible(detalle)
+
+    def toggle_asistente(self):
+        """Oculta o restaura el panel del asistente para dar todo el ancho al artículo."""
+        if self.asistente_visible:
+            self.panes.forget(self.panel_asistente)
+            self.boton_panel.config(text="Mostrar asistente  (F6)")
+            self.status.set("Asistente oculto. F6 lo vuelve a mostrar.")
+            self.editor.focus_set()
+        else:
+            self.panes.add(self.panel_asistente, weight=32)
+            self.boton_panel.config(text="Ocultar asistente  (F6)")
+            self.status.set("Asistente visible.")
+
+    @property
+    def asistente_visible(self) -> bool:
+        # panes() devuelve rutas Tcl (cadenas), no objetos widget: comparar el
+        # widget directamente daba siempre False y el panel nunca se ocultaba.
+        return str(self.panel_asistente) in self.panes.panes()
     def copy_response(self):
         if not self.scope.last_response:return
         self.clipboard_clear(); self.clipboard_append(self.scope.last_response); self.status.set("Última respuesta copiada.")
     def history_menu(self,event):
-        menu=tk.Menu(self,tearoff=False,background=COLORS["raised"],foreground=COLORS["text"],activebackground=COLORS["accent"],activeforeground=COLORS["accent_text"])
+        menu=tk.Menu(self,tearoff=False,background=es.SUPERFICIE_ALTA,foreground=es.TEXTO,activebackground=es.ACENTO,activeforeground=es.ACENTO_TEXTO,font=es.fuente())
         menu.add_command(label="Copiar",command=lambda:self.history.event_generate("<<Copy>>"))
         menu.add_command(label="Seleccionar todo",command=lambda:self.history.tag_add("sel","1.0","end-1c"))
         menu.tk_popup(event.x_root,event.y_root); menu.grab_release()
@@ -232,7 +454,7 @@ class ArticuladorApp(tk.Tk):
         if not self.editor.edit_modified(): return
         self.editor.edit_modified(False)
         if self._suppress_modified: return  # Carga programática, no edición del usuario.
-        self.session.dirty=True; self.sync_label.config(text="● Cambios sin guardar",foreground=COLORS["accent"]); self.update_context(); self.schedule_stats()
+        self.session.dirty=True; self.sync_label.config(text="●  Cambios sin guardar", foreground=es.ESTADO_AVISO); self.update_context(); self.schedule_stats()
 
     def _replace_editor_text(self, content: str) -> None:
         """Sustituye el contenido del editor sin que cuente como edición del usuario.
@@ -260,7 +482,7 @@ class ArticuladorApp(tk.Tk):
         self.stats_after=self.after(300,self.update_stats)
     def update_context(self):
         selected=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
-        self.context_label.config(text=f"Contexto: selección · {len(selected.split())} palabras" if selected else "Contexto: artículo completo")
+        self.status.set(f"Contexto: selección de {len(selected.split())} palabras." if selected else "Contexto: artículo completo.")
         # Revisar solo lo seleccionado es deliberado (edición granular); el botón debe
         # decir sobre qué va a actuar en vez de prometer siempre el artículo entero.
         self.review_button.config(text="Revisar selección" if selected else "Revisar artículo")
@@ -288,7 +510,10 @@ class ArticuladorApp(tk.Tk):
         self._enter_document_scope(session.document_path)
         self._replace_editor_text(session.article)
         self._clear_history_widget()
-        self.session.dirty=False; self.sync_label.config(text="● Documento abierto",foreground=COLORS["muted"])
+        self.append("Articulador", f"Abierto «{path.name}». Pregúntame lo que quieras sobre "
+                    f"el artículo, o selecciona un fragmento para trabajar solo sobre él.",
+                    es_respuesta=False)
+        self.session.dirty=False; self.sync_label.config(text="○  Sin cambios", foreground=es.TEXTO_TENUE)
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
         return True
 
@@ -311,7 +536,7 @@ class ArticuladorApp(tk.Tk):
         if not self.profile.enabled or not self.key: self.append("Articulador","Configura un perfil LLM y una key para responder."); return
         article = self.editor.get("1.0","end-1c")
         selected = self.editor.get("sel.first","sel.last") if self.editor.tag_ranges("sel") else article
-        self.session.request_active=True; self.cancel_event=threading.Event(); self.send_button.state(["disabled"]); self.cancel_button.state(["!disabled"]); self.activity.set("Mensaje recibido. Articulador está analizando…")
+        self.session.request_active=True; self.cancel_event=threading.Event(); self.set_estado(EstadoUI.PREPARANDO)
         # Usar generation_counter global (nunca reinicia) para prevenir contaminación
         self.generation_counter += 1; request_id = self.generation_counter
         # Guardar el tipo de solicitud para este request_id
@@ -341,7 +566,7 @@ class ArticuladorApp(tk.Tk):
         logger.error("No se pudo preparar el contexto: %s", error_msg)
         self.session.request_active=False; self._reset_request_ui()
         self.request_types.pop(request_id, None)
-        self.activity.set("No se pudo preparar el contexto."); self.show_error("Error de contexto", error_msg)
+        self.set_estado(EstadoUI.ERROR, "no se pudo preparar el contexto"); self.show_error("Error de contexto", error_msg)
 
     def confirm_and_send(self, request_id, message, selected, packet, files, cancel_event):
         # Verificar que este request_id sigue siendo válido
@@ -404,22 +629,29 @@ class ArticuladorApp(tk.Tk):
         # completo el hash cambiaba en cada mensaje y el diálogo salía siempre.
         content_hash = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
         key: ContextApprovalKey = (profile.endpoint, profile.provider, tuple(files), content_hash)
-        if files and key not in self.approved_contexts:
-            if not messagebox.askyesno("Contexto que se enviará", detail+"\n\n¿Enviar estos fragmentos al proveedor configurado?"):
-                self._abort_request(request_id)
-                self.activity.set("Envío cancelado."); return
-            # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
-            # entero obligaba a reconfirmar todo de golpe.
-            while len(self.approved_contexts) >= 128:
-                self.approved_contexts.pop(next(iter(self.approved_contexts)), None)
-            self.approved_contexts[key] = None
 
+        def lanzar() -> None:
+            self._lanzar_envio(request_id, profile, message, selected, packet,
+                               conversation_with_message, files, request_type, cancel_event)
+
+        if files and key not in self.approved_contexts:
+            # Confirmación EN el panel, no un modal encima: no interrumpe la
+            # lectura del artículo ni bloquea el bombeo de eventos.
+            self._pedir_aprobacion(request_id, files, key, lanzar)
+            return
+        lanzar()
+
+    def _lanzar_envio(self, request_id, profile, message, selected, packet,
+                      conversation_with_message, files, request_type, cancel_event) -> None:
+        """Arranca el worker de la petición ya aprobada."""
+        if self.closing or request_id not in self.request_types or cancel_event.is_set():
+            return
         # Agregar mensaje a session para persistencia
-        self.session.conversation.append(ChatMessage("user",message))
+        self.session.conversation.append(ChatMessage("user", message))
 
         # Snapshot in the UI thread: the worker must not read mutable session state.
         # IMPORTANTE: usar conversation_with_message que incluye el mensaje actual
-        api_key=self.key
+        api_key = self.key
         self.llm.cancel_event = cancel_event
         def work():
             # Usar LLMSessionManager con error handling robusto
@@ -433,6 +665,39 @@ class ArticuladorApp(tk.Tk):
                 cancel_event=cancel_event,
             )
         threading.Thread(target=work,daemon=True).start()
+
+    def _pedir_aprobacion(self, request_id: int, files: list[str],
+                          key: ContextApprovalKey, al_aceptar) -> None:
+        """Muestra la confirmación de contexto dentro del panel del asistente."""
+        self.aprobacion_texto.set(
+            f"Se enviarán {len(files)} archivo(s) local(es) al proveedor: "
+            + ", ".join(files)
+        )
+        self.set_estado(EstadoUI.PREPARANDO, "esperando tu confirmación")
+
+        def aceptar() -> None:
+            self._ocultar_aprobacion()
+            # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
+            # entero obligaba a reconfirmar todo de golpe.
+            while len(self.approved_contexts) >= 128:
+                self.approved_contexts.pop(next(iter(self.approved_contexts)), None)
+            self.approved_contexts[key] = None
+            al_aceptar()
+
+        def rechazar() -> None:
+            self._ocultar_aprobacion()
+            self._abort_request(request_id)
+            self.set_estado(EstadoUI.CANCELADO, "no se envió nada")
+
+        self.boton_aprobar.config(command=aceptar)
+        self.boton_rechazar.config(command=rechazar)
+        self.barra_aprobacion.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0),
+                                   before=self.estado_label)
+        self.boton_aprobar.focus_set()
+
+    def _ocultar_aprobacion(self) -> None:
+        if self.barra_aprobacion.winfo_ismapped():
+            self.barra_aprobacion.pack_forget()
 
     def _abort_request(self, request_id: int) -> None:
         """Descarta una petición antes de enviarla y libera la UI por completo.
@@ -462,7 +727,7 @@ class ArticuladorApp(tk.Tk):
         if usage[0] is not None: self.cost_label.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
 
         if is_error:
-            self.activity.set("Revisa conexión, modelo o límites.")
+            self.set_estado(EstadoUI.ERROR)
             if streamed.strip():
                 # Antes el texto parcial quedaba cortado sin explicación y el error
                 # solo aparecía en la etiqueta de actividad.
@@ -473,7 +738,7 @@ class ArticuladorApp(tk.Tk):
                 self.append("Articulador", result)
             return
 
-        self.activity.set("Respuesta lista.")
+        self.set_estado(EstadoUI.EXITO)
         self.session.conversation.append(ChatMessage("assistant",result))
         # El tipo viaja con la petición: no hay estado de revisión persistente.
         if request_type == "review":
@@ -510,7 +775,7 @@ class ArticuladorApp(tk.Tk):
         self.history.insert("end", value)
         self.history.see("end")
         self.history.config(state="disabled")
-        self.activity.set("Articulador está respondiendo…")
+        if self.estado_actual is not EstadoUI.TRANSMITIENDO: self.set_estado(EstadoUI.TRANSMITIENDO)
     def cancel_request(self):
         if not self.session.request_active:
             return
@@ -525,7 +790,7 @@ class ArticuladorApp(tk.Tk):
         self.streaming_text = ""
         self.session.request_active = False
         self._reset_request_ui()
-        self.activity.set("Consulta cancelada.")
+        self.set_estado(EstadoUI.CANCELADO)
         self.status.set("La respuesta tardía será descartada.")
 
     def process_ui_events(self):
@@ -584,7 +849,7 @@ class ArticuladorApp(tk.Tk):
                 self.streaming_request = None
         self._reset_request_ui()
         try:
-            self.activity.set("Ocurrió un error interno procesando la respuesta.")
+            self.set_estado(EstadoUI.ERROR, "fallo interno al procesar la respuesta")
         except tk.TclError:
             pass
 
@@ -695,7 +960,7 @@ class ArticuladorApp(tk.Tk):
         self.scope.document_path = self.session.document_path
 
         # Marcar como guardado y actualizar UI
-        self.sync_label.config(text="● Guardado",foreground=COLORS["muted"])
+        self.sync_label.config(text="✓  Guardado", foreground=es.ESTADO_EXITO)
         self.status.set("Artículo guardado.")
         return True
     def save_project(self):
@@ -743,7 +1008,7 @@ class ArticuladorApp(tk.Tk):
         self._clear_history_widget()
         for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Articulador",item.content)
         self._enter_document_scope(self.session.document_path)
-        self.session.dirty=False; self.sync_label.config(text="● Proyecto abierto",foreground=COLORS["muted"])
+        self.session.dirty=False; self.sync_label.config(text="○  Sin cambios", foreground=es.TEXTO_TENUE)
         self.update_context(); self.schedule_stats()
         self.status.set("Proyecto abierto.")
 

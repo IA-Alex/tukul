@@ -28,7 +28,21 @@ from articulador_core.models import ArticleSession, LlmProfile
 from articulador_ui.app import ArticuladorApp
 from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.document_scope import DocumentScope
+from articulador_ui.estado import EstadoUI
 from articulador_ui.llm_session_manager import LLMSessionManager
+
+
+class _Var:
+    """StringVar mínimo: los ayudantes sin ventana no tienen raíz Tk."""
+
+    def __init__(self, valor: str = "") -> None:
+        self._valor = valor
+
+    def set(self, valor) -> None:
+        self._valor = valor
+
+    def get(self):
+        return self._valor
 
 
 def _app_sin_ventana() -> ArticuladorApp:
@@ -41,6 +55,10 @@ def _app_sin_ventana() -> ArticuladorApp:
     app.streaming_request = None
     app.streaming_text = ""
     app.scope = DocumentScope()
+    app.estado_actual = EstadoUI.REPOSO
+    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
+    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+    app.estado_label = Mock()
 
     def _pintar(request_id: int, texto: str) -> None:
         """Refleja la contabilidad de stream_chunk() sin tocar widgets Tk.

@@ -10,8 +10,22 @@ from unittest.mock import Mock, patch
 
 from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.document_scope import DocumentScope
+from articulador_ui.estado import EstadoUI
 
 # No import de tkinter - vamos a mockear solo lo mínimo
+
+
+class _Var:
+    """StringVar mínimo: los ayudantes sin ventana no tienen raíz Tk."""
+
+    def __init__(self, valor: str = "") -> None:
+        self._valor = valor
+
+    def set(self, valor) -> None:
+        self._valor = valor
+
+    def get(self):
+        return self._valor
 
 
 class TestRealEventFlow(unittest.TestCase):
@@ -53,6 +67,10 @@ class TestRealEventFlow(unittest.TestCase):
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
+                    app.estado_actual = EstadoUI.REPOSO
+                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.estado_label = Mock()
                     app.status = Mock()
                     app.cost_label = Mock()
                     app.docs = Mock()
@@ -107,6 +125,10 @@ class TestRealEventFlow(unittest.TestCase):
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
+                    app.estado_actual = EstadoUI.REPOSO
+                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.estado_label = Mock()
                     app.status = Mock()
                     app.cost_label = Mock()
                     app.docs = Mock()
@@ -160,6 +182,10 @@ class TestRealEventFlow(unittest.TestCase):
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
+                    app.estado_actual = EstadoUI.REPOSO
+                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.estado_label = Mock()
                     app.status = Mock()
                     app.cost_label = Mock()
                     app.docs = Mock()
