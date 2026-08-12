@@ -41,7 +41,16 @@ class CoreTests(unittest.TestCase):
             (root / "article.md").write_text("Texto editorial", encoding="utf-8")
             ignored = root / "node_modules"; ignored.mkdir()
             (ignored / "hidden.md").write_text("No debe indexarse", encoding="utf-8")
-            packet, files = ContextIndex(root).packet("", 4_000)
+            indice = ContextIndex(root)
+            # Consulta vacía o sin coincidencias: no se propone NADA. El repliegue
+            # anterior devolvía los primeros archivos por orden alfabético, así
+            # que un saludo acababa ofreciendo compartir ficheros del repositorio.
+            packet, files = indice.packet("", 4_000)
+            self.assertEqual(files, [])
+            self.assertEqual(packet, "")
+            # El podado de directorios ignorados se sigue comprobando con una
+            # consulta que sí coincide.
+            packet, files = indice.packet("editorial", 4_000)
             self.assertEqual(files, ["article.md"])
             self.assertNotIn("hidden.md", packet)
 

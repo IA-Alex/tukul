@@ -12,7 +12,6 @@ EXCLUDED = {".git", ".codex", ".agents", "articulador", "plugins", "__pycache__"
 MAX_INDEXED_FILES = 500
 MAX_INDEXED_FILE_BYTES = 50_000
 MAX_CONTEXT_FILES = 4
-FALLBACK_CONTEXT_FILES = 3
 MAX_CONTEXT_PACKET_CHARS = 12_000
 MAX_CONTEXT_EXCERPT_CHARS = 3_000
 BM25_K1 = 1.5
@@ -131,10 +130,15 @@ class ContextIndex:
             # Filtrar excluidos Y calcular relative on-demand (evita duplicación de memoria)
             permitted = [(score, path, content) for score, path, content in sorted_ranked
                         if path.relative_to(self.root).as_posix() not in excluded]
-            selected = [item for item in permitted if item[0] > 0][:MAX_CONTEXT_FILES] or permitted[:FALLBACK_CONTEXT_FILES]
+            # Sin coincidencias NO se propone nada. El repliegue anterior devolvía
+            # los primeros archivos por orden alfabético, así que un "Hola" acababa
+            # ofreciendo compartir README.md o NEXT_STEPS.md: ruido técnico
+            # presentado como contexto editorial, y una petición de privacidad
+            # sobre material que nadie había pedido usar.
+            selected = [item for item in permitted if item[0] > 0][:MAX_CONTEXT_FILES]
             remaining, parts, used = min(limit, MAX_CONTEXT_PACKET_CHARS), [], []
             self.last_reasons = {}
-            for score, path, content in selected:
+            for _score, path, content in selected:
                 relative = path.relative_to(self.root).as_posix()
                 if remaining <= 0:
                     break
@@ -142,9 +146,5 @@ class ContextIndex:
                 parts.append(f"ARCHIVO LOCAL: {relative}\n---\n{excerpt}")
                 used.append(relative)
                 remaining -= len(excerpt)
-                # Agregar razón (diferenciada para fallback)
-                if score > 0:
-                    self.last_reasons[relative] = "Coincidencia BM25 con tu consulta"
-                else:
-                    self.last_reasons[relative] = "Fallback (sin coincidencias relevantes)"
+                self.last_reasons[relative] = "Coincidencia con tu consulta"
             return "\n\n".join(parts), used

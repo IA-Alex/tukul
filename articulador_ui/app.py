@@ -13,6 +13,7 @@ from typing import TypeAlias
 
 from articulador_core import storage
 from articulador_core.config_validator import validate_startup_config
+from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
@@ -551,10 +552,73 @@ class ArticuladorApp(tk.Tk):
         if not message or self.session.request_active:return
         self.input.delete("1.0","end"); self.append("Tú",message); self.request(message)
     def review(self):
-        if not self.editor.get("1.0","end-1c").strip(): messagebox.showinfo("Falta artículo","Escribe o abre un artículo."); return
-        if self.session.request_active: messagebox.showinfo("Request activa","Espera a que termine la consulta anterior."); return
-        self.append("Tú", REVIEW_PROMPT)
-        self.request(REVIEW_PROMPT, request_type="review")
+        """Revisa el artículo abierto, o la selección si la hay.
+
+        La revisión NO busca referencias locales: el texto que se ve en pantalla
+        ya es exactamente lo que debe recibir el modelo. Antes pasaba por el
+        flujo general, así que indexaba el workspace, proponía compartir
+        archivos técnicos del repositorio y se quedaba esperando una
+        confirmación de privacidad que no venía a cuento.
+        """
+        articulo = self.editor.get("1.0", "end-1c")
+        if not articulo.strip():
+            messagebox.showinfo("Falta artículo", "Escribe o abre un artículo."); return
+        if self.session.request_active:
+            messagebox.showinfo("Consulta en curso", "Espera a que termine la consulta anterior."); return
+        seleccion = self.editor.get("sel.first", "sel.last") if self.editor.tag_ranges("sel") else ""
+        if seleccion.strip():
+            self._solicitar_revision(seleccion, "la selección")
+        else:
+            self._solicitar_revision(articulo, "el artículo")
+
+    def _solicitar_revision(self, texto: str, ambito: str) -> None:
+        """Envía el texto a revisar directamente, sin contexto local ni modales."""
+        if not self.profile.enabled or not self.key:
+            self.append("Articulador", "Configura un perfil LLM y una key para responder."); return
+
+        self.session.request_active = True
+        self.cancel_event = threading.Event()
+        cancel_event = self.cancel_event
+        self.generation_counter += 1
+        request_id = self.generation_counter
+        self.request_types[request_id] = "review"
+        # Ya está en vuelo: no hay fase de preparación de contexto que anunciar.
+        self.set_estado(EstadoUI.TRANSMITIENDO, f"revisando {ambito}")
+
+        profile = self.profile
+        # El prompt técnico viaja al modelo, no al historial: es ruido ilegible.
+        conversacion = [ChatMessage("user", REVIEW_PROMPT)]
+        try:
+            prompt = build_editor_prompt(texto, "", conversacion)
+            tokens = estimate_prompt_tokens(SYSTEM_PROMPT, prompt)
+            if tokens > profile.max_total_model_tokens - profile.max_output_tokens:
+                self._abort_request(request_id)
+                self.set_estado(EstadoUI.ERROR, "el texto a revisar es demasiado largo")
+                self.show_error(
+                    "Texto demasiado largo para revisar",
+                    f"Entrada: ~{tokens:,} tokens\n"
+                    f"Límite del modelo: ~{profile.max_total_model_tokens:,} tokens\n\n"
+                    f"Selecciona un fragmento más corto y vuelve a revisar.")
+                return
+        except Exception as error:
+            logger.error("No se pudo preparar la revisión: %s", error, exc_info=True)
+            self._abort_request(request_id)
+            self.set_estado(EstadoUI.ERROR, "no se pudo preparar la revisión")
+            self.show_error("Error interno", "No se pudo preparar la revisión. Inténtalo de nuevo.")
+            return
+
+        api_key = self.key
+        self.llm.cancel_event = cancel_event
+        def work():
+            self.llm.stream_response(
+                profile, api_key, texto, "", conversacion,
+                on_chunk=lambda chunk: self.chunks.append(request_id, chunk),
+                on_error=lambda error: self.control_queue.put_nowait(("error", request_id, f"No pude responder: {error}", [])),
+                on_complete=lambda result, usage: self.control_queue.put_nowait(("complete", request_id, result, [], usage, "review")),
+                request_id=request_id,
+                cancel_event=cancel_event,
+            )
+        threading.Thread(target=work, daemon=True).start()
 
     def request(self, message: str, request_type: str = "normal"):
         if not self.profile.enabled or not self.key: self.append("Articulador","Configura un perfil LLM y una key para responder."); return
@@ -608,7 +672,6 @@ class ArticuladorApp(tk.Tk):
         # Tomar últimos 12 mensajes previos + el actual
         conversation_with_message = [*self.session.conversation[-12:], ChatMessage("user", message)]
 
-        from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 
         # Validar límite GLOBAL contra el payload EXACTO (fail-closed)
         try:
@@ -750,6 +813,11 @@ class ArticuladorApp(tk.Tk):
         self.status.set("Contexto usado: "+", ".join(files) if files else "Respuesta lista.")
         if usage[0] is not None: self.cost_label.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
 
+        # El tipo viaja con la petición: no hay estado de revisión persistente.
+        if request_type == "review":
+            self._terminar_revision(result, is_error=is_error)
+            return
+
         if is_error:
             self.set_estado(EstadoUI.ERROR)
             if streamed.strip():
@@ -764,15 +832,36 @@ class ArticuladorApp(tk.Tk):
 
         self.set_estado(EstadoUI.EXITO)
         self.session.conversation.append(ChatMessage("assistant",result))
-        # El tipo viaja con la petición: no hay estado de revisión persistente.
-        if request_type == "review":
-            findings=self.parse_findings(result)
-            if findings:
-                self.scope.last_response = result
-                self.show_findings(findings)
-                return
         if streamed: self.scope.last_response=result
         else: self.append("Articulador",result)
+
+    def _terminar_revision(self, result: str, *, is_error: bool) -> None:
+        """Cierra una revisión mostrando hallazgos legibles, nunca JSON.
+
+        El resultado de una revisión es un documento técnico para la máquina. No
+        entra en el historial ni en la conversación: si entrara, el usuario
+        leería JSON crudo y además ese JSON viajaría como contexto en los
+        mensajes siguientes.
+        """
+        if is_error:
+            self.set_estado(EstadoUI.ERROR, "la revisión no pudo completarse")
+            self._append_notice("No se pudo revisar el texto. Revisa la conexión o el modelo, "
+                                "y vuelve a intentarlo.")
+            return
+
+        findings = self.parse_findings(result)
+        if not findings:
+            # Respuesta recibida pero inservible: se dice en lenguaje llano, sin
+            # enseñar el JSON que el modelo devolvió mal.
+            self.set_estado(EstadoUI.ERROR, "la respuesta no era una revisión válida")
+            self._append_notice("El modelo no devolvió una revisión utilizable. "
+                                "Prueba con un fragmento más corto o con otro modelo.")
+            return
+
+        self.set_estado(EstadoUI.EXITO, f"{len(findings)} hallazgo(s)")
+        plural = "hallazgos" if len(findings) != 1 else "hallazgo"
+        self._append_notice(f"Revisión terminada: {len(findings)} {plural}.")
+        self.show_findings(findings)
 
     def _append_notice(self, text: str) -> None:
         """Nota de sistema en el historial, sin sobrescribir lo ya emitido."""
@@ -859,8 +948,10 @@ class ArticuladorApp(tk.Tk):
         cada vuelta, no más eventos que procesar.
         """
         for request_id, texto in self.chunks.take_all():
-            # Los chunks tardíos de una petición cancelada se descartan aquí.
-            if request_id in self.request_types:
+            # Los chunks tardíos de una petición cancelada se descartan aquí, y
+            # los de una revisión no se pintan: su contenido es JSON técnico que
+            # solo debe llegar al diálogo de hallazgos.
+            if self.request_types.get(request_id) == "normal":
                 self.stream_chunk(request_id, texto)
 
     def _recover_from_event_failure(self, event) -> None:
@@ -883,8 +974,12 @@ class ArticuladorApp(tk.Tk):
 
         if event_type == "error":
             _, request_id, error_msg, files = event
+            # El tipo se consulta, no se asume: con "normal" fijo, el fallo de una
+            # revisión se cerraba por la rama de conversación y enseñaba el texto
+            # técnico del error en vez del mensaje humano.
+            tipo = self.request_types.get(request_id, "normal")
             self._flush_pending_chunks(request_id)
-            self.finish(request_id, error_msg, files, (None, None), "normal", is_error=True)
+            self.finish(request_id, error_msg, files, (None, None), tipo, is_error=True)
 
         elif event_type == "complete":
             _, request_id, result, files, usage, request_type = event
@@ -907,7 +1002,7 @@ class ArticuladorApp(tk.Tk):
         `complete` en el mismo ciclo que los últimos chunks.
         """
         texto = self.chunks.take(request_id)
-        if texto and request_id in self.request_types:
+        if texto and self.request_types.get(request_id) == "normal":
             self.stream_chunk(request_id, texto)
 
     parse_findings = staticmethod(parse_findings)
