@@ -50,9 +50,11 @@ class ArticuladorApp(tk.Tk):
         # UI config
         self.COLORS = COLORS
         self.title("Articulador")
-        # Tamaño por defecto (se ajusta después en after_window_init)
-        self.geometry("1180x760")
-        self.minsize(720, 540)
+        # El tamaño se calcula UNA vez, aquí y de forma síncrona. Antes se fijaba
+        # un valor y 100 ms después un `after` lo sobrescribía, pisando también
+        # cualquier geometría que el usuario o quien integra la app hubiera
+        # establecido entretanto.
+        self._aplicar_tamano_inicial()
 
         # LLM profiles
         self.config_path = config_path
@@ -102,8 +104,6 @@ class ArticuladorApp(tk.Tk):
         self._theme()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.close)
-        # Ajustar tamaño después de que la ventana esté lista
-        self.after(100, self._adjust_window_size)
 
     @property
     def session(self) -> ArticleSession:
@@ -128,18 +128,23 @@ class ArticuladorApp(tk.Tk):
             self.session_keys.pop(next(iter(self.session_keys)), None)
         self.session_keys[profile] = key
 
-    def _adjust_window_size(self) -> None:
-        """Ajusta tamaño de ventana tras inicialización (cuando winfo es confiable)."""
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        # Solo ajustar si pantalla es válida
-        if screen_width > 100 and screen_height > 100:
-            ideal_width = min(int(screen_width * 0.8), 1400)
-            ideal_height = min(int(screen_height * 0.8), 900)
-            min_width = max(800, int(screen_width * 0.4))
-            min_height = max(600, int(screen_height * 0.4))
-            self.geometry(f"{ideal_width}x{ideal_height}")
-            self.minsize(min_width, min_height)
+    def _aplicar_tamano_inicial(self) -> None:
+        """Propone un tamaño inicial acorde a la pantalla. Se aplica una sola vez.
+
+        Cualquier `geometry()` posterior —del usuario, de una restauración de
+        sesión o de quien integre la aplicación— manda, porque aquí no hay
+        ninguna reprogramación que lo pise después.
+        """
+        ancho_pantalla = self.winfo_screenwidth()
+        alto_pantalla = self.winfo_screenheight()
+        if ancho_pantalla > 100 and alto_pantalla > 100:
+            ancho = min(int(ancho_pantalla * 0.8), 1400)
+            alto = min(int(alto_pantalla * 0.8), 900)
+            self.minsize(min(720, ancho), min(540, alto))
+            self.geometry(f"{ancho}x{alto}")
+        else:
+            self.minsize(720, 540)
+            self.geometry("1180x760")
 
     def _theme(self) -> None:
         """Aplica el sistema visual: un fondo, dos superficies, un acento."""
@@ -190,6 +195,25 @@ class ArticuladorApp(tk.Tk):
         style.configure("TCheckbutton", background=es.SUPERFICIE, foreground=es.TEXTO,
                         focuscolor=es.FOCO)
         style.map("TCheckbutton", background=[("active", es.SUPERFICIE)])
+        # Los campos de los diálogos salían en blanco: ttk.Entry y ttk.Combobox
+        # no heredan del estilo raíz y rompían el conjunto oscuro.
+        for campo in ("TEntry", "TCombobox", "TSpinbox"):
+            style.configure(campo, fieldbackground=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                            background=es.SUPERFICIE_ALTA, bordercolor=es.BORDE,
+                            lightcolor=es.BORDE, darkcolor=es.BORDE,
+                            arrowcolor=es.TEXTO_TENUE, insertcolor=es.ACENTO,
+                            selectbackground=es.SELECCION, selectforeground=es.TEXTO)
+            style.map(campo,
+                      fieldbackground=[("readonly", es.SUPERFICIE_ALTA),
+                                       ("disabled", es.SUPERFICIE)],
+                      foreground=[("disabled", es.TEXTO_TENUE)],
+                      bordercolor=[("focus", es.FOCO)])
+        # El desplegable del Combobox es un Listbox de Tk: solo obedece a la
+        # base de datos de opciones.
+        self.option_add("*TCombobox*Listbox.background", es.SUPERFICIE_ALTA)
+        self.option_add("*TCombobox*Listbox.foreground", es.TEXTO)
+        self.option_add("*TCombobox*Listbox.selectBackground", es.SELECCION)
+        self.option_add("*TCombobox*Listbox.selectForeground", es.TEXTO)
         # Las barras de desplazamiento por defecto son claras y rompen el conjunto.
         style.configure("Vertical.TScrollbar", background=es.SUPERFICIE_ALTA,
                         troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,

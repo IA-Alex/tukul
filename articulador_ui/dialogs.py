@@ -5,7 +5,72 @@ from tkinter import messagebox, ttk
 
 from articulador_core import storage
 from articulador_core.llm import PROVIDERS, LlmError, provider_spec, validate_endpoint
+from articulador_core.logging_config import setup_logging
 from articulador_core.models import LlmProfile
+from articulador_ui import estilo as es
+
+logger = setup_logging()
+
+# Nombres humanos: el diálogo mostraba los identificadores del dataclass.
+ETIQUETAS_PERFIL = {
+    "endpoint": "Endpoint",
+    "model": "Modelo",
+    "api_key_env": "Variable de entorno con la key",
+    "max_total_model_tokens": "Límite total del modelo (tokens)",
+    "max_output_tokens": "Máximo de respuesta (tokens)",
+    "max_context_chars": "Máximo de contexto (caracteres)",
+    "temperature": "Temperatura (de 0 a 2)",
+    "input_price_per_million": "Precio entrada (por millón)",
+    "output_price_per_million": "Precio salida (por millón)",
+}
+#: Campos imprescindibles para que el perfil responda.
+CAMPOS_CONEXION = ("endpoint", "model", "api_key_env")
+
+
+def _campo(frame, fila: int, name: str, variable) -> int:
+    """Etiqueta humana + entrada, en la rejilla del sistema. Devuelve la fila siguiente."""
+    ttk.Label(frame, text=ETIQUETAS_PERFIL[name]).grid(row=fila, column=0, sticky="w",
+                                                       padx=(0, es.ESP["md"]))
+    ttk.Entry(frame, textvariable=variable, width=45).grid(
+        row=fila, column=1, pady=es.ESP["xs"], sticky="ew")
+    return fila + 1
+
+
+def _seccion(frame, fila: int, titulo: str, primera: bool = False) -> int:
+    ttk.Label(frame, text=titulo, style="Tenue.TLabel").grid(
+        row=fila, column=0, columnspan=2, sticky="w",
+        pady=(0 if primera else es.ESP["md"], es.ESP["sm"]))
+    return fila + 1
+
+
+def _abrir_dialogo(app, titulo: str, *, modal: bool = True) -> tuple[tk.Toplevel, ttk.Frame]:
+    """Crea un diálogo del sistema visual y devuelve (ventana, cuerpo).
+
+    Centraliza título, padding de la rejilla y cierre con Escape, para que los
+    tres diálogos no vuelvan a divergir en paddings y estilos sueltos.
+    """
+    dialogo = tk.Toplevel(app)
+    dialogo.title(titulo)
+    dialogo.transient(app)
+    dialogo.configure(bg=es.FONDO)
+    if modal:
+        dialogo.grab_set()
+    dialogo.bind("<Escape>", lambda _e: dialogo.destroy())
+    cuerpo = ttk.Frame(dialogo, padding=es.ESP["lg"])
+    cuerpo.pack(fill="both", expand=True)
+    return dialogo, cuerpo
+
+
+def _barra_acciones(cuerpo: ttk.Frame) -> ttk.Frame:
+    """Fila inferior de acciones. Una sola primaria, a la derecha.
+
+    Se ancla abajo y hay que crearla ANTES del contenido expansible: con pack,
+    lo colocado después es lo que se recorta, y los botones acababan aplastados
+    a unos pocos píxeles.
+    """
+    barra = ttk.Frame(cuerpo)
+    barra.pack(side="bottom", fill="x", pady=(es.ESP["lg"], 0))
+    return barra
 
 
 def show_context_dialog(app) -> None:
@@ -20,34 +85,32 @@ def show_context_dialog(app) -> None:
             "Envía primero una consulta para que Articulador proponga archivos relevantes.",
         )
         return
-    dialog = tk.Toplevel(app)
-    dialog.title("Contexto local")
-    dialog.transient(app)
-    dialog.grab_set()
-    frame = ttk.Frame(dialog, padding=14)
-    frame.pack()
-    ttk.Label(frame, text="Archivos disponibles como contexto local:").pack(anchor="w")
+
+    dialogo, cuerpo = _abrir_dialogo(app, "Contexto local")
+    # Única decisión del diálogo: qué archivos pueden viajar al proveedor.
+    ttk.Label(cuerpo, text="Marca los archivos que pueden enviarse al proveedor.",
+              style="Tenue.TLabel").pack(anchor="w", pady=(0, es.ESP["md"]))
+
     values = []
     for name in names:
         variable = tk.BooleanVar(value=name not in excluded)
         values.append((name, variable))
-        etiqueta = name if name in app.scope.context_files else f"{name}  (excluido)"
-        ttk.Checkbutton(frame, text=etiqueta, variable=variable).pack(anchor="w")
+        ttk.Checkbutton(cuerpo, text=name, variable=variable).pack(anchor="w",
+                                                                   pady=(0, es.ESP["xs"]))
 
-    def apply() -> None:
+    def aplicar() -> None:
         for name, variable in values:
-            if not variable.get():
-                app.context.exclude_file(name)
-            else:
+            if variable.get():
                 app.context.include_file(name)
-        dialog.destroy()
+            else:
+                app.context.exclude_file(name)
+        dialogo.destroy()
 
-    ttk.Button(
-        frame,
-        text="Aplicar selección",
-        style="Accent.TButton",
-        command=apply,
-    ).pack(anchor="e", pady=(10, 0))
+    barra = _barra_acciones(cuerpo)
+    ttk.Button(barra, text="Aplicar", style="Primaria.TButton",
+               command=aplicar).pack(side="right")
+    ttk.Button(barra, text="Cancelar", command=dialogo.destroy).pack(
+        side="right", padx=(0, es.ESP["sm"]))
 
 
 def _apply_suggestion(app, dialog, item: dict[str, str]) -> bool:
@@ -85,43 +148,51 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     anclado al ámbito de ese documento para no aplicar un fragmento sobre otro.
     """
     scope = app.scope
-    dialog = tk.Toplevel(app)
-    dialog.title("Revisión del artículo")
-    dialog.geometry("720x560")
-    dialog.transient(app)
-    body = ttk.PanedWindow(dialog, orient="horizontal")
-    body.pack(fill="both", expand=True, padx=8, pady=8)
+    # No modal: hay que poder leer el artículo mientras se decide sobre él.
+    dialog, cuerpo = _abrir_dialogo(app, "Revisión del artículo", modal=False)
+    dialog.geometry("760x520")
+
+    ttk.Label(cuerpo, text="Elige un hallazgo y decide: aplicar la sugerencia o ignorarla.",
+              style="Tenue.TLabel").pack(anchor="w", pady=(0, es.ESP["md"]))
+
+    actions = _barra_acciones(cuerpo)
+    body = ttk.PanedWindow(cuerpo, orient="horizontal")
+    body.pack(fill="both", expand=True)
     left = ttk.Frame(body)
     body.add(left, weight=1)
     right = ttk.Frame(body)
     body.add(right, weight=2)
-    items = tk.Listbox(left, exportselection=False)
-    items.pack(fill="both", expand=True)
+    items = tk.Listbox(left, exportselection=False, background=es.SUPERFICIE_ALTA,
+                       foreground=es.TEXTO, selectbackground=es.SELECCION,
+                       selectforeground=es.TEXTO, highlightthickness=1,
+                       highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO,
+                       borderwidth=0, font=es.fuente(), activestyle="none")
+    items.pack(fill="both", expand=True, padx=(0, es.ESP["sm"]))
     for item in findings:
         items.insert("end", f"{item['category'].title()} · {item['severity']}")
-    box = app._text(right, wrap="word", padx=12, pady=10, state="disabled")
+    box = app._text(right, wrap="word", padx=es.ESP["md"], pady=es.ESP["sm"],
+                    state="disabled")
     box.pack(fill="both", expand=True)
+    box.tag_configure("rotulo", foreground=es.TEXTO_TENUE,
+                      font=es.fuente(es.TIPO_SM, negrita=True))
 
     def show(_event=None) -> None:
         if not items.curselection():
             return
         item = findings[items.curselection()[0]]
-        text = (
-            f"{item['category'].upper()} · {item['severity'].upper()}\n\n"
-            f"Original\n{item['original']}\n\n"
-            f"Sugerencia\n{item['suggestion']}\n\n"
-            f"Motivo\n{item['reason']}"
-        )
         box.config(state="normal")
         box.delete("1.0", "end")
-        box.insert("1.0", text)
+        # Solo lo accionable: qué dice ahora, por qué cambiarlo y qué quedaría.
+        for rotulo, valor in (("ORIGINAL", item["original"]),
+                              ("SUGERENCIA", item["suggestion"]),
+                              ("MOTIVO", item["reason"])):
+            box.insert("end", f"{rotulo}\n", "rotulo")
+            box.insert("end", f"{valor}\n\n")
         box.config(state="disabled")
 
     items.bind("<<ListboxSelect>>", show)
     items.select_set(0)
     show()
-    actions = ttk.Frame(dialog, padding=8)
-    actions.pack(fill="x")
 
     def decide(apply: bool) -> None:
         if not items.curselection():
@@ -147,26 +218,74 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
         else:
             dialog.destroy()
 
-    ttk.Button(
-        actions, text="Aplicar", style="Accent.TButton", command=lambda: decide(True)
-    ).pack(side="right")
-    ttk.Button(actions, text="Deshacer último", command=app.undo_review).pack(
-        side="right", padx=(0, 6)
-    )
-    ttk.Button(
-        actions, text="Ignorar", command=lambda: decide(False)
-    ).pack(side="right", padx=(0, 6))
-    ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
+    # Una sola acción primaria: aplicar la sugerencia elegida.
+    ttk.Button(actions, text="Aplicar", style="Primaria.TButton",
+               command=lambda: decide(True)).pack(side="right")
+    ttk.Button(actions, text="Ignorar", command=lambda: decide(False)).pack(
+        side="right", padx=(0, es.ESP["sm"]))
+    ttk.Button(actions, text="Deshacer último", command=app.undo_review).pack(side="left")
+    ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(
+        side="left", padx=(es.ESP["sm"], 0))
     return dialog
 
 
+def _bloque_credencial(frame, fila: int, key, remember) -> None:
+    """API key, si se recuerda y dónde queda guardada."""
+    _seccion(frame, fila, "CREDENCIAL")
+    ttk.Label(frame, text="API key").grid(row=fila + 1, column=0, sticky="w",
+                                          padx=(0, es.ESP["md"]))
+    ttk.Entry(frame, textvariable=key, show="•", width=45).grid(
+        row=fila + 1, column=1, pady=es.ESP["xs"], sticky="ew")
+    ttk.Checkbutton(frame, text="Recordar en este equipo", variable=remember).grid(
+        row=fila + 2, column=1, sticky="w", pady=es.ESP["xs"])
+    ttk.Label(frame, text=f"Se guarda en: {storage.credential_backend()}",
+              style="Tenue.TLabel", wraplength=380).grid(
+        row=fila + 3, column=1, sticky="w")
+
+
+def _persistir_credencial(app, entered: str, recordar: bool) -> None:
+    """Aplica la decisión sobre la API key: guardar, solo sesión, o revocar.
+
+    Desmarcar «Recordar» debe revocar lo ya guardado; antes la credencial seguía
+    en el llavero indefinidamente.
+    """
+    if not entered:
+        app.session_keys.pop(app.active_profile, None)
+        storage.delete_key(app.active_profile)
+        return
+    app._add_session_key(app.active_profile, entered)
+    if recordar:
+        storage.save_key(app.active_profile, entered)
+    else:
+        storage.delete_key(app.active_profile)
+
+
+def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
+    """Construye el perfil desde el formulario y valida el endpoint.
+
+    Falla aquí y no en el primer envío: un endpoint http:// remoto mandaría la
+    API key en claro y un esquema no HTTP ni siquiera es transportable.
+    """
+    perfil = LlmProfile(
+        name=nombre,
+        provider=proveedor,
+        endpoint=values["endpoint"].get().strip(),
+        model=values["model"].get().strip(),
+        api_key_env=values["api_key_env"].get().strip(),
+        max_total_model_tokens=int(values["max_total_model_tokens"].get()),
+        max_output_tokens=int(values["max_output_tokens"].get()),
+        max_context_chars=int(values["max_context_chars"].get()),
+        temperature=float(values["temperature"].get()),
+        input_price_per_million=float(values["input_price_per_million"].get()),
+        output_price_per_million=float(values["output_price_per_million"].get()),
+    )
+    if perfil.endpoint:
+        validate_endpoint(perfil.endpoint)
+    return perfil
+
+
 def show_settings_dialog(app) -> None:
-    dialog = tk.Toplevel(app)
-    dialog.title("Configurar LLM")
-    dialog.transient(app)
-    dialog.grab_set()
-    frame = ttk.Frame(dialog, padding=14)
-    frame.pack()
+    dialog, frame = _abrir_dialogo(app, "Configurar modelo")
     profile = app.profile
     provider = tk.StringVar(
         value=profile.provider if profile.provider in PROVIDERS else "openai_compatible"
@@ -185,15 +304,15 @@ def show_settings_dialog(app) -> None:
     values = {name: tk.StringVar(value=str(getattr(profile, name))) for name in fields}
     key = tk.StringVar(value=storage.load_key(app.active_profile))
     remember = tk.BooleanVar(value=bool(key.get()))
-    ttk.Label(frame, text="Proveedor").grid(row=0, column=0, sticky="w")
+    _seccion(frame, 0, "CONEXIÓN", primera=True)
+    ttk.Label(frame, text="Proveedor").grid(row=1, column=0, sticky="w",
+                                            padx=(0, es.ESP["md"]))
     selector = ttk.Combobox(
-        frame, textvariable=provider, values=list(PROVIDERS), state="readonly", width=45
+        frame, textvariable=provider, values=list(PROVIDERS), state="readonly", width=42
     )
-    selector.grid(row=0, column=1, pady=3)
-    hint = ttk.Label(
-        frame, text="", foreground=app.COLORS["muted"], wraplength=380
-    )
-    hint.grid(row=1, column=1, sticky="w")
+    selector.grid(row=1, column=1, pady=es.ESP["xs"], sticky="ew")
+    hint = ttk.Label(frame, text="", style="Tenue.TLabel", wraplength=380)
+    hint.grid(row=2, column=1, sticky="w", pady=(0, es.ESP["sm"]))
     previous_provider = provider.get()
 
     def update_provider_hint(_event=None) -> None:
@@ -212,53 +331,23 @@ def show_settings_dialog(app) -> None:
 
     selector.bind("<<ComboboxSelected>>", update_provider_hint)
     update_provider_hint()
-    for row, (name, variable) in enumerate(values.items(), start=2):
-        ttk.Label(frame, text=name).grid(row=row, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=variable, width=48).grid(row=row, column=1, pady=3)
-    # API key va en fila siguiente a los campos dinámicos
-    api_key_row = 2 + len(values)
-    ttk.Label(frame, text="API key").grid(row=api_key_row, column=0, sticky="w")
-    ttk.Entry(frame, textvariable=key, show="•", width=48).grid(
-        row=api_key_row, column=1
-    )
-    ttk.Checkbutton(
-        frame, text="Recordar en este equipo", variable=remember
-    ).grid(row=api_key_row + 1, columnspan=2, sticky="w")
-    ttk.Label(
-        frame,
-        text=f"Almacenamiento: {storage.credential_backend()}",
-        foreground=app.COLORS["muted"],
-    ).grid(row=api_key_row + 2, columnspan=2, sticky="w")
+
+    fila = 3
+    for name in CAMPOS_CONEXION:
+        fila = _campo(frame, fila, name, values[name])
+    fila = _seccion(frame, fila, "LÍMITES Y COSTE")
+    for name in fields:
+        if name not in CAMPOS_CONEXION:
+            fila = _campo(frame, fila, name, values[name])
+    api_key_row = fila
+    _bloque_credencial(frame, api_key_row, key, remember)
+    frame.columnconfigure(1, weight=1)
 
     def save() -> None:
         try:
-            updated = LlmProfile(
-                name=app.active_profile,
-                provider=provider.get(),
-                endpoint=values["endpoint"].get().strip(),
-                model=values["model"].get().strip(),
-                api_key_env=values["api_key_env"].get().strip(),
-                max_total_model_tokens=int(
-                    values["max_total_model_tokens"].get()
-                ),
-                max_output_tokens=int(values["max_output_tokens"].get()),
-                max_context_chars=int(values["max_context_chars"].get()),
-                temperature=float(values["temperature"].get()),
-                input_price_per_million=float(
-                    values["input_price_per_million"].get()
-                ),
-                output_price_per_million=float(
-                    values["output_price_per_million"].get()
-                ),
-            )
-            # Fallar aquí y no en el primer envío: un endpoint http:// remoto mandaría
-            # la API key en claro y un esquema no HTTP ni siquiera es transportable.
-            if updated.endpoint:
-                validate_endpoint(updated.endpoint)
+            updated = _perfil_desde_formulario(app.active_profile, provider.get(), values)
         except (ValueError, LlmError) as error:
-            messagebox.showerror(
-                "Configuración", str(error), parent=dialog
-            )
+            messagebox.showerror("Configuración", str(error), parent=dialog)
             return
 
         # Transaccional: persistir PRIMERO, actualizar app solo si éxito
@@ -273,18 +362,7 @@ def show_settings_dialog(app) -> None:
             app.profile_chip.config(text=f"Modelo: {updated.model or 'sin configurar'}")
 
             # 3. Guardar credenciales (llavero/sesión)
-            entered = key.get().strip()
-            if entered:
-                app._add_session_key(app.active_profile, entered)
-                if remember.get():
-                    storage.save_key(app.active_profile, entered)
-                else:
-                    # Desmarcar «Recordar» debe revocar lo ya guardado; antes la
-                    # credencial seguía en el llavero indefinidamente.
-                    storage.delete_key(app.active_profile)
-            else:
-                app.session_keys.pop(app.active_profile, None)
-                storage.delete_key(app.active_profile)
+            _persistir_credencial(app, key.get().strip(), remember.get())
 
             messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
             dialog.destroy()
@@ -295,7 +373,13 @@ def show_settings_dialog(app) -> None:
                 f"Verifica permisos y disponibilidad del llavero.",
                 parent=dialog
             )
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error("Error guardando perfil: %s", error, exc_info=True)
-    ttk.Button(frame, text="Guardar", style="Accent.TButton", command=save).grid(row=api_key_row+3, column=1, sticky="e", pady=8)
+
+    acciones = ttk.Frame(frame)
+    acciones.grid(row=api_key_row + 4, column=0, columnspan=2, sticky="ew",
+                  pady=(es.ESP["lg"], 0))
+    # Una sola acción primaria.
+    ttk.Button(acciones, text="Guardar", style="Primaria.TButton",
+               command=save).pack(side="right")
+    ttk.Button(acciones, text="Cancelar", command=dialog.destroy).pack(
+        side="right", padx=(0, es.ESP["sm"]))
