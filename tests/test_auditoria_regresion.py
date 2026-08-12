@@ -29,6 +29,7 @@ from articulador_core import storage
 from articulador_core.llm import LLMClient, LlmError, validate_endpoint
 from articulador_core.models import ArticleSession, LlmProfile
 from articulador_ui.app import ArticuladorApp
+from articulador_ui.document_scope import DocumentScope
 
 
 def _display_available() -> bool:
@@ -52,7 +53,7 @@ def _headless_app() -> ArticuladorApp:
     app.request_types = {}
     app.streaming_request = None
     app.streaming_text = ""
-    app.last_response = ""
+    app.scope = DocumentScope()
     app.history = Mock()
     app.activity = Mock()
     app.status = Mock()
@@ -116,7 +117,7 @@ class TestSalidaParcialEnError(unittest.TestCase):
 
         app.finish(7, "No pude responder: timeout", [], (None, None), "normal", is_error=True)
 
-        self.assertEqual(app.last_response, "respuesta a medias")
+        self.assertEqual(app.scope.last_response, "respuesta a medias")
         self.assertEqual(
             [m.content for m in app.docs.session.conversation], ["respuesta a medias"]
         )
@@ -141,7 +142,7 @@ class TestSalidaParcialEnError(unittest.TestCase):
 
         app.finish(9, "hola mundo", [], (10, 5), "normal")
 
-        self.assertEqual(app.last_response, "hola mundo")
+        self.assertEqual(app.scope.last_response, "hola mundo")
         self.assertEqual([m.content for m in app.docs.session.conversation], ["hola mundo"])
         self.assertEqual(app.streaming_text, "")
 
@@ -583,6 +584,106 @@ class TestDialogoDeRevisionAnclado(unittest.TestCase):
 
         self.assertIn("POCO SÓLIDA", self.app.editor.get("1.0", "end-1c"))
         self.assertTrue(self.app.session.dirty)
+
+
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
+class TestAmbitoDelDocumento(unittest.TestCase):
+    """Vigilancia estructural del patrón que produjo A-25, A-34 y A-35.
+
+    Este test no comprueba un campo concreto: recorre TODOS los campos de
+    DocumentScope. Si alguien añade uno nuevo y la renovación de ámbito deja de
+    cubrirlo, esta prueba falla sin que nadie tenga que acordarse de ampliarla.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+
+    def tearDown(self):
+        self.app.destroy()
+        self.directory.cleanup()
+
+    def _settle(self):
+        for _ in range(5):
+            self.app.update()
+            self.app.update_idletasks()
+
+    @staticmethod
+    def _valor_sucio(campo):
+        """Un valor distinto del defecto, sea cual sea el tipo del campo."""
+        if campo.name == "document_path":
+            return Path("/documento/anterior.md")
+        muestras = {str: "residuo del documento anterior", list: ["residuo.md"], dict: {"residuo": 1}, bool: True, int: 99}
+        for tipo, valor in muestras.items():
+            if campo.type in (tipo, tipo.__name__) or tipo.__name__ in str(campo.type):
+                return valor
+        return "residuo del documento anterior"
+
+    def test_todo_campo_del_ambito_se_renueva_al_cambiar_de_documento(self):
+        import dataclasses
+
+        a = self.root / "a.md"
+        a.write_text("TEXTO DE A", encoding="utf-8")
+        b = self.root / "b.md"
+        b.write_text("TEXTO DE B", encoding="utf-8")
+
+        self.app.load_document(a)
+        self._settle()
+
+        campos = dataclasses.fields(DocumentScope)
+        self.assertGreater(len(campos), 1, "DocumentScope debe tener campos que vigilar")
+        for campo in campos:
+            setattr(self.app.scope, campo.name, self._valor_sucio(campo))
+
+        self.app.load_document(b)
+        self._settle()
+
+        limpio = DocumentScope(document_path=b.resolve())
+        for campo in campos:
+            self.assertEqual(
+                getattr(self.app.scope, campo.name),
+                getattr(limpio, campo.name),
+                f"El campo '{campo.name}' sobrevivió al cambio de documento. "
+                f"El ámbito debe reemplazarse entero en _enter_document_scope.",
+            )
+
+    def test_el_ambito_es_un_objeto_nuevo_no_el_mismo_mutado(self):
+        a = self.root / "a.md"
+        a.write_text("A", encoding="utf-8")
+        b = self.root / "b.md"
+        b.write_text("B", encoding="utf-8")
+
+        self.app.load_document(a)
+        self._settle()
+        ambito_a = self.app.scope
+
+        self.app.load_document(b)
+        self._settle()
+
+        self.assertIsNot(self.app.scope, ambito_a, "Reemplazar, no limpiar campo a campo")
+        self.assertTrue(self.app.scope.owns(b.resolve()))
+        self.assertFalse(self.app.scope.owns(a.resolve()))
+
+    def test_guardar_como_conserva_el_ambito_y_sigue_a_la_ruta_nueva(self):
+        a = self.root / "a.md"
+        a.write_text("TEXTO ORIGINAL", encoding="utf-8")
+        self.app.load_document(a)
+        self._settle()
+        self.app.snapshot_for_undo("TEXTO ORIGINAL")
+        destino = self.root / "renombrado.md"
+
+        with patch("articulador_ui.app.filedialog.asksaveasfilename", return_value=str(destino)):
+            self.assertTrue(self.app.save_document(save_as=True))
+        self._settle()
+
+        # Renombrar no es cambiar de artículo: el deshacer debe seguir vivo.
+        self.assertTrue(self.app.scope.owns(destino.resolve()))
+        self.app.editor.delete("1.0", "end")
+        self.app.editor.insert("1.0", "TEXTO MODIFICADO")
+        self.app.undo_review()
+        self._settle()
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), "TEXTO ORIGINAL")
 
 
 class TestSaludDeLaInstalacion(unittest.TestCase):

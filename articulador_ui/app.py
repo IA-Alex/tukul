@@ -19,6 +19,7 @@ from articulador_core.review import parse_findings
 from articulador_ui.context_orchestrator import ContextOrchestrator
 from articulador_ui.dialogs import show_context_dialog, show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
+from articulador_ui.document_scope import DocumentScope
 from articulador_ui.llm_session_manager import LLMSessionManager
 
 ContextApprovalKey: TypeAlias = tuple[str, str, tuple[str, ...], str]
@@ -62,12 +63,10 @@ class ArticuladorApp(tk.Tk):
         # Session & UI state (referencia dinámica a través de property)
         # dict-como-conjunto-ordenado: permite desalojo FIFO real (ver confirm_and_send).
         self.approved_contexts: dict[ContextApprovalKey, None] = {}
-        # Instantánea de "Deshacer último" ANCLADA a su documento: sin el ancla, el
-        # texto del artículo anterior podía volcarse sobre el recién abierto.
-        self.last_review_before = ""
-        self.last_review_document: Path | None = None
+        # Todo el estado derivado del documento vive en un único objeto que se
+        # reemplaza entero al cambiar de artículo (ver DocumentScope).
+        self.scope = DocumentScope()
         self.review_dialogs: list[tk.Toplevel] = []
-        self.last_response = ""
         self.stats_after = None
         self.report_callback_exception = self.handle_callback_error
         self.cancel_event: threading.Event | None = None
@@ -87,9 +86,6 @@ class ArticuladorApp(tk.Tk):
         self.ui_event_queue: queue.Queue = queue.Queue(maxsize=1000)
         # Buffer para coalescer chunks (evitar procesar cada chunk por separado)
         self.pending_chunks: dict[int, list[str]] = {}  # request_id -> chunks acumulados
-
-        # Initialize widgets (will be properly set by _build)
-        self.last_context_files: list[str] = []
 
         self._theme()
         self._build()
@@ -204,7 +200,7 @@ class ArticuladorApp(tk.Tk):
 
     def append(self, who:str, text:str) -> None:
         self.history.config(state="normal"); self.history.insert("end",who+"\n","you" if who=="Tú" else "bot"); self.history.insert("end",text.strip()+"\n\n"); self.history.see("end"); self.history.config(state="disabled")
-        if who=="Articulador": self.last_response=text
+        if who=="Articulador": self.scope.last_response=text
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
         # Vaciar el historial a mitad de un streaming dejaba el texto siguiente
@@ -214,14 +210,14 @@ class ArticuladorApp(tk.Tk):
         if messagebox.askyesno("Limpiar historial", "¿Limpiar el historial de conversación?"):
             self._clear_history_widget()
             self.session.conversation.clear()
-            self.last_response=""; self.streaming_text=""; self.streaming_request=None
+            self.scope.last_response=""; self.streaming_text=""; self.streaming_request=None
             self.status.set("Historial limpiado.")
     def toggle_properties(self):
         if self.properties.winfo_ismapped(): self.properties.pack_forget()
         else: self.properties.pack(fill="x",pady=(0,7),before=self.history)
     def copy_response(self):
-        if not self.last_response:return
-        self.clipboard_clear(); self.clipboard_append(self.last_response); self.status.set("Última respuesta copiada.")
+        if not self.scope.last_response:return
+        self.clipboard_clear(); self.clipboard_append(self.scope.last_response); self.status.set("Última respuesta copiada.")
     def history_menu(self,event):
         menu=tk.Menu(self,tearoff=False,background=COLORS["raised"],foreground=COLORS["text"],activebackground=COLORS["accent"],activeforeground=COLORS["accent_text"])
         menu.add_command(label="Copiar",command=lambda:self.history.event_generate("<<Copy>>"))
@@ -285,7 +281,7 @@ class ArticuladorApp(tk.Tk):
             self.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
             return False
         self.docs.set_session(session)
-        self._reset_document_scoped_state()
+        self._enter_document_scope(session.document_path)
         self._replace_editor_text(session.article)
         self._clear_history_widget()
         self.session.dirty=False; self.sync_label.config(text="● Documento abierto",foreground=COLORS["muted"])
@@ -346,7 +342,7 @@ class ArticuladorApp(tk.Tk):
     def confirm_and_send(self, request_id, message, selected, packet, files, cancel_event):
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types or cancel_event.is_set(): return
-        self.last_context_files=files
+        self.scope.context_files=files
 
         # Obtener el tipo de solicitud (normal/review) para este request_id
         request_type = self.request_types.get(request_id, "normal")
@@ -467,7 +463,7 @@ class ArticuladorApp(tk.Tk):
                 # Antes el texto parcial quedaba cortado sin explicación y el error
                 # solo aparecía en la etiqueta de actividad.
                 self.session.conversation.append(ChatMessage("assistant", streamed))
-                self.last_response = streamed
+                self.scope.last_response = streamed
                 self._append_notice(f"[INCOMPLETO] {result}")
             else:
                 self.append("Articulador", result)
@@ -479,10 +475,10 @@ class ArticuladorApp(tk.Tk):
         if request_type == "review":
             findings=self.parse_findings(result)
             if findings:
-                self.last_response = result
+                self.scope.last_response = result
                 self.show_findings(findings)
                 return
-        if streamed: self.last_response=result
+        if streamed: self.scope.last_response=result
         else: self.append("Articulador",result)
 
     def _append_notice(self, text: str) -> None:
@@ -632,19 +628,18 @@ class ArticuladorApp(tk.Tk):
                 pass
         self.review_dialogs = []
     def snapshot_for_undo(self, text: str) -> None:
-        """Guarda el "antes" de una sugerencia junto al documento al que pertenece."""
-        self.last_review_before = text
-        self.last_review_document = self.session.document_path
+        """Guarda el "antes" de una sugerencia dentro del ámbito del documento."""
+        self.scope.review_before = text
 
     def undo_review(self):
-        if not self.last_review_before:return
+        if not self.scope.review_before:return
         # El deshacer solo es válido sobre el documento del que se tomó la instantánea:
         # sin esta comprobación volcaba el artículo anterior sobre el actual y lo
         # marcaba como sucio, a un Ctrl+S de destruirlo.
-        if self.last_review_document != self.session.document_path:
-            self.last_review_before=""; self.last_review_document=None
+        if not self.scope.owns(self.session.document_path):
+            self.scope.review_before=""
             self.status.set("El ajuste a deshacer pertenece a otro documento."); return
-        self.editor.delete("1.0","end"); self.editor.insert("1.0",self.last_review_before); self.last_review_before=""; self.last_review_document=None; self.session.dirty=True; self.status.set("Último ajuste de revisión deshecho.")
+        self.editor.delete("1.0","end"); self.editor.insert("1.0",self.scope.review_before); self.scope.review_before=""; self.session.dirty=True; self.status.set("Último ajuste de revisión deshecho.")
     def open_document(self):
         # Cancelar cualquier solicitud activa antes de cambiar de documento
         if self.session.request_active:
@@ -684,6 +679,11 @@ class ArticuladorApp(tk.Tk):
             self.session.document_path = previous_path
             messagebox.showerror("Error al guardar", f"No se pudo guardar el documento: {error}")
             return False
+
+        # "Guardar como…" renombra el destino sin cambiar de artículo: el ámbito
+        # sigue siendo el mismo y debe seguir a la ruta nueva, o el deshacer de
+        # revisión se creería huérfano.
+        self.scope.document_path = self.session.document_path
 
         # Marcar como guardado y actualizar UI
         self.sync_label.config(text="● Guardado",foreground=COLORS["muted"])
@@ -733,23 +733,24 @@ class ArticuladorApp(tk.Tk):
         self._replace_editor_text(self.session.article)
         self._clear_history_widget()
         for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Articulador",item.content)
-        self._reset_document_scoped_state()
+        self._enter_document_scope(self.session.document_path)
         self.session.dirty=False; self.sync_label.config(text="● Proyecto abierto",foreground=COLORS["muted"])
         self.update_context(); self.schedule_stats()
         self.status.set("Proyecto abierto.")
 
-    def _reset_document_scoped_state(self) -> None:
-        """Descarta el estado que solo tiene sentido para el documento anterior.
+    def _enter_document_scope(self, document_path: Path | None) -> None:
+        """Entra en el ámbito de un documento reemplazando el anterior por completo.
 
-        `approved_contexts` queda fuera a propósito: su clave es (endpoint, proveedor,
-        archivos, huella del paquete), todo derivado del workspace y no del artículo
-        abierto. Vaciarlo aquí solo añadiría un modal de confirmación por documento.
+        Sustituir el objeto en vez de limpiar campo a campo es lo que hace
+        imposible olvidarse de uno: cualquier campo nuevo de DocumentScope se
+        renueva aquí sin tocar este método.
+
+        `approved_contexts` queda fuera a propósito: su clave es (endpoint,
+        proveedor, archivos, huella del paquete), todo derivado del workspace y
+        no del artículo abierto. Vaciarlo añadiría un modal por documento.
         """
         self._close_review_dialogs()
-        self.last_context_files = []
-        self.last_review_before = ""
-        self.last_review_document = None
-        self.last_response = ""
+        self.scope = DocumentScope(document_path=document_path)
     def settings(self):
         show_settings_dialog(self)
 

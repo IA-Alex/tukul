@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from articulador_ui.document_scope import DocumentScope
+
 # No import de tkinter - vamos a mockear solo lo mínimo
 
 
@@ -49,7 +51,7 @@ class TestRealEventFlow(unittest.TestCase):
                     app.activity = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
-                    app.last_response = ""
+                    app.scope = DocumentScope()
                     app.status = Mock()
                     app.cost_label = Mock()
                     app.docs = Mock()
@@ -103,7 +105,7 @@ class TestRealEventFlow(unittest.TestCase):
                     app.activity = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
-                    app.last_response = ""
+                    app.scope = DocumentScope()
                     app.status = Mock()
                     app.cost_label = Mock()
                     app.docs = Mock()
@@ -156,7 +158,7 @@ class TestRealEventFlow(unittest.TestCase):
                     app.activity = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
-                    app.last_response = ""
+                    app.scope = DocumentScope()
                     app.status = Mock()
                     app.cost_label = Mock()
                     app.docs = Mock()

@@ -13,7 +13,7 @@ def show_context_dialog(app) -> None:
     # listar solo `last_context_files` hacía la exclusión irreversible: hay que
     # ofrecer también los ya excluidos para poder volver a incluirlos.
     excluded = app.context.excluded_context
-    names = sorted(set(app.last_context_files) | set(excluded))
+    names = sorted(set(app.scope.context_files) | set(excluded))
     if not names:
         messagebox.showinfo(
             "Contexto",
@@ -31,7 +31,7 @@ def show_context_dialog(app) -> None:
     for name in names:
         variable = tk.BooleanVar(value=name not in excluded)
         values.append((name, variable))
-        etiqueta = name if name in app.last_context_files else f"{name}  (excluido)"
+        etiqueta = name if name in app.scope.context_files else f"{name}  (excluido)"
         ttk.Checkbutton(frame, text=etiqueta, variable=variable).pack(anchor="w")
 
     def apply() -> None:
@@ -82,9 +82,9 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     """Muestra los hallazgos de una revisión. Devuelve el Toplevel creado.
 
     Los hallazgos se calcularon sobre un artículo concreto: el diálogo queda
-    anclado a él para no aplicar un fragmento sobre el documento equivocado.
+    anclado al ámbito de ese documento para no aplicar un fragmento sobre otro.
     """
-    documento = app.session.document_path
+    scope = app.scope
     dialog = tk.Toplevel(app)
     dialog.title("Revisión del artículo")
     dialog.geometry("720x560")
@@ -126,7 +126,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     def decide(apply: bool) -> None:
         if not items.curselection():
             return
-        if apply and app.session.document_path != documento:
+        if apply and (app.scope is not scope or not scope.owns(app.session.document_path)):
             # Un diálogo que sobrevivió a un cambio de documento aplicaría la
             # sugerencia de un artículo sobre otro, dejándolo sucio y erróneo.
             messagebox.showinfo(

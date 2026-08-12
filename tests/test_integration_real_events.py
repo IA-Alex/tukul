@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, Mock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from articulador_core.models import ArticleSession
+from articulador_ui.document_scope import DocumentScope
 
 
 class TestRealEventFlow(unittest.TestCase):
@@ -70,7 +71,7 @@ class TestRealEventFlow(unittest.TestCase):
                 app.activity = Mock()
                 app.send_button = Mock()
                 app.cancel_button = Mock()
-                app.last_response = ""
+                app.scope = DocumentScope()
 
                 # Simular eventos reales
                 request_id = 1
@@ -102,7 +103,7 @@ class TestRealEventFlow(unittest.TestCase):
                             # Simulamos finish():
                             if app.streaming_request == rid:
                                 partial = app.partial_output.get(rid, "")
-                                app.last_response = partial
+                                app.scope.last_response = partial
                                 # ❌ BUG: NO se limpia app.partial_output[rid]
                                 # partial_output.pop(rid, None)  # ← FALTA
                             app.request_types.pop(rid, None)
@@ -170,7 +171,7 @@ class TestRealEventFlow(unittest.TestCase):
                 app.activity = Mock()
                 app.send_button = Mock()
                 app.cancel_button = Mock()
-                app.last_response = ""
+                app.scope = DocumentScope()
 
                 request_id = 1
                 app.request_types[request_id] = "normal"
