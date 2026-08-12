@@ -7,6 +7,10 @@ on:
     branches: [master, main, develop]
   pull_request:
     branches: [master, main, develop]
+  # Permite lanzar el pipeline a mano sobre cualquier rama, para validarlo antes
+  # de fusionar. GitHub solo muestra este botón si el workflow con
+  # `workflow_dispatch` existe ya en la rama por defecto del repositorio.
+  workflow_dispatch:
 
 jobs:
   test:
