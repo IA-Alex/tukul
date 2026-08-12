@@ -335,7 +335,9 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.boton_aprobar.invoke()
             self._asentar()
 
-        self.assertEqual(enviar.call_args[0][2], "Artículo actual sobre criterio humano.\n")
+        # `Text.get("1.0", "end-1c")` descarta el salto de línea final implícito
+        # que Tk mantiene siempre, así que el artículo viaja sin él.
+        self.assertEqual(enviar.call_args[0][2], "Artículo actual sobre criterio humano.")
         self.assertIn("REFERENCIA LOCAL: articulo-anterior.md", enviar.call_args[0][3])
         self.assertIn("tesis anterior", enviar.call_args[0][3])
 
