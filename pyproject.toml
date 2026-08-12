@@ -109,3 +109,11 @@ addopts = "-v --tb=short"
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# Sin esta declaración, el autodescubrimiento de setuptools aborta con
+# "Multiple top-level packages discovered in a flat-layout" y `pip install -e .`
+# falla. Las ejecuciones locales no lo notaban porque conftest.py pone la raíz
+# en sys.path; solo se vio al reproducir el pipeline en un contenedor limpio.
+[tool.setuptools]
+packages = ["articulador_core", "articulador_ui"]
+py-modules = ["articulador"]
