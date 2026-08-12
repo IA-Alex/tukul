@@ -1,4 +1,4 @@
-"""Sistema visual de Articulador: fuente única de color, tipografía y espaciado.
+"""Sistema visual de Articulator: precisión, estructura y foco.
 
 Reglas del sistema, deliberadamente estrechas para que la interfaz se lea como
 una sola pieza:
@@ -16,40 +16,40 @@ porque el color no puede ser el único portador de información.
 from __future__ import annotations
 
 # --- Capas ---------------------------------------------------------------
-FONDO = "#12171d"           # lienzo de la ventana
-SUPERFICIE = "#1a2129"      # paneles y contenedores
-SUPERFICIE_ALTA = "#232e38" # campos, elementos elevados, filas activas
-BORDE = "#3f4f5c"           # separación decorativa entre capas
+FONDO = "#18181B"           # grafito de la aplicación
+SUPERFICIE = "#27272A"      # paneles: una separación sobria, no cajas pesadas
+SUPERFICIE_ALTA = "#303036" # campos, conversación y elementos activos
+BORDE = "#45454D"           # divisores discretos
 # El indicador de foco sí es información necesaria: WCAG 1.4.11 exige 3:1 contra
 # el fondo adyacente. Verificado contra las tres capas (6.4:1 en el peor caso).
-FOCO = "#8fa6b5"
+FOCO = "#9DBBFF"
 
 # --- Acento (uno) --------------------------------------------------------
-ACENTO = "#69c7b2"
-ACENTO_ACTIVO = "#8cdbc8"
-ACENTO_TEXTO = "#08201c"    # texto sobre el acento
+ACENTO = "#7AA7FF"          # cobalto: actividad y acciones de IA
+ACENTO_ACTIVO = "#A5C4FF"
+ACENTO_TEXTO = "#10131A"    # texto sobre el acento
 
 # --- Texto ---------------------------------------------------------------
-TEXTO = "#e9eff3"
-TEXTO_TENUE = "#a8bac6"
-SELECCION = "#33606b"
+TEXTO = "#F4F4F5"
+TEXTO_TENUE = "#C7C7CC"
+SELECCION = "#3A5182"
 
 # --- Señal de estado (funcional, no decorativa) --------------------------
-ESTADO_NEUTRO = "#a8bac6"
-ESTADO_PROCESO = "#7fb6d9"
-ESTADO_EXITO = "#69c7b2"
-ESTADO_ERROR = "#e79080"
-ESTADO_AVISO = "#d8b878"
+ESTADO_NEUTRO = "#C7C7CC"
+ESTADO_PROCESO = "#9DBBFF"
+ESTADO_EXITO = "#8FD3B0"
+ESTADO_ERROR = "#F0A3A3"
+ESTADO_AVISO = "#E8C77D"
 
 # --- Rol conversacional --------------------------------------------------
-VOZ_USUARIO = "#69c7b2"
-VOZ_ASISTENTE = "#c9b3ff"
+VOZ_USUARIO = "#9DBBFF"
+VOZ_ASISTENTE = "#D4B5FF"
 
 # --- Tipografía: tres tamaños --------------------------------------------
-FAMILIA = "DejaVu Sans"
+FAMILIA = "Inter"
 TIPO_SM = 9    # metadatos, notas al pie
-TIPO_MD = 10   # cuerpo de interfaz
-TIPO_LG = 13   # el artículo, que es el foco
+TIPO_MD = 10   # controles compactos
+TIPO_LG = 13   # prosa: lectura prolongada
 
 # --- Espaciado: rejilla de 4 --------------------------------------------
 ESP = {"xs": 4, "sm": 8, "md": 12, "lg": 16}
