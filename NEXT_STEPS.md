@@ -1,5 +1,10 @@
 # Próximos Pasos - Roadmap post-Maduro
 
+> **Nota (2026-08-15):** documento histórico de una fase anterior. Describe una
+> arquitectura que ya no existe (`chunk_queue`, `partial_output`, `_queue_event`,
+> índice BM25) y cifras de tests desactualizadas. La referencia vigente son el
+> código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
+
 **Estado actual:** ✅ OPCIÓN B completo (Production Ready)  
 **Próximo milestone:** v1.0 Enterprise  
 **Horizonte:** 2-3 semanas adicionales

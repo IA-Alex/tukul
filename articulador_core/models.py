@@ -62,8 +62,6 @@ class ArticleSession:
     document_path: Path | None = None
     project_path: Path | None = None
     article: str = ""
-    corpus_path: Path | None = None
-    evidence: list[str] = field(default_factory=list)
     conversation: list[ChatMessage] = field(default_factory=list)
     dirty: bool = False
     # request_active se mantiene solo como conveniencia, se sincroniza con RequestState

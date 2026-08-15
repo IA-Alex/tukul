@@ -14,11 +14,16 @@ dependencies = [
 [project.optional-dependencies]
 keyring = ["keyring>=24.0.0"]  # For secure credential storage
 dev = [
-    "pytest>=7.0.0",    # Test runner (la suite lo requiere; faltaba en los extras)
-    "ruff>=0.1.0",      # Fast Python linter
-    "mypy>=1.0.0",      # Type checker
-    "pylint>=2.0.0",    # Code analyzer
+    "pytest>=7.0.0",      # Test runner (la suite lo requiere; faltaba en los extras)
+    "pytest-cov>=4.0.0",  # Cobertura: el pipeline la mide y la exige
+    "ruff>=0.1.0",        # Fast Python linter
+    "mypy>=1.0.0",        # Type checker
 ]
+
+# Sin esto, `pip install -e .` instalaba el paquete pero no dejaba un comando
+# `articulador`: había que seguir invocando `python articulador.py`.
+[project.scripts]
+articulador = "articulador:main"
 
 [tool.ruff]
 line-length = 100

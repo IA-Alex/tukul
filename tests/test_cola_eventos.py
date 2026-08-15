@@ -172,7 +172,7 @@ class TestColaDeControlGarantizada(unittest.TestCase):
         app = _app_sin_ventana()
         # Con la cola única de 1000, la inserción 1001 bloqueaba al worker.
         for i in range(5000):
-            app.control_queue.put_nowait(("context_failed", i, "x"))
+            app.control_queue.put_nowait(("error", i, "x", []))
         self.assertEqual(app.control_queue.qsize(), 5000)
 
     def test_una_rafaga_de_chunks_no_retrasa_la_finalizacion(self):

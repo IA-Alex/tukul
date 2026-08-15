@@ -60,7 +60,7 @@ def _check_storage(profiles_error: Exception | None, config_path: Path) -> tuple
         if not config_dir.exists():
             return (
                 ComponentStatus.WARNING,
-                "Config directory does not exist (will create on save)",
+                "La carpeta de config no existe (se creará al guardar)",
             )
         try:
             with tempfile.NamedTemporaryFile(
@@ -68,11 +68,11 @@ def _check_storage(profiles_error: Exception | None, config_path: Path) -> tuple
             ) as probe:
                 probe.write("health_check_test")
                 probe.flush()
-            return (ComponentStatus.HEALTHY, "OK (read+write)")
+            return (ComponentStatus.HEALTHY, "OK (lectura+escritura)")
         except (PermissionError, OSError):
-            return (ComponentStatus.ERROR, "Config directory is read-only")
+            return (ComponentStatus.ERROR, "La carpeta de config es de solo lectura")
     except Exception as e:
-        logger.warning("Health: storage failed - %s", e)
+        logger.warning("Health: fallo de almacenamiento - %s", e)
         return (ComponentStatus.ERROR, f"Error: {e}")
 
 
@@ -119,13 +119,13 @@ def check_health(config_path: Path | str | None = None) -> HealthStatus:
         if enabled_count > 0:
             components["llm"] = (
                 ComponentStatus.HEALTHY,
-                f"{enabled_count} profile(s) enabled",
+                f"{enabled_count} perfil(es) habilitado(s)",
             )
         else:
-            components["llm"] = (ComponentStatus.WARNING, "No profiles enabled")
+            components["llm"] = (ComponentStatus.WARNING, "Sin perfiles habilitados")
     except Exception as e:
         components["llm"] = (ComponentStatus.ERROR, f"Error: {e}")
-        logger.warning(f"Health: llm failed - {e}")
+        logger.warning(f"Health: fallo del LLM - {e}")
 
     # 3. Logging - estado REAL del destino, no "logger.debug() no lanzó".
     # Con handler de consola presente, debug() nunca lanza: el componente se
@@ -155,9 +155,9 @@ def check_health(config_path: Path | str | None = None) -> HealthStatus:
     # Log resultado
     formatted_components = {comp: msg for comp, (_, msg) in components.items()}
     if is_healthy:
-        logger.info(f"Health check passed: {formatted_components}")
+        logger.info(f"Health check superado: {formatted_components}")
     else:
-        logger.warning(f"Health check issues: {formatted_components}")
+        logger.warning(f"Health check con avisos: {formatted_components}")
 
     return status
 

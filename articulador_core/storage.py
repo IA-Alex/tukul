@@ -52,7 +52,13 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
-def _atomic_write(path: Path, content: str, mode: int | None = None) -> None:
+def atomic_write(path: Path, content: str, mode: int | None = None) -> None:
+    """Escribe `content` en `path` de forma atómica, sin dejar parciales.
+
+    API pública de persistencia: `DocumentManager` la usa para guardar el
+    artículo y el proyecto. Era `_atomic_write` (privado), pero otro módulo la
+    consumía a diario, rompiendo el contrato del guion bajo.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if mode is None:
         # mkstemp crea el temporal con 0600. Sin heredar los permisos del destino,
@@ -179,7 +185,7 @@ def save_profiles(
     payload: dict[str, Any] = {"llm": {"active_profile": active}, "profiles": {}}
     for name, profile in sorted(profiles.items()):
         payload["profiles"][name] = {field: getattr(profile, field) for field in field_names}
-    _atomic_write(path, tomli_w.dumps(payload))
+    atomic_write(path, tomli_w.dumps(payload))
 
 
 def load_key(profile: str) -> str:
@@ -229,11 +235,9 @@ def save_project(session: ArticleSession, path: Path) -> None:
     data = {
         "version": 2,
         "document": make_relative(session.document_path),
-        "corpus": make_relative(session.corpus_path) if session.corpus_path else "",
-        "evidence": session.evidence,
         "conversation": [{"role": item.role, "content": item.content} for item in session.conversation[-30:]],
     }
-    _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def _validate_relative_path(path_str: str, base_dir: Path) -> Path:
@@ -291,24 +295,11 @@ def load_project(path: Path) -> dict:
     if not isinstance(data["document"], str):
         raise ValueError("Proyecto no válido: 'document' debe ser string.")
 
-    corpus = data.get("corpus")
-    if corpus is not None and not isinstance(corpus, str):
-        raise ValueError("Proyecto no válido: 'corpus' debe ser string o null.")
-
-    # Validar evidence (si es malformado, usar []). Los datos malformados se ignoran silenciosamente.
-    evidence = data.get("evidence", [])
-    if not isinstance(evidence, list):
-        evidence = []
-    data["evidence"] = evidence  # Guardar evidence validado
-
     conversation = _validated_conversation(data.get("conversation", []))
 
     base = path.parent
     try:
         data["document"] = _validate_relative_path(data["document"], base)
-        # Normalizar a Path|None: un corpus vacío llegaba como "" y la sesión acababa
-        # con un str donde el resto del código espera Path.
-        data["corpus"] = _validate_relative_path(corpus, base) if corpus else None
     except ValueError as e:
         raise ValueError(f"Seguridad: {e}") from e
     data["conversation"] = conversation

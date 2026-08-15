@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python3 -m py_compile /home/panda/Articulos/articulador/articulador.py /home/panda/Articulos/articulador/articulador_core/*.py /home/panda/Articulos/articulador/articulador_ui/*.py)"
-    ]
-  }
-}

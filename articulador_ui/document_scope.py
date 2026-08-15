@@ -1,7 +1,7 @@
 """Ámbito de interfaz asociado al documento abierto."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -28,7 +28,6 @@ class DocumentScope:
 
     document_path: Path | None = None
     review_before: str = ""
-    context_files: list[str] = field(default_factory=list)
     last_response: str = ""
 
     def owns(self, document_path: Path | None) -> bool:

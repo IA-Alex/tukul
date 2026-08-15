@@ -1,5 +1,11 @@
 
+
 # Informe de Auditoría — Articulador v0.1.0
+
+> **Nota (2026-08-15):** documento histórico de una fase anterior. Describe una
+> arquitectura que ya no existe (`chunk_queue`, `partial_output`, `_queue_event`,
+> índice BM25) y cifras de tests desactualizadas. La referencia vigente son el
+> código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
 
 > **Fecha**: 2026-08-07  
 > **Alcance**: Revisión completa de arquitectura, seguridad, concurrencia, robustez y mantenibilidad.  

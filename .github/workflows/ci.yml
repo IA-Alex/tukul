@@ -56,8 +56,10 @@ jobs:
       # Una sola ejecución de la suite. El paso siguiente audita ESTE resultado:
       # correrla dos veces duplicaba el tiempo y, peor, permitía que la comprobación
       # de omisiones observara un resultado distinto del que dio el verde.
+      # La cobertura se mide aquí y se exige un mínimo para que la señal verde
+      # no pueda degradarse sin que se note.
       - name: Run test suite
-        run: xvfb-run -a python -m pytest -q -rs --junitxml=informe-pruebas.xml
+        run: xvfb-run -a python -m pytest -q -rs --junitxml=informe-pruebas.xml --cov=articulador_core --cov=articulador_ui --cov-report=term-missing --cov-fail-under=70
 
       # Ningún test debe omitirse en CI: una omisión significa que el entorno no
       # puede ejercitar la interfaz y la señal verde sería falsa. Se lee el
@@ -99,13 +101,13 @@ jobs:
           python articulador.py --config articulador.example.toml --health | tee salud.txt
           grep -q "articulador.example.toml" salud.txt || {
             echo "::error::El diagnóstico no informa del archivo inspeccionado."; exit 1; }
-          grep -q "2 profile(s) enabled" salud.txt || {
+          grep -q "2 perfil(es) habilitado(s)" salud.txt || {
             echo "::error::--config no se está honrando: health leyó otro archivo."; exit 1; }
 
       - name: Verify CLI contract
         run: |
           python articulador.py --help > /dev/null
-          python articulador.py --workspace /ruta/que/no/existe && exit 1 || echo "workspace inválido rechazado correctamente"
+          python articulador.py --opcion-que-no-existe 2>/dev/null && exit 1 || echo "argumento desconocido rechazado correctamente"
 
   security:
     runs-on: ubuntu-latest

@@ -1,5 +1,0 @@
-# Articulador funciona con la biblioteca estándar de Python.
-# Instala esta opción para usar el llavero del sistema:
-# pip install -r requirements.txt
-tomli-w>=1.0
-keyring>=25

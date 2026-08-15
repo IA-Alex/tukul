@@ -50,3 +50,9 @@ Thumbs.db
 *.log
 .cache/
 temp/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+

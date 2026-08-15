@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import articulador_core.storage as storage
-from articulador_core.context import ContextIndex
 from articulador_core.llm import (
     PROVIDERS,
     SYSTEM_PROMPT,
@@ -24,60 +23,6 @@ from articulador_core.review import parse_findings
 
 
 class CoreTests(unittest.TestCase):
-    def test_context_index_excludes_application_code(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "article.md").write_text("Seguridad y agentes de IA", encoding="utf-8")
-            (root / "articulador").mkdir()
-            (root / "articulador" / "code.md").write_text("No debe aparecer", encoding="utf-8")
-            index = ContextIndex(root)
-            packet, files = index.packet("seguridad agentes", 4_000)
-            self.assertIn("article.md", files)
-            self.assertNotIn("code.md", packet)
-
-    def test_context_prunes_large_ignored_directories_and_handles_empty_query(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "article.md").write_text("Texto editorial", encoding="utf-8")
-            ignored = root / "node_modules"; ignored.mkdir()
-            (ignored / "hidden.md").write_text("No debe indexarse", encoding="utf-8")
-            indice = ContextIndex(root)
-            # Consulta vacía o sin coincidencias: no se propone NADA. El repliegue
-            # anterior devolvía los primeros archivos por orden alfabético, así
-            # que un saludo acababa ofreciendo compartir ficheros del repositorio.
-            packet, files = indice.packet("", 4_000)
-            self.assertEqual(files, [])
-            self.assertEqual(packet, "")
-            # El podado de directorios ignorados se sigue comprobando con una
-            # consulta que sí coincide.
-            packet, files = indice.packet("editorial", 4_000)
-            self.assertEqual(files, ["article.md"])
-            self.assertNotIn("hidden.md", packet)
-
-    def test_excluded_context_never_returns_in_fallback(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "one.md").write_text("uno", encoding="utf-8")
-            (root / "two.md").write_text("dos", encoding="utf-8")
-            packet, files = ContextIndex(root).packet("sin coincidencias", 4_000, {"one.md"})
-            self.assertNotIn("one.md", files)
-            self.assertNotIn("ARCHIVO LOCAL: one.md", packet)
-
-    def test_context_ranks_relevance_before_filename(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "aaa.md").write_text("sin relación", encoding="utf-8")
-            (root / "zzz.md").write_text("seguridad seguridad seguridad", encoding="utf-8")
-            _packet, files = ContextIndex(root).packet("seguridad", 4_000)
-            self.assertEqual(files[0], "zzz.md")
-
-    def test_context_keeps_two_character_ai_acronym(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "ia.md").write_text("IA generativa y evaluación", encoding="utf-8")
-            _packet, files = ContextIndex(root).packet("IA", 4_000)
-            self.assertEqual(files, ["ia.md"])
-
     def test_credentials_without_keyring_are_session_only(self):
         original = storage.keyring
         storage.keyring = None
@@ -141,29 +86,12 @@ class CoreTests(unittest.TestCase):
         self.assertEqual("".join(chunk.content for chunk in chunks), "Hola mundo")
         self.assertEqual((chunks[-1].input_tokens, chunks[-1].output_tokens), (21, 8))
 
-    def test_context_refresh_reuses_unchanged_file_cache(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            first, second = root / "first.md", root / "second.md"
-            first.write_text("arquitectura", encoding="utf-8")
-            second.write_text("rendimiento", encoding="utf-8")
-            index = ContextIndex(root)
-            index.refresh()
-            unchanged = index._cache["first.md"]
-            second.write_text("rendimiento y contexto", encoding="utf-8")
-            index.refresh()
-            self.assertIs(index._cache["first.md"], unchanged)
-            self.assertIn("contexto", index._cache["second.md"][2])
-
-    def test_context_index_respects_file_and_size_limits(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for name in ("a.md", "b.md", "c.md"):
-                (root / name).write_text("x" * 80, encoding="utf-8")
-            index = ContextIndex(root, max_files=2, max_file_bytes=20)
-            index.refresh()
-            self.assertEqual(len(index.files), 2)
-            self.assertTrue(all(len(content) <= 20 for _, content in index.files))
+    def test_profile_validates_limits_and_http_messages_are_shared(self):
+        with self.assertRaises(ValueError): LlmProfile(temperature=3)
+        with self.assertRaises(ValueError): LlmProfile(max_output_tokens=0)
+        with self.assertRaises(ValueError): LlmProfile(max_context_chars=10)
+        self.assertEqual(http_error_message(401), "La API key fue rechazada.")
+        self.assertEqual(http_error_message(429), "Se alcanzó el límite de solicitudes o cuota.")
 
     def test_provider_registry_has_compatible_defaults(self):
         self.assertIn("deepinfra", PROVIDERS)
@@ -200,13 +128,6 @@ class CoreTests(unittest.TestCase):
         client.cancel(4)
         self.assertTrue(response.closed)
 
-    def test_profile_validates_limits_and_http_messages_are_shared(self):
-        with self.assertRaises(ValueError): LlmProfile(temperature=3)
-        with self.assertRaises(ValueError): LlmProfile(max_output_tokens=0)
-        with self.assertRaises(ValueError): LlmProfile(max_context_chars=10)
-        self.assertEqual(http_error_message(401), "La API key fue rechazada.")
-        self.assertEqual(http_error_message(429), "Se alcanzó el límite de solicitudes o cuota.")
-
     def test_atomic_write_cleans_temp_file_on_disk_error(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "nested" / "output.json"
@@ -216,7 +137,7 @@ class CoreTests(unittest.TestCase):
             with patch.object(storage.tempfile, "mkstemp", _mkstemp):
                 with patch("os.fsync", side_effect=OSError("ENOSPC")):
                     with self.assertRaises(OSError):
-                        storage._atomic_write(target, '{"a":1}')
+                        storage.atomic_write(target, '{"a":1}')
             self.assertFalse(target.exists(), "El archivo destino no debe existir tras fallo.")
             temps = list(Path(directory).rglob(".*.json.*"))
             self.assertEqual(len(temps), 0, "No deben quedar archivos temporales huérfanos.")
@@ -251,17 +172,84 @@ class CoreTests(unittest.TestCase):
                 list(LLMClient().stream(profile, "key", "mensaje"))
         self.assertIn("rechazada", str(ctx.exception))
 
+    def test_complete_reintenta_un_error_transitorio_y_llega_a_responder(self):
+        profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
+        intentos = []
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self): return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+        def urlopen(*_args, **_kwargs):
+            intentos.append(1)
+            if len(intentos) == 1:
+                fp = io.BytesIO(b'{"error":"overloaded"}')
+                raise urllib.error.HTTPError("https://example.invalid", 503, "Overloaded", {}, fp)
+            return Response()
+
+        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep"):
+            result = LLMClient().complete(profile, "key", "mensaje")
+        self.assertEqual(len(intentos), 2, "Un 503 transitorio se reintenta una vez")
+        self.assertEqual(result.content, "ok")
+
+    def test_no_reintenta_un_error_no_transitorio(self):
+        profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
+        intentos = []
+
+        def urlopen(*_args, **_kwargs):
+            intentos.append(1)
+            fp = io.BytesIO(b'{"error":"unauthorized"}')
+            raise urllib.error.HTTPError("https://example.invalid", 401, "Unauthorized", {}, fp)
+
+        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep") as dormir:
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(profile, "key", "mensaje")
+        self.assertIn("rechazada", str(ctx.exception))
+        self.assertEqual(len(intentos), 1, "401 no es transitorio: no se reintenta")
+        dormir.assert_not_called()
+
+    def test_reintento_respeta_retry_after_acotado(self):
+        from articulador_core.llm import BACKOFF_MAX_SECONDS
+        profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
+
+        def urlopen(*_args, **_kwargs):
+            fp = io.BytesIO(b'{"error":"slow down"}')
+            raise urllib.error.HTTPError(
+                "https://example.invalid", 429, "Slow down", {"Retry-After": "7"}, fp)
+
+        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep") as dormir:
+            with self.assertRaises(LlmError):
+                LLMClient().complete(profile, "key", "mensaje")
+        dormir.assert_called()
+        self.assertLessEqual(dormir.call_args_list[0][0][0], BACKOFF_MAX_SECONDS,
+                             "Retry-After se acota al máximo de backoff")
+
+    def test_agotados_los_reintentos_se_relanza_el_error(self):
+        from articulador_core.llm import MAX_HTTP_ATTEMPTS
+        profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
+        intentos = []
+
+        def urlopen(*_args, **_kwargs):
+            intentos.append(1)
+            fp = io.BytesIO(b'{"error":"overloaded"}')
+            raise urllib.error.HTTPError("https://example.invalid", 503, "Overloaded", {}, fp)
+
+        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep"):
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(profile, "key", "mensaje")
+        self.assertEqual(len(intentos), MAX_HTTP_ATTEMPTS, "Se intenta el máximo de veces")
+        self.assertIn("no está disponible", str(ctx.exception))
+
     def test_load_project_handles_malformed_fields_gracefully(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             doc = root / "draft.md"; doc.write_text("# Hola", encoding="utf-8")
             project = root / "proj.articulador.json"
-            # evidence como string, no lista; conversation con ítems inválidos
+            # conversation con ítems inválidos
             data = {
                 "version": 2,
                 "document": "draft.md",
-                "corpus": "",
-                "evidence": "no-es-una-lista",
                 "conversation": [
                     {"role": "user", "content": "válido"},
                     "soy-un-string-no-dict",
@@ -272,8 +260,6 @@ class CoreTests(unittest.TestCase):
             project.write_text(json.dumps(data), encoding="utf-8")
             loaded = storage.load_project(project)
             self.assertEqual(loaded["document"], doc.resolve())
-            # evidence malformado se normaliza a lista vacía (validación defensiva)
-            self.assertEqual(loaded.get("evidence"), [])
             self.assertEqual(len(loaded["conversation"]), 2)
             self.assertEqual(loaded["conversation"][1].content, "otro válido")
 
@@ -292,21 +278,6 @@ class CoreTests(unittest.TestCase):
             project.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaises(ValueError):
                 storage.load_project(project)
-
-    def test_load_project_normalizes_malformed_evidence(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            doc = root / "draft.md"
-            doc.write_text("# Test", encoding="utf-8")
-            project = root / "proj.articulador.json"
-            data = {
-                "version": 2,
-                "document": "draft.md",
-                "evidence": None,  # Malformado
-            }
-            project.write_text(json.dumps(data), encoding="utf-8")
-            loaded = storage.load_project(project)
-            self.assertEqual(loaded.get("evidence"), [])
 
     def test_load_profiles_recovers_from_invalid_types(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -348,6 +319,55 @@ model = "test-model"
             self.assertEqual(loaded_profiles["test"].max_total_model_tokens, 8000)
             self.assertEqual(active, "test")
 
+    def test_autosave_escribe_lee_y_borra(self):
+        from articulador_core import autosave
+
+        with tempfile.TemporaryDirectory() as directory:
+            raiz = Path(directory)
+            with patch.object(autosave, "AUTOSAVE_DIR", raiz):
+                documento = raiz / "articulo.md"
+                documento.write_text("original", encoding="utf-8")
+                self.assertIsNone(autosave.read_autosave(documento))
+
+                autosave.write_autosave(documento, "texto sin guardar")
+                self.assertEqual(autosave.read_autosave(documento), "texto sin guardar")
+
+                autosave.clear_autosave(documento)
+                self.assertIsNone(autosave.read_autosave(documento))
+
+    def test_autosave_es_unico_por_documento_y_estable(self):
+        from articulador_core import autosave
+
+        with tempfile.TemporaryDirectory() as directory:
+            raiz = Path(directory)
+            with patch.object(autosave, "AUTOSAVE_DIR", raiz / "estado"):
+                a = raiz / "a.md"
+                b = raiz / "b.md"
+                self.assertEqual(autosave._autosave_path(a), autosave._autosave_path(a))
+                self.assertNotEqual(autosave._autosave_path(a), autosave._autosave_path(b))
+
+    def test_guardar_documento_borra_el_autosave(self):
+        from articulador_core import autosave
+        from articulador_ui.document_manager import DocumentManager
+
+        with tempfile.TemporaryDirectory() as directory:
+            raiz = Path(directory)
+            documento = raiz / "articulo.md"
+            documento.write_text("v1", encoding="utf-8")
+            with patch.object(autosave, "AUTOSAVE_DIR", raiz / "estado"):
+                autosave.write_autosave(documento, "v2 sin guardar")
+                self.assertIsNotNone(autosave.read_autosave(documento))
+
+                manager = DocumentManager()
+                session = ArticleSession(document_path=documento, article="v2")
+                ok, _error = manager.save_document(session)
+
+            self.assertTrue(ok)
+            self.assertEqual(documento.read_text(encoding="utf-8"), "v2")
+            # El guardado limpio dejó obsoleto el respaldo.
+            with patch.object(autosave, "AUTOSAVE_DIR", raiz / "estado"):
+                self.assertIsNone(autosave.read_autosave(documento))
+
     def test_max_total_model_tokens_enforces_budget_correctly(self):
         """Verificar que el presupuesto usa max_total_model_tokens, no default."""
         # Profile con max_total = 4000, max_output = 1000
@@ -373,11 +393,11 @@ model = "test-model"
             )
 
     def test_atomic_write_prevents_partial_writes(self):
-        """Verificar que _atomic_write no deja archivos corruptos parcialmente."""
+        """Verificar que atomic_write no deja archivos corruptos parcialmente."""
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "output.txt"
             content = "línea 1\nlínea 2\nlínea 3\n"
-            storage._atomic_write(target, content)
+            storage.atomic_write(target, content)
             self.assertEqual(target.read_text(encoding="utf-8"), content)
             # Verificar que no hay archivos temporales huérfanos
             temps = list(Path(directory).glob(".*"))
@@ -394,6 +414,30 @@ model = "test-model"
         success, error = manager.save_document(session)
         self.assertFalse(success)
         self.assertIn("invalid", error.lower())
+
+    def test_open_document_rechaza_archivos_que_superan_el_limite(self):
+        """Abrir un artículo inmenso no debe cargar el archivo entero en memoria."""
+        from articulador_ui.document_manager import MAX_ARTICLE_BYTES, DocumentManager
+        manager = DocumentManager()
+        with tempfile.TemporaryDirectory() as directory:
+            huge = Path(directory) / "gigante.md"
+            # Archivo disperso: ocupa casi nada en disco pero su st_size supera
+            # el tope, que es exactamente lo que _read_bounded comprueba antes de leer.
+            with huge.open("wb") as handle:
+                handle.truncate(MAX_ARTICLE_BYTES + 1)
+            success, error, _session = manager.open_document(huge)
+            self.assertFalse(success)
+            self.assertIn("supera el límite", error)
+
+    def test_open_document_acepta_un_articulo_dentro_del_limite(self):
+        from articulador_ui.document_manager import DocumentManager
+        manager = DocumentManager()
+        with tempfile.TemporaryDirectory() as directory:
+            normal = Path(directory) / "normal.md"
+            normal.write_text("# Título", encoding="utf-8")
+            success, _error, session = manager.open_document(normal)
+        self.assertTrue(success)
+        self.assertEqual(session.article, "# Título")
 
     def test_estimate_prompt_tokens_counts_complete_prompt(self):
         """Verificar que estimate_prompt_tokens cuenta SYSTEM + payload JSON (sin doble conteo)."""

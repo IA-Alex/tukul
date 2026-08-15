@@ -6,18 +6,15 @@ import queue
 import threading
 import tkinter as tk
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import TypeAlias
 
 from articulador_core import storage
+from articulador_core.autosave import clear_autosave, read_autosave, write_autosave
 from articulador_core.config_validator import validate_startup_config
-from articulador_core.context import (
-    MAX_CONTEXT_EXCERPT_CHARS,
-    MAX_CONTEXT_PACKET_CHARS,
-    MAX_INDEXED_FILE_BYTES,
-)
 from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
@@ -25,14 +22,31 @@ from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
 from articulador_ui import estilo as es
 from articulador_ui.chunk_buffer import ChunkBuffer
-from articulador_ui.context_orchestrator import ContextOrchestrator
-from articulador_ui.dialogs import show_context_dialog, show_review_dialog, show_settings_dialog
+from articulador_ui.dialogs import show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
 from articulador_ui.document_scope import DocumentScope
 from articulador_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from articulador_ui.llm_session_manager import LLMSessionManager
 
-ContextApprovalKey: TypeAlias = tuple[str, str, tuple[str, ...], str]
+# Límites del paquete de artículos de contexto que acompaña al artículo activo.
+# Vivían en articulador_core/context.py junto al índice BM25; al retirar ese
+# índice, las constantes se quedaron aquí, donde se usan de verdad.
+MAX_CONTEXT_PACKET_CHARS = 12_000
+MAX_CONTEXT_EXCERPT_CHARS = 3_000
+MAX_INDEXED_FILE_BYTES = 50_000
+# Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
+AUTOSAVE_INTERVAL_MS = 5000
+
+ContextApprovalKey: TypeAlias = tuple[str, str, str, tuple[str, ...], str]
+
+
+@dataclass(frozen=True)
+class ContextArticle:
+    """Instantánea explícita de un artículo que acompañará al artículo activo."""
+
+    source_id: str
+    label: str
+    content: str
 
 # Compatibilidad para los diálogos, que leen app.COLORS. El sistema visual vive
 # en articulador_ui/estilo.py y es la fuente única.
@@ -51,7 +65,7 @@ logger = setup_logging()
 
 
 class ArticuladorApp(tk.Tk):
-    def __init__(self, config_path: Path = storage.CONFIG_PATH, workspace_root: Path | None = None) -> None:
+    def __init__(self, config_path: Path = storage.CONFIG_PATH) -> None:
         super().__init__()
         # UI config
         self.COLORS = COLORS
@@ -72,13 +86,12 @@ class ArticuladorApp(tk.Tk):
         self._session_keys_max = 32
 
         # Managers (refactorización de responsabilidades)
-        self.workspace_root = (workspace_root or Path.cwd()).resolve()
         self.docs = DocumentManager()
-        self.context = ContextOrchestrator(self.workspace_root)
         self.llm = LLMSessionManager()
 
         # Session & UI state (referencia dinámica a través de property)
-        # dict-como-conjunto-ordenado: permite desalojo FIFO real (ver confirm_and_send).
+        # dict-como-conjunto-ordenado: autorizaciones de contexto por destino
+        # (endpoint, proveedor y modelo), con desalojo FIFO real.
         self.approved_contexts: dict[ContextApprovalKey, None] = {}
         # Todo el estado derivado del documento vive en un único objeto que se
         # reemplaza entero al cambiar de artículo (ver DocumentScope).
@@ -86,9 +99,11 @@ class ArticuladorApp(tk.Tk):
         # Referencias elegidas de forma explícita. No pertenecen al documento
         # activo ni se descubren recorriendo el workspace: permanecen durante
         # esta sesión hasta que la persona las quite.
-        self.reference_files: list[Path] = []
+        self.context_articles: list[ContextArticle] = []
         self.review_dialogs: list[tk.Toplevel] = []
         self.stats_after = None
+        self.autosave_after: str | None = None
+        self._ui_events_after: str | None = None
         self.report_callback_exception = self.handle_callback_error
         self.cancel_event: threading.Event | None = None
         self.streaming_request: int | None = None
@@ -320,7 +335,7 @@ class ArticuladorApp(tk.Tk):
             ("Guardar proyecto…", self.save_project, ""),
             None,
             ("Configurar modelo…", self.settings, ""),
-            ("Referencias…", self.manage_references, ""),
+            ("Contexto de artículos…", self.manage_references, ""),
             ("Limpiar conversación", self.clear_history, ""),
         ]
         for entrada in entradas:
@@ -333,7 +348,7 @@ class ArticuladorApp(tk.Tk):
         ttk.Menubutton(barra, text="☰  Menú", menu=menu_archivo).pack(side="left")
         ttk.Button(barra, text="Guardar", style="Guardar.TButton",
                    command=self.save_document).pack(side="left", padx=(es.ESP["sm"], 0))
-        self.references_button = ttk.Button(barra, text="Referencias: 0",
+        self.references_button = ttk.Button(barra, text="Contexto: 0 artículos",
                                             command=self.manage_references)
         self.references_button.pack(side="left", padx=(es.ESP["sm"], 0))
 
@@ -375,7 +390,7 @@ class ArticuladorApp(tk.Tk):
         # se coloca después es lo que se recorta al faltar espacio: al reservar
         # primero el compositor, las acciones primarias nunca desaparecen aunque
         # el panel se estreche.
-        self.cost_label = tk.StringVar(value="El contexto y el coste se muestran antes de enviar.")
+        self.cost_label = tk.StringVar(value="Se enviará el artículo activo; el contexto adicional se confirma antes de enviar.")
         ttk.Label(chat, textvariable=self.cost_label, style="TenueSuperficie.TLabel",
                   wraplength=300, justify="left").pack(side="bottom", fill="x",
                                                        pady=(es.ESP["xs"], 0))
@@ -426,7 +441,7 @@ class ArticuladorApp(tk.Tk):
                   justify="left").pack(fill="x")
         acciones = ttk.Frame(self.barra_aprobacion, style="Alta.TFrame")
         acciones.pack(fill="x", pady=(es.ESP["sm"], 0))
-        self.boton_aprobar = ttk.Button(acciones, text="Enviar contexto",
+        self.boton_aprobar = ttk.Button(acciones, text="Enviar artículos",
                                         style="Primaria.TButton")
         self.boton_aprobar.pack(side="right")
         self.boton_rechazar = ttk.Button(acciones, text="No enviar")
@@ -621,7 +636,32 @@ class ArticuladorApp(tk.Tk):
         if not self.editor.edit_modified(): return
         self.editor.edit_modified(False)
         if self._suppress_modified: return  # Carga programática, no edición del usuario.
-        self.session.dirty=True; self.sync_label.config(text="●  Cambios sin guardar", foreground=es.ESTADO_AVISO); self.update_context(); self.schedule_stats()
+        self.session.dirty=True; self.sync_label.config(text="●  Cambios sin guardar", foreground=es.ESTADO_AVISO); self.update_context(); self.schedule_stats(); self._schedule_autosave()
+
+    def _schedule_autosave(self) -> None:
+        """Programa (o rearma) el respaldo de recuperación tras una edición."""
+        if self.autosave_after is not None:
+            self.after_cancel(self.autosave_after)
+        self.autosave_after = self.after(AUTOSAVE_INTERVAL_MS, self._write_autosave)
+
+    def _write_autosave(self) -> None:
+        """Vuelca el editor al respaldo si sigue sucio; se rearma si hay que insistir."""
+        self.autosave_after = None
+        if self.closing:
+            return
+        if self.session.dirty and self.session.document_path is not None:
+            try:
+                write_autosave(self.session.document_path, self.editor.get("1.0", "end-1c"))
+            except tk.TclError:
+                return  # Ventana destruida mientras se volcaba.
+            self._schedule_autosave()
+
+    def _clear_current_autosave(self) -> None:
+        if self.session.document_path is not None:
+            clear_autosave(self.session.document_path)
+        if self.autosave_after is not None:
+            self.after_cancel(self.autosave_after)
+            self.autosave_after = None
 
     def _replace_editor_text(self, content: str) -> None:
         """Sustituye el contenido del editor sin que cuente como edición del usuario.
@@ -663,22 +703,42 @@ class ArticuladorApp(tk.Tk):
         self.status.set(title)
         messagebox.showerror(title, detail, parent=self)
     def load_document(self, path: Path) -> bool:
-        """Abre un artículo estrenando ArticleSession. Retorna si tuvo éxito.
-
-        Cada archivo empieza con sesión limpia: arrastrar la conversación entre
-        documentos dejaba el historial hablando de otro texto y fue el vector del
-        volcado de datos entre artículos (instantánea de revisión cruzada).
-        """
+        """Sustituye el artículo activo y conserva la conversación de sesión."""
         success, error, session = self.docs.open_document(path)
         if not success:
             self.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
             return False
+        documento = session.document_path
+        if documento is None:
+            self.show_error("No se pudo abrir el documento", f"{path}\n\nSin ruta de destino.")
+            return False
+        # Si se abandona otro documento, su respaldo de recuperación queda
+        # obsoleto: el usuario ya decidió (guardó o descartó al salir).
+        previous = self.session.document_path
+        if previous is not None and previous != documento:
+            clear_autosave(previous)
+        # Recuperación ante cierre abrupto: si hay un respaldo distinto del
+        # contenido en disco, se ofrece restaurarlo una sola vez y se resuelve.
+        respaldo = read_autosave(documento)
+        if respaldo is not None and respaldo != session.article:
+            if messagebox.askyesno(
+                "Recuperar respaldo",
+                f"Hay un respaldo más reciente de «{path.name}» que no se llegó a "
+                "guardar (quizá por un cierre inesperado).\n\n¿Restaurarlo?",
+                parent=self,
+            ):
+                session.article = respaldo
+            clear_autosave(documento)
+        # La conversación pertenece a la sesión de trabajo, no al archivo que
+        # ocupa el editor. El documento nuevo reemplaza únicamente la izquierda;
+        # conservar estos turnos permite seguir comparando varios artículos.
+        conversation = list(self.session.conversation)
         self.docs.set_session(session)
+        self.session.conversation = conversation
         self._enter_document_scope(session.document_path)
         self._replace_editor_text(session.article)
-        self._clear_history_widget()
-        self.append("Articulador", f"Abierto «{path.name}». Pregúntame lo que quieras sobre "
-                    f"el artículo, o selecciona un fragmento para trabajar solo sobre él.",
+        self.append("Articulador", f"Artículo activo: «{path.name}». La conversación y los artículos "
+                    "de contexto se conservan para continuar el trabajo.",
                     es_respuesta=False)
         self.session.dirty=False; self.sync_label.config(text="○  Sin cambios", foreground=es.TEXTO_TENUE)
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
@@ -692,6 +752,11 @@ class ArticuladorApp(tk.Tk):
     def send_message(self):
         message=self.input.get("1.0","end-1c").strip()
         if not message or self.session.request_active:return
+        # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
+        # como un turno fantasma del usuario que nunca recibe respuesta.
+        if not self.profile.enabled or not self.key:
+            self.append("Articulador","Configura un perfil LLM y una key para responder.")
+            return
         self.input.delete("1.0","end"); self.append("Tú",message); self.request(message)
     def review(self):
         """Revisa el artículo abierto, o la selección si la hay.
@@ -782,56 +847,32 @@ class ArticuladorApp(tk.Tk):
         # El artículo abierto siempre se envía como artículo. Solo las referencias
         # que la persona añadió expresamente forman el paquete adicional y activan
         # la confirmación de privacidad ya existente.
-        packet, files, unavailable = self._reference_packet()
-        if unavailable:
-            messagebox.showwarning(
-                "Algunas referencias no están disponibles",
-                "No se pudieron leer: " + ", ".join(unavailable) +
-                "\n\nSe enviarán las referencias que sí siguen disponibles.",
-                parent=self,
-            )
+        packet, files = self._reference_packet()
         self.confirm_and_send(request_id, message, selected, packet, files, cancel_event)
 
-    def _reference_packet(self) -> tuple[str, list[str], list[str]]:
-        """Lee exclusivamente las referencias añadidas por la persona.
+    def _reference_packet(self) -> tuple[str, list[str]]:
+        """Construye el paquete desde instantáneas elegidas explícitamente.
 
-        El límite por archivo y el límite total evitan que una selección grande
-        haga crecer el prompt sin control. Los nombres, no las rutas absolutas,
-        son los que se envían al proveedor dentro del contenido.
+        Cada artículo se congela al añadirlo. Así, abrir otro documento no hace
+        desaparecer el anterior ni sustituye su contenido por el del disco.
         """
         remaining = min(self.profile.max_context_chars // 3, MAX_CONTEXT_PACKET_CHARS)
         parts: list[str] = []
         files: list[str] = []
-        unavailable: list[str] = []
-        for path in self.reference_files:
+        for article in self.context_articles:
             if remaining <= 0:
                 break
-            try:
-                with path.open("rb") as source:
-                    raw = source.read(MAX_INDEXED_FILE_BYTES)
-                content = raw.decode("utf-8", errors="replace")
-            except OSError:
-                unavailable.append(path.name)
-                continue
-            excerpt = content[:min(MAX_CONTEXT_EXCERPT_CHARS, remaining)]
+            excerpt = article.content[:min(MAX_CONTEXT_EXCERPT_CHARS, remaining)]
             if not excerpt:
                 continue
-            parts.append(f"REFERENCIA LOCAL: {path.name}\n---\n{excerpt}")
-            files.append(path.name)
+            parts.append(f"ARTÍCULO DE CONTEXTO: {article.label}\n---\n{excerpt}")
+            files.append(article.label)
             remaining -= len(excerpt)
-        return "\n\n".join(parts), files, unavailable
-    def context_failed(self, request_id: int, error_msg: str) -> None:
-        # Verificar que este request_id sigue siendo válido
-        if self.closing or request_id not in self.request_types: return
-        logger.error("No se pudo preparar el contexto: %s", error_msg)
-        self.session.request_active=False; self._reset_request_ui()
-        self.request_types.pop(request_id, None)
-        self.set_estado(EstadoUI.ERROR, "no se pudo preparar el contexto"); self.show_error("Error de contexto", error_msg)
+        return "\n\n".join(parts), files
 
     def confirm_and_send(self, request_id, message, selected, packet, files, cancel_event):
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types or cancel_event.is_set(): return
-        self.scope.context_files=files
 
         # Obtener el tipo de solicitud (normal/review) para este request_id
         request_type = self.request_types.get(request_id, "normal")
@@ -878,16 +919,14 @@ class ArticuladorApp(tk.Tk):
         input_tokens = actual_tokens
         output_tokens = profile.max_output_tokens
         cost = (input_tokens * profile.input_price_per_million + output_tokens * profile.output_price_per_million) / 1_000_000
-        last_reasons=self.context.get_last_reasons()  # Cache para no llamar en loop
-        reasons=" · ".join(f"{name} ({last_reasons.get(name, 'contexto disponible')})" for name in files)
-        detail=f"Contexto: {reasons or 'sin archivos'} · ~{input_tokens:,} tokens entrada"
+        contexto_extra = " + ".join(files)
+        detail=f"Contexto: artículo activo{(' + ' + contexto_extra) if contexto_extra else ''} · ~{input_tokens:,} tokens entrada"
         if cost: detail+=f" · coste máx. ~${cost:.4f}"
         self.cost_label.set(detail)
         # Lo que el usuario aprueba son los FRAGMENTOS locales: la huella cubre el
         # paquete de contexto, no el artículo ni la conversación. Con el prompt
         # completo el hash cambiaba en cada mensaje y el diálogo salía siempre.
-        content_hash = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
-        key: ContextApprovalKey = (profile.endpoint, profile.provider, tuple(files), content_hash)
+        key = self._context_approval_key(profile, packet, files)
 
         def lanzar() -> None:
             self._lanzar_envio(request_id, profile, message, selected, packet,
@@ -899,6 +938,28 @@ class ArticuladorApp(tk.Tk):
             self._pedir_aprobacion(request_id, files, key, lanzar)
             return
         lanzar()
+
+    @staticmethod
+    def _context_approval_key(profile: LlmProfile, packet: str,
+                              files: list[str]) -> ContextApprovalKey:
+        """Identifica contenido y destinatario exactos de una autorización."""
+        content_hash = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
+        return (profile.endpoint, profile.provider, profile.model, tuple(files), content_hash)
+
+    def _remember_context_approval(self, profile: LlmProfile, packet: str,
+                                   files: list[str]) -> None:
+        """Registra una autorización de sesión sin iniciar una petición."""
+        if not files:
+            return
+        self._remember_context_approval_key(self._context_approval_key(profile, packet, files))
+
+    def _remember_context_approval_key(self, key: ContextApprovalKey) -> None:
+        """Guarda una autorización ya calculada respetando el tope FIFO."""
+        if key in self.approved_contexts:
+            self.approved_contexts.pop(key)
+        while len(self.approved_contexts) >= 128:
+            self.approved_contexts.pop(next(iter(self.approved_contexts)), None)
+        self.approved_contexts[key] = None
 
     def _lanzar_envio(self, request_id, profile, message, selected, packet,
                       conversation_with_message, files, request_type, cancel_event) -> None:
@@ -929,7 +990,8 @@ class ArticuladorApp(tk.Tk):
                           key: ContextApprovalKey, al_aceptar) -> None:
         """Muestra la confirmación de contexto dentro del panel del asistente."""
         self.aprobacion_texto.set(
-            f"Se enviarán {len(files)} archivo(s) local(es) al proveedor: "
+            "Se enviará el artículo activo de la izquierda y "
+            f"{len(files)} artículo(s) de contexto al proveedor: "
             + ", ".join(files)
         )
         self.set_estado(EstadoUI.PREPARANDO, "esperando tu confirmación")
@@ -938,9 +1000,7 @@ class ArticuladorApp(tk.Tk):
             self._ocultar_aprobacion()
             # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
             # entero obligaba a reconfirmar todo de golpe.
-            while len(self.approved_contexts) >= 128:
-                self.approved_contexts.pop(next(iter(self.approved_contexts)), None)
-            self.approved_contexts[key] = None
+            self._remember_context_approval_key(key)
             al_aceptar()
 
         def rechazar() -> None:
@@ -1067,19 +1127,10 @@ class ArticuladorApp(tk.Tk):
         self.history.config(state="disabled")
         if self.estado_actual is not EstadoUI.TRANSMITIENDO: self.set_estado(EstadoUI.TRANSMITIENDO)
     def cancel_request(self):
+        """Cancela la petición en curso desde el botón Cancelar o la tecla Escape."""
         if not self.session.request_active:
             return
-        # Cancelar usando generation_counter (request_id actual)
-        if self.cancel_event:
-            self.cancel_event.set()
-        self.llm.cancel(self.generation_counter)
-        # Limpiar TODOS los buffers pendientes (evitar memory leak)
-        self.request_types.clear()
-        self.chunks.clear()  # ← Descartar texto pendiente de pintar
-        self.streaming_request = None
-        self.streaming_text = ""
-        self.session.request_active = False
-        self._reset_request_ui()
+        self._cancel_active_request()
         self.set_estado(EstadoUI.CANCELADO)
         self.status.set("La respuesta tardía será descartada.")
 
@@ -1095,7 +1146,7 @@ class ArticuladorApp(tk.Tk):
         finally:
             if not self.closing:
                 try:
-                    self.after(50, self.process_ui_events)
+                    self._ui_events_after = self.after(50, self.process_ui_events)
                 except tk.TclError:
                     pass  # Ventana destruida mientras se drenaba la cola.
 
@@ -1163,15 +1214,6 @@ class ArticuladorApp(tk.Tk):
             self._flush_pending_chunks(request_id)
             self.finish(request_id, result, files, usage, request_type)
 
-        elif event_type == "context_failed":
-            _, request_id, error_msg = event
-            self.chunks.discard(request_id)
-            self.context_failed(request_id, error_msg)
-
-        elif event_type == "confirm_and_send":
-            _, request_id, message, selected, packet, files, cancel_event = event
-            self.confirm_and_send(request_id, message, selected, packet, files, cancel_event)
-
     def _flush_pending_chunks(self, request_id: int) -> None:
         """Vuelca lo acumulado de una petición antes de cerrarla.
 
@@ -1222,47 +1264,99 @@ class ArticuladorApp(tk.Tk):
             return
         path=filedialog.askopenfilename(filetypes=[("Markdown", "*.md *.txt")])
         if path:
+            next_path = Path(path).resolve()
+            current_text = self.editor.get("1.0", "end-1c")
+            current_path = self.session.document_path
+            if (current_text.strip() and current_path != next_path
+                    and messagebox.askyesno(
+                        "Conservar y autorizar contexto",
+                        "Vas a abrir otro artículo.\n\n"
+                        "¿Quieres conservar el artículo actual y autorizar su envío a "
+                        f"{self.profile.provider}/{self.profile.model} durante esta sesión?\n\n"
+                        "Podrás quitarlo después en «Contexto de artículos».",
+                        parent=self,
+                    )):
+                self._add_current_article_to_context()
+                self._authorize_context_articles()
             # La lectura y el manejo de errores viven en DocumentManager: aquí solo
             # se decide qué archivo abrir.
-            self.load_document(Path(path))
-    def context_dialog(self):
-        show_context_dialog(self)
+            self.load_document(next_path)
 
     def _update_references_button(self) -> None:
-        self.references_button.config(text=f"Referencias: {len(self.reference_files)}")
+        count = len(self.context_articles)
+        label = "artículo" if count == 1 else "artículos"
+        self.references_button.config(text=f"Contexto: {count} {label}")
+
+    def _upsert_context_article(self, article: ContextArticle) -> bool:
+        """Añade o actualiza una instantánea, sin duplicarla en el contexto."""
+        for index, existing in enumerate(self.context_articles):
+            if existing.source_id == article.source_id:
+                self.context_articles[index] = article
+                self._update_references_button()
+                return False
+        self.context_articles.append(article)
+        self._update_references_button()
+        return True
+
+    def _add_current_article_to_context(self) -> bool:
+        """Guarda el texto visible como contexto antes de abrir o editar otro."""
+        content = self.editor.get("1.0", "end-1c")
+        if not content.strip():
+            return False
+        path = self.session.document_path
+        label = path.name if path else "Artículo sin guardar"
+        source_id = f"article:{path.resolve()}" if path else "article:sin-ruta"
+        return self._upsert_context_article(ContextArticle(source_id, label, content))
+
+    def _authorize_context_articles(self) -> None:
+        """Autoriza el conjunto actual para el destinatario activo, una sola vez."""
+        packet, files = self._reference_packet()
+        self._remember_context_approval(self.profile, packet, files)
+
+    def _ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
+        """La autorización ocurre al añadir contexto, nunca al enviar después."""
+        if not labels:
+            return False
+        return messagebox.askyesno(
+            "Autorizar artículos de contexto",
+            "Se conservarán y podrán enviarse a "
+            f"{self.profile.provider}/{self.profile.model} durante esta sesión:\n\n"
+            + ", ".join(labels),
+            parent=parent,
+        )
 
     def _add_references(self, paths: tuple[str, ...] | list[str]) -> int:
-        """Añade archivos de referencia sin alterar el artículo del editor."""
+        """Añade instantáneas de archivos de contexto sin alterar el editor."""
         added = 0
-        active_path = self.session.document_path.resolve() if self.session.document_path else None
-        known = set(self.reference_files)
         for raw_path in paths:
             try:
                 path = Path(raw_path).resolve()
             except OSError:
                 continue
-            if (not path.is_file() or path.suffix.lower() not in {".md", ".txt"}
-                    or path == active_path or path in known):
+            if not path.is_file() or path.suffix.lower() not in {".md", ".txt"}:
                 continue
-            self.reference_files.append(path)
-            known.add(path)
-            added += 1
-        self._update_references_button()
+            try:
+                with path.open("rb") as source:
+                    content = source.read(MAX_INDEXED_FILE_BYTES).decode("utf-8", errors="replace")
+            except OSError:
+                continue
+            if self._upsert_context_article(ContextArticle(f"article:{path}", path.name, content)):
+                added += 1
         return added
 
     def manage_references(self) -> None:
-        """Permite conservar varios artículos de apoyo durante esta sesión."""
+        """Permite conservar artículos previos al cambiar el artículo activo."""
         dialog = tk.Toplevel(self)
-        dialog.title("Referencias para el asistente")
+        dialog.title("Contexto de artículos")
         dialog.transient(self)
         dialog.configure(bg=es.SUPERFICIE)
         dialog.minsize(460, 280)
         dialog.geometry("580x360")
         frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Referencias incluidas en las consultas", style="Titulo.TLabel").pack(anchor="w")
-        ttk.Label(frame, text=("Añade artículos anteriores (.md o .txt). Se mantienen durante esta sesión "
-                               "y se enviarán solo cuando confirmes el contexto."),
+        ttk.Label(frame, text="Artículos de contexto", style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(frame, text=("El artículo de la izquierda es el activo. Añade aquí artículos previos (.md o .txt): "
+                               "se conservan al abrir otro artículo y se autorizan al añadirlos."),
                   style="TenueSuperficie.TLabel", wraplength=520, justify="left").pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
         # La fila de acciones se reserva ANTES de la lista expansible: con pack,
         # lo colocado después es lo que se recorta al estrechar la ventana.
@@ -1277,37 +1371,54 @@ class ArticuladorApp(tk.Tk):
 
         def refresh() -> None:
             entries.delete(0, "end")
-            for path in self.reference_files:
-                entries.insert("end", str(path))
+            for article in self.context_articles:
+                entries.insert("end", article.label)
 
         def add() -> None:
             paths = filedialog.askopenfilenames(
-                parent=dialog, title="Añadir artículos de referencia",
+                parent=dialog, title="Añadir artículos al contexto",
                 filetypes=[("Artículos", "*.md *.txt"), ("Todos los archivos", "*.*")],
             )
             # Tk declara una cadena vacía al cancelar, aunque normalmente devuelve
             # una tupla. No iterar esa cadena evita tratar cada carácter como ruta.
             selected_paths = paths if isinstance(paths, tuple) else ()
+            labels = [Path(path).name for path in selected_paths]
+            if not self._ask_to_authorize_articles(labels, dialog):
+                return
             count = self._add_references(selected_paths)
+            self._authorize_context_articles()
             refresh()
             if count:
-                self.status.set(f"{count} referencia(s) añadida(s).")
+                self.status.set(f"{count} artículo(s) añadido(s) al contexto.")
 
         def remove() -> None:
             selected = list(entries.curselection())
             if not selected:
                 return
-            self.reference_files = [path for index, path in enumerate(self.reference_files)
-                                    if index not in selected]
+            self.context_articles = [article for index, article in enumerate(self.context_articles)
+                                     if index not in selected]
             self._update_references_button()
             refresh()
-            self.status.set("Referencias actualizadas.")
+            self.status.set("Contexto de artículos actualizado.")
 
         # Acción primaria a la derecha, como en el resto de diálogos.
-        ttk.Button(actions, text="Añadir archivos…", style="Primaria.TButton",
+        def add_current() -> None:
+            path = self.session.document_path
+            label = path.name if path else "Artículo sin guardar"
+            if not self._ask_to_authorize_articles([label], dialog):
+                return
+            added = self._add_current_article_to_context()
+            self._authorize_context_articles()
+            refresh()
+            self.status.set("Artículo activo añadido al contexto." if added
+                            else "Artículo activo actualizado en el contexto.")
+
+        ttk.Button(actions, text="Añadir artículos…", style="Primaria.TButton",
                    command=add).pack(side="right")
         ttk.Button(actions, text="Quitar seleccionadas", command=remove).pack(
             side="right", padx=(0, es.ESP["sm"]))
+        ttk.Button(actions, text="Añadir artículo activo", command=add_current).pack(
+            side="left", padx=(0, es.ESP["sm"]))
         ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         refresh()
@@ -1410,18 +1521,29 @@ class ArticuladorApp(tk.Tk):
         show_settings_dialog(self)
 
     def _cancel_active_request(self):
-        """Cancela la solicitud activa e invalida su request_id."""
+        """Baja la petición viva y devuelve la interfaz al reposo.
+
+        Punto único de cancelación: lo usan el botón Cancelar, la tecla Escape
+        y los cambios de documento/proyecto. Antes había dos copias casi
+        idénticas (`cancel_request` y `_cancel_active_request`) que ya habían
+        empezado a divergir: una marcaba el estado CANCELADO y ocultaba la barra
+        de aprobación, la otra no. Reunirlas aquí evita ese desdoblamiento.
+        """
         if self.cancel_event:
             self.cancel_event.set()
-        # Limpiar TODOS los buffers pendientes (evitar memory leak)
+        # Cancelar en LLMClient (generation_counter es el request_id actual).
+        self.llm.cancel(self.generation_counter)
+        # Limpiar TODOS los buffers pendientes: una respuesta tardía no debe
+        # pintarse ni reactivar una petición ya cerrada.
         self.request_types.clear()
-        self.chunks.clear()  # ← Descartar texto pendiente de pintar
+        self.chunks.clear()
         self.streaming_request = None
         self.streaming_text = ""
-        # Cancelar en LLMClient
-        self.llm.cancel(self.generation_counter)
         self.session.request_active = False
         self._reset_request_ui()
+        # Si se canceló mientras se esperaba la confirmación de contexto, la
+        # barra de aprobación queda huérfana y hay que retirarla.
+        self._ocultar_aprobacion()
 
     def close(self):
         if self.session.dirty and not messagebox.askyesno("Cambios sin guardar","¿Cerrar sin guardar?"):return
@@ -1429,4 +1551,23 @@ class ArticuladorApp(tk.Tk):
         # Cancelar cualquier solicitud activa
         if self.session.request_active:
             self._cancel_active_request()
+        # Cierre limpio: la decisión ya está tomada, el respaldo de recuperación
+        # no debe resucitar cambios descartados en la próxima apertura.
+        self._clear_current_autosave()
         self.destroy()
+
+    def destroy(self) -> None:
+        """Cancela los callbacks `after` pendientes antes de destruir la ventana.
+
+        Sin esto, los temporizadores ya programados (`process_ui_events`, el
+        autosave y las estadísticas) disparaban tras el cierre contra una Tcl
+        destruida, dejando ruido «invalid command name» en la consola.
+        """
+        self.closing = True
+        for after_id in (self._ui_events_after, self.autosave_after, self.stats_after):
+            if after_id is not None:
+                try:
+                    self.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+        super().destroy()

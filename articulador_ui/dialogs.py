@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 from articulador_core import storage
 from articulador_core.llm import PROVIDERS, LlmError, provider_spec, validate_endpoint
@@ -71,46 +71,6 @@ def _barra_acciones(cuerpo: ttk.Frame) -> ttk.Frame:
     barra = ttk.Frame(cuerpo)
     barra.pack(side="bottom", fill="x", pady=(es.ESP["lg"], 0))
     return barra
-
-
-def show_context_dialog(app) -> None:
-    # Un archivo excluido deja de aparecer en las consultas siguientes, así que
-    # listar solo `last_context_files` hacía la exclusión irreversible: hay que
-    # ofrecer también los ya excluidos para poder volver a incluirlos.
-    excluded = app.context.excluded_context
-    names = sorted(set(app.scope.context_files) | set(excluded))
-    if not names:
-        messagebox.showinfo(
-            "Contexto",
-            "Envía primero una consulta para que Articulador proponga archivos relevantes.",
-        )
-        return
-
-    dialogo, cuerpo = _abrir_dialogo(app, "Contexto local")
-    # Única decisión del diálogo: qué archivos pueden viajar al proveedor.
-    ttk.Label(cuerpo, text="Marca los archivos que pueden enviarse al proveedor.",
-              style="Tenue.TLabel").pack(anchor="w", pady=(0, es.ESP["md"]))
-
-    values = []
-    for name in names:
-        variable = tk.BooleanVar(value=name not in excluded)
-        values.append((name, variable))
-        ttk.Checkbutton(cuerpo, text=name, variable=variable).pack(anchor="w",
-                                                                   pady=(0, es.ESP["xs"]))
-
-    def aplicar() -> None:
-        for name, variable in values:
-            if variable.get():
-                app.context.include_file(name)
-            else:
-                app.context.exclude_file(name)
-        dialogo.destroy()
-
-    barra = _barra_acciones(cuerpo)
-    ttk.Button(barra, text="Aplicar", style="Primaria.TButton",
-               command=aplicar).pack(side="right")
-    ttk.Button(barra, text="Cancelar", command=dialogo.destroy).pack(
-        side="right", padx=(0, es.ESP["sm"]))
 
 
 def _apply_suggestion(app, dialog, item: dict[str, str]) -> bool:
@@ -243,21 +203,21 @@ def _bloque_credencial(frame, fila: int, key, remember) -> None:
         row=fila + 3, column=1, sticky="w")
 
 
-def _persistir_credencial(app, entered: str, recordar: bool) -> None:
+def _persistir_credencial(app, nombre: str, entered: str, recordar: bool) -> None:
     """Aplica la decisión sobre la API key: guardar, solo sesión, o revocar.
 
     Desmarcar «Recordar» debe revocar lo ya guardado; antes la credencial seguía
     en el llavero indefinidamente.
     """
     if not entered:
-        app.session_keys.pop(app.active_profile, None)
-        storage.delete_key(app.active_profile)
+        app.session_keys.pop(nombre, None)
+        storage.delete_key(nombre)
         return
-    app._add_session_key(app.active_profile, entered)
+    app._add_session_key(nombre, entered)
     if recordar:
-        storage.save_key(app.active_profile, entered)
+        storage.save_key(nombre, entered)
     else:
-        storage.delete_key(app.active_profile)
+        storage.delete_key(nombre)
 
 
 def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
@@ -284,12 +244,30 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
     return perfil
 
 
-def show_settings_dialog(app) -> None:
+def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gestión de perfiles)
     dialog, frame = _abrir_dialogo(app, "Configurar modelo")
-    profile = app.profile
-    provider = tk.StringVar(
-        value=profile.provider if profile.provider in PROVIDERS else "openai_compatible"
-    )
+
+    # Copia de trabajo: los cambios se persisten al disco solo al Guardar.
+    working: dict[str, LlmProfile] = dict(app.profiles)
+    selected = tk.StringVar(value=app.active_profile)
+
+    # --- Selector y gestión de perfiles ------------------------------------
+    barra_perfil = ttk.Frame(frame, style="Superficie.TFrame")
+    barra_perfil.pack(fill="x", pady=(0, es.ESP["md"]))
+    ttk.Label(barra_perfil, text="Perfil", style="Tenue.TLabel").pack(
+        side="left", padx=(0, es.ESP["sm"]))
+    selector_perfil = ttk.Combobox(barra_perfil, textvariable=selected,
+                                   state="readonly", width=28)
+    selector_perfil.pack(side="left", fill="x", expand=True)
+    ttk.Button(barra_perfil, text="Nuevo", command=lambda: _nuevo()).pack(
+        side="left", padx=(es.ESP["sm"], 0))
+    ttk.Button(barra_perfil, text="Borrar", command=lambda: _borrar()).pack(
+        side="left", padx=(es.ESP["xs"], 0))
+
+    cuerpo = ttk.Frame(frame)
+    cuerpo.pack(fill="both", expand=True)
+    cuerpo.columnconfigure(1, weight=1)
+
     fields = (
         "endpoint",
         "model",
@@ -301,69 +279,122 @@ def show_settings_dialog(app) -> None:
         "input_price_per_million",
         "output_price_per_million",
     )
+
+    def _perfil_seleccionado() -> LlmProfile:
+        return working[selected.get()]
+
+    profile = _perfil_seleccionado()
+    provider = tk.StringVar(
+        value=profile.provider if profile.provider in PROVIDERS else "openai_compatible"
+    )
     values = {name: tk.StringVar(value=str(getattr(profile, name))) for name in fields}
-    key = tk.StringVar(value=storage.load_key(app.active_profile))
+    key = tk.StringVar(value=storage.load_key(selected.get()))
     remember = tk.BooleanVar(value=bool(key.get()))
-    _seccion(frame, 0, "CONEXIÓN", primera=True)
-    ttk.Label(frame, text="Proveedor").grid(row=1, column=0, sticky="w",
-                                            padx=(0, es.ESP["md"]))
+    _seccion(cuerpo, 0, "CONEXIÓN", primera=True)
+    ttk.Label(cuerpo, text="Proveedor").grid(row=1, column=0, sticky="w",
+                                             padx=(0, es.ESP["md"]))
     selector = ttk.Combobox(
-        frame, textvariable=provider, values=list(PROVIDERS), state="readonly", width=42
+        cuerpo, textvariable=provider, values=list(PROVIDERS), state="readonly", width=42
     )
     selector.grid(row=1, column=1, pady=es.ESP["xs"], sticky="ew")
-    hint = ttk.Label(frame, text="", style="Tenue.TLabel", wraplength=380)
+    hint = ttk.Label(cuerpo, text="", style="Tenue.TLabel", wraplength=380)
     hint.grid(row=2, column=1, sticky="w", pady=(0, es.ESP["sm"]))
     previous_provider = provider.get()
 
     def update_provider_hint(_event=None) -> None:
         nonlocal previous_provider
-        selected = provider_spec(provider.get())
+        proveedor_actual = provider_spec(provider.get())
         old_hint = provider_spec(previous_provider).endpoint_hint
         if (
             not values["endpoint"].get().strip()
             or values["endpoint"].get().strip() == old_hint
         ):
-            values["endpoint"].set(selected.endpoint_hint)
+            values["endpoint"].set(proveedor_actual.endpoint_hint)
         hint.config(
-            text=f"Protocolo: {selected.protocol}. Endpoint sugerido: {selected.endpoint_hint}"
+            text=f"Protocolo: {proveedor_actual.protocol}. Endpoint sugerido: {proveedor_actual.endpoint_hint}"
         )
         previous_provider = provider.get()
 
     selector.bind("<<ComboboxSelected>>", update_provider_hint)
+
+    def _refrescar_perfiles() -> None:
+        selector_perfil.config(values=list(working.keys()))
+
+    def _cargar() -> None:
+        p = _perfil_seleccionado()
+        provider.set(p.provider if p.provider in PROVIDERS else "openai_compatible")
+        for name in fields:
+            values[name].set(str(getattr(p, name)))
+        key.set(storage.load_key(selected.get()))
+        remember.set(bool(key.get()))
+        update_provider_hint()
+
+    def _aplicar_a_working(nombre: str) -> bool:
+        """Vuelca el formulario al perfil indicado; False si el formulario es inválido."""
+        try:
+            working[nombre] = _perfil_desde_formulario(nombre, provider.get(), values)
+        except (ValueError, LlmError) as error:
+            messagebox.showerror("Configuración", str(error), parent=dialog)
+            return False
+        return True
+
+    def _cambiar_perfil(_event=None) -> None:
+        # Cargar el perfil recién seleccionado; las ediciones sin guardar del
+        # anterior se descartan (se aplican solo al pulsar Guardar).
+        _cargar()
+
+    def _nuevo() -> None:
+        nombre = simpledialog.askstring("Nuevo perfil", "Nombre del perfil:", parent=dialog)
+        if not nombre or not nombre.strip():
+            return
+        nombre = nombre.strip()
+        if nombre in working:
+            messagebox.showerror("Nuevo perfil", "Ya existe un perfil con ese nombre.", parent=dialog)
+            return
+        working[nombre] = LlmProfile(name=nombre)
+        _refrescar_perfiles()
+        selected.set(nombre)
+        _cargar()
+
+    def _borrar() -> None:
+        if len(working) <= 1:
+            messagebox.showinfo("Borrar perfil", "No se puede borrar el único perfil.", parent=dialog)
+            return
+        nombre = selected.get()
+        if not messagebox.askyesno("Borrar perfil", f"¿Borrar el perfil «{nombre}»?", parent=dialog):
+            return
+        del working[nombre]
+        _refrescar_perfiles()
+        selected.set(next(iter(working)))
+        _cargar()
+
+    selector_perfil.bind("<<ComboboxSelected>>", _cambiar_perfil)
+    _refrescar_perfiles()
     update_provider_hint()
 
     fila = 3
     for name in CAMPOS_CONEXION:
-        fila = _campo(frame, fila, name, values[name])
-    fila = _seccion(frame, fila, "LÍMITES Y COSTE")
+        fila = _campo(cuerpo, fila, name, values[name])
+    fila = _seccion(cuerpo, fila, "LÍMITES Y COSTE")
     for name in fields:
         if name not in CAMPOS_CONEXION:
-            fila = _campo(frame, fila, name, values[name])
+            fila = _campo(cuerpo, fila, name, values[name])
     api_key_row = fila
-    _bloque_credencial(frame, api_key_row, key, remember)
-    frame.columnconfigure(1, weight=1)
+    _bloque_credencial(cuerpo, api_key_row, key, remember)
 
     def save() -> None:
-        try:
-            updated = _perfil_desde_formulario(app.active_profile, provider.get(), values)
-        except (ValueError, LlmError) as error:
-            messagebox.showerror("Configuración", str(error), parent=dialog)
+        # El perfil seleccionado pasa a ser el activo; se persiste todo junto.
+        active = selected.get()
+        if not _aplicar_a_working(active):
             return
 
-        # Transaccional: persistir PRIMERO, actualizar app solo si éxito
+        # Transaccional: persistir PRIMERO, actualizar app solo si éxito.
         try:
-            # 1. Guardar a disco antes de actualizar estado de app
-            updated_profiles = dict(app.profiles)
-            updated_profiles[app.active_profile] = updated
-            storage.save_profiles(updated_profiles, app.active_profile, app.config_path)
-
-            # 2. Si llegamos aquí, guardar fue exitoso - actualizar app
-            app.profiles = updated_profiles
-            app.profile_chip.config(text=f"Modelo: {updated.model or 'sin configurar'}")
-
-            # 3. Guardar credenciales (llavero/sesión)
-            _persistir_credencial(app, key.get().strip(), remember.get())
-
+            storage.save_profiles(working, active, app.config_path)
+            app.profiles = working
+            app.active_profile = active
+            app.profile_chip.config(text=f"Modelo: {working[active].model or 'sin configurar'}")
+            _persistir_credencial(app, active, key.get().strip(), remember.get())
             messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
             dialog.destroy()
         except (OSError, RuntimeError) as error:
@@ -375,7 +406,7 @@ def show_settings_dialog(app) -> None:
             )
             logger.error("Error guardando perfil: %s", error, exc_info=True)
 
-    acciones = ttk.Frame(frame)
+    acciones = ttk.Frame(cuerpo)
     acciones.grid(row=api_key_row + 4, column=0, columnspan=2, sticky="ew",
                   pady=(es.ESP["lg"], 0))
     # Una sola acción primaria.

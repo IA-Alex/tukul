@@ -1,108 +1,92 @@
-# Guía de Docstrings - Estándar Articulador
+# Guía de Docstrings — Estándar Articulador
 
 ## Objetivo
-90%+ cobertura de funciones públicas. Prioridad: **críticas primero**.
 
-## Formato (Google-style con tipos Python 3.10+)
+Documentar toda función o método público con el formato Google-style. Prioridad:
+**lo crítico primero** (flujo de peticiones, persistencia y seguridad).
+
+## Formato (Google-style, tipos Python 3.10+)
 
 ### Función simple
+
 ```python
-def send_request(query: str) -> dict[str, Any]:
-    """Envía query al LLM y retorna respuesta.
+def abrir_documento(ruta: Path) -> tuple[bool, str, ArticleSession]:
+    """Abre un artículo y lo convierte en sesión.
 
     Args:
-        query: Pregunta o solicitud del usuario
+        ruta: Ruta del artículo Markdown a abrir.
 
     Returns:
-        Dict con claves 'response', 'tokens', 'error' (si aplica)
+        Tupla (éxito, mensaje_de_error, sesión).
     """
 ```
 
 ### Función con errores
+
 ```python
-def load_config(path: Path) -> LlmProfile:
-    """Carga y valida configuración de LLM.
+def cargar_perfiles(ruta: Path) -> tuple[dict[str, LlmProfile], str]:
+    """Carga los perfiles LLM del TOML de forma defensiva.
 
     Args:
-        path: Ruta al JSON de configuración
+        ruta: Ruta al archivo de configuración.
 
     Returns:
-        LlmProfile validado
+        (perfiles, perfil_activo). Nunca falla: ante TOML corrupto usa defaults.
 
     Raises:
-        FileNotFoundError: Si archivo no existe
-        ValueError: Si configuración es inválida
+        Ninguna por diseño: los perfiles inválidos se ignoran dejando rastro.
     """
 ```
 
-### Método con state
+### Método con estado
+
 ```python
 def process_ui_events(self) -> None:
-    """Consume eventos de colas con prioridad (control > chunks).
+    """Consume los eventos de UI publicados por los hilos de trabajo.
 
-    Procesa:
-    1. TODA control_queue (garantizada)
-    2. Lote de chunks (coalescible, descartable)
-
-    Llamado cada 50ms desde after() para UI responsiva.
+    El bombeo se reprograma en `finally` para que un manejador que falle no
+    deje la aplicación sorda.
     """
 ```
 
-## Prioridad: Funciones Críticas Primero
+## Nombres actuales de los métodos principales
 
-### CRÍTICAS (documentar AHORA):
-- `ArticuladorApp.__init__` ✓ DONE
-- `ArticuladorApp.process_ui_events` ✓ DONE
-- `ArticuladorApp.finish` ✓ DONE
-- `ArticuladorApp.send` ✓ DONE
-- `ArticuladorApp.review` ✓ DONE
-- `ArticuladorApp.stream_chunk` ✓ DONE
-- `ArticuladorApp.cancel_request` ✓ DONE
-- `ArticuladorApp.request`
-- `LLMSessionManager.stream_response`
-- `parse_findings`
+El código ha cambiado de nombres con el tiempo; usar estos (no los antiguos):
 
-### IMPORTANTES (después):
-- `DocumentManager` métodos
-- `ContextOrchestrator` métodos
-- Storage functions
+| Antes | Ahora |
+|-------|-------|
+| `send` | `send_message` |
+| `_queue_event` | (ya no existe: `ChunkBuffer` + `control_queue`) |
+| `partial_output` | (ya no existe: `streaming_text`/`streaming_request`) |
+| `ContextOrchestrator` | (ya no existe: contexto explícito de artículos) |
 
-### NICE-TO-HAVE:
-- Helpers privados (_text, _theme, etc)
-- Properties
-
-## Checklist para Alcanzar 90%
+## Checklist por módulo
 
 ```
-ArticuladorApp
-├── __init__                    ✓
-├── process_ui_events           ✓
-├── finish                      ✓
-├── send                        ✓
-├── review                      ✓
-├── stream_chunk                ✓
-├── cancel_request              ✓
-├── request                     ⏳
-├── context_failed              ⏳
-├── confirm_and_send            ⏳
-└── [otros métodos]             ⏳
+articulador_core/
+├── autosave.py           ✓ write_autosave / read_autosave / clear_autosave
+├── config_validator.py   ✓ validate_startup_config
+├── health.py             ✓ check_health / status_string
+├── llm.py                ✓ LLMClient (retries, stream, complete)
+├── logging_config.py     ✓ setup_logging / file_logging_status
+├── models.py             ✓ LlmProfile / ChatMessage / ArticleSession
+├── prompting.py          ✓ build_editor_prompt
+├── review.py             ✓ parse_findings
+└── storage.py            ✓ atomic_write / load_profiles / save_profiles
 
-LLMSessionManager
-├── stream_response             ⏳
-└── cancel                      ⏳
-
-review.py
-├── parse_findings              ⏳
-
-DocumentManager
-├── [métodos principales]       ⏳
+articulador_ui/
+├── app.py                ✓ ArticuladorApp (request, review, finish, cancel, autosave)
+├── chunk_buffer.py       ✓ ChunkBuffer
+├── dialogs.py            ✓ show_settings_dialog / show_review_dialog
+├── document_manager.py   ✓ DocumentManager
+├── document_scope.py     ✓ DocumentScope
+├── estado.py             ✓ EstadoUI
+├── estilo.py             ✓ sistema visual
+└── llm_session_manager.py ✓ LLMSessionManager
 ```
 
-## Ejecución Rápida
+## Regla práctica
 
-Para alcanzar 90%+ rápidamente, agregar docstrings a:
-1. Todas las funciones públicas (15-20 min)
-2. Métodos principais de clases (20-30 min)
-3. Funciones críticas con detalles (30-40 min)
-
-Total: ~2 horas para 90%+
+Un docstring de una línea basta cuando el nombre ya es claro; un docstring de
+bloque es obligatorio cuando el método tiene efectos de estado, validación,
+concurrencia o errores que el lector no puede deducir del nombre.

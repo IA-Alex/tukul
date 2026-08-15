@@ -111,7 +111,7 @@ class TestVentanaReal(unittest.TestCase):
         self.raiz = Path(self.directorio.name)
         self.documento = self.raiz / "articulo.md"
         self.documento.write_text("# Título\n\nUn párrafo de prueba.\n", encoding="utf-8")
-        self.app = ArticuladorApp(self.raiz / "config.toml", self.raiz)
+        self.app = ArticuladorApp(self.raiz / "config.toml")
         self.app.geometry("1100x700")
         self._asentar()
 
@@ -194,7 +194,7 @@ class TestVentanaReal(unittest.TestCase):
                          "La barra nace oculta")
         decidido = []
         with patch.object(ArticuladorApp, "set_estado"):
-            self.app._pedir_aprobacion(1, ["notas.md"], ("e", "p", ("notas.md",), "h"),
+            self.app._pedir_aprobacion(1, ["notas.md"], ("e", "p", "m", ("notas.md",), "h"),
                                        lambda: decidido.append("enviado"))
         self._asentar()
 
@@ -211,7 +211,7 @@ class TestVentanaReal(unittest.TestCase):
 
     def test_rechazar_el_contexto_cancela_sin_enviar(self):
         self.app.request_types[7] = "normal"
-        self.app._pedir_aprobacion(7, ["notas.md"], ("e", "p", ("notas.md",), "h"),
+        self.app._pedir_aprobacion(7, ["notas.md"], ("e", "p", "m", ("notas.md",), "h"),
                                    lambda: self.fail("No debía enviarse"))
         self._asentar()
         self.app.boton_rechazar.invoke()

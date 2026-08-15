@@ -22,7 +22,6 @@ def open_initial_document(app: ArticuladorApp, path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Editor conversacional local para artículos Markdown.")
     parser.add_argument("--config", type=Path, default=storage.CONFIG_PATH, help="Ruta al archivo TOML de perfiles LLM")
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="Carpeta de artículos usada como contexto local")
     parser.add_argument("--health", action="store_true", help="Imprime el diagnóstico de la instalación y sale")
     parser.add_argument("document", type=Path, nargs="?", help="Artículo Markdown para abrir")
     args = parser.parse_args()
@@ -39,10 +38,7 @@ def main() -> None:
         # (sin carpeta de config, sin perfiles) y sigue siendo utilizable.
         raise SystemExit(1 if status.has_errors else 0)
 
-    if not args.workspace.is_dir():
-        parser.error(f"El workspace no es una carpeta existente: {args.workspace}")
-
-    app = ArticuladorApp(args.config, args.workspace)
+    app = ArticuladorApp(args.config)
     if args.document:
         open_initial_document(app, args.document)
     app.mainloop()

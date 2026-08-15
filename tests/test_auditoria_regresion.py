@@ -7,7 +7,7 @@ Cobertura:
 - El bombeo de eventos de UI sobrevive al fallo de un manejador.
 - Un documento recién cargado no queda marcado como sucio.
 - La salida parcial se conserva cuando el streaming termina en error.
-- _atomic_write preserva los permisos del destino.
+- atomic_write preserva los permisos del destino.
 - save_project explica la restricción de rutas en vez de filtrar un ValueError.
 - La huella de aprobación de contexto es estable entre mensajes.
 - validate_endpoint impide sacar la API key del transporte cifrado.
@@ -174,7 +174,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+        self.app = ArticuladorApp(self.root / "config.toml")
 
     def tearDown(self):
         self.app.destroy()
@@ -207,7 +207,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self.assertTrue(self.app.session.dirty)
         self.assertIn("Cambios sin guardar", self.app.sync_label.cget("text"))
 
-    def test_cada_documento_estrena_sesion_limpia(self):
+    def test_cambiar_documento_conserva_la_conversacion_de_trabajo(self):
         from articulador_core.models import ChatMessage
 
         a = self.root / "a.md"
@@ -225,9 +225,13 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self._settle()
 
         self.assertIsNot(self.app.session, sesion_a, "Debe ser una ArticleSession nueva")
-        self.assertEqual(list(self.app.session.conversation), [])
+        self.assertEqual(
+            [message.content for message in self.app.session.conversation],
+            ["hablo del artículo A"],
+            "La conversación es de la sesión de trabajo, no del archivo activo",
+        )
         self.assertEqual(self.app.session.document_path, b.resolve())
-        self.assertNotIn("artículo A", self.app.history.get("1.0", "end-1c"))
+        self.assertIn("artículo A", self.app.history.get("1.0", "end-1c"))
 
     def test_abrir_un_documento_ilegible_no_toca_la_sesion(self):
         a = self.root / "a.md"
@@ -266,7 +270,7 @@ class TestEscrituraAtomica(unittest.TestCase):
             target.write_text("original", encoding="utf-8")
             os.chmod(target, 0o644)
 
-            storage._atomic_write(target, "nuevo contenido")
+            storage.atomic_write(target, "nuevo contenido")
 
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
             self.assertEqual(target.read_text(encoding="utf-8"), "nuevo contenido")
@@ -274,7 +278,7 @@ class TestEscrituraAtomica(unittest.TestCase):
     def test_archivo_nuevo_no_hereda_permisos_laxos(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "nuevo.md"
-            storage._atomic_write(target, "x")
+            storage.atomic_write(target, "x")
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
 
 
@@ -293,20 +297,6 @@ class TestRutasDeProyecto(unittest.TestCase):
             self.assertIn("carpeta del artículo", str(ctx.exception))
             self.assertNotIn("subpath", str(ctx.exception))
 
-    def test_corpus_vacio_se_normaliza_a_none(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            document = root / "art.md"
-            document.write_text("x", encoding="utf-8")
-            project = root / "p.articulador.json"
-            storage.save_project(
-                ArticleSession(document_path=document, article="x"), project
-            )
-
-            loaded = storage.load_project(project)
-
-            self.assertIsNone(loaded["corpus"])
-
 
 @unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
 class TestAprobacionDeContexto(unittest.TestCase):
@@ -324,7 +314,7 @@ class TestAprobacionDeContexto(unittest.TestCase):
             encoding="utf-8",
         )
         os.environ["TEST_KEY_AUDITORIA"] = "clave"
-        self.app = ArticuladorApp(config, self.root)
+        self.app = ArticuladorApp(config)
 
     def tearDown(self):
         self.app.destroy()
@@ -480,7 +470,7 @@ class TestDeshacerRevisionEntreDocumentos(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+        self.app = ArticuladorApp(self.root / "config.toml")
 
     def tearDown(self):
         self.app.destroy()
@@ -532,7 +522,7 @@ class TestDialogoDeRevisionAnclado(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+        self.app = ArticuladorApp(self.root / "config.toml")
         self.hallazgo = {
             "category": "gramática", "severity": "alta", "original": "floja",
             "suggestion": "POCO SÓLIDA", "reason": "registro",
@@ -628,7 +618,7 @@ class TestAmbitoDelDocumento(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml", self.root)
+        self.app = ArticuladorApp(self.root / "config.toml")
 
     def tearDown(self):
         self.app.destroy()
@@ -757,7 +747,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             status = check_health(propio)
 
             self.assertEqual(status.config_path, str(propio))
-            self.assertIn("3 profile(s) enabled", status.components["llm"][1])
+            self.assertIn("3 perfil(es) habilitado(s)", status.components["llm"][1])
 
     def test_status_string_declara_el_archivo_inspeccionado(self):
         from articulador_core.health import check_health, status_string
@@ -790,7 +780,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
 
             self.assertEqual(proceso.returncode, 0, proceso.stderr)
             self.assertIn(str(propio), proceso.stdout)
-            self.assertIn("2 profile(s) enabled", proceso.stdout)
+            self.assertIn("2 perfil(es) habilitado(s)", proceso.stdout)
 
     def test_check_health_lee_la_configuracion_una_sola_vez(self):
         from articulador_core import health
@@ -930,32 +920,6 @@ class TestKeysDeSesion(unittest.TestCase):
         self.assertEqual(set(holder.session_keys), {"p2", "p3", "p4"})
 
 
-class TestExclusionDeContextoReversible(unittest.TestCase):
-    def test_un_archivo_excluido_sigue_siendo_ofrecible(self):
-        from articulador_ui.context_orchestrator import ContextOrchestrator
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "a.md").write_text("seguridad alfa", encoding="utf-8")
-            (root / "b.md").write_text("seguridad beta", encoding="utf-8")
-            orchestrator = ContextOrchestrator(root)
-
-            _ok, _packet, files = orchestrator.prepare_context("seguridad", 4000)
-            for name in files:
-                orchestrator.exclude_file(name)
-            _ok, _packet, restantes = orchestrator.prepare_context("seguridad", 4000)
-
-            # El índice ya no los propone…
-            self.assertEqual(restantes, [])
-            # …pero el diálogo los sigue viendo, que es lo que hace reversible la acción.
-            ofrecidos = set(restantes) | set(orchestrator.excluded_context)
-            self.assertEqual(ofrecidos, {"a.md", "b.md"})
-
-            orchestrator.include_file("a.md")
-            _ok, _packet, vueltos = orchestrator.prepare_context("seguridad", 4000)
-            self.assertEqual(vueltos, ["a.md"])
-
-
 @unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
 class TestAprobacionesDesalojoFIFO(unittest.TestCase):
     def test_al_llenarse_se_desaloja_la_mas_antigua_no_todas(self):
@@ -972,14 +936,14 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         )
         os.environ["TEST_KEY_FIFO"] = "clave"
         self.addCleanup(lambda: os.environ.pop("TEST_KEY_FIFO", None))
-        app = ArticuladorApp(config, root)
+        app = ArticuladorApp(config)
         self.addCleanup(app.destroy)
 
         # Saturar con 128 aprobaciones previas, la primera identificable.
-        primera = (app.profile.endpoint, app.profile.provider, ("notas.md",), "h-primera")
+        primera = (app.profile.endpoint, app.profile.provider, app.profile.model, ("notas.md",), "h-primera")
         app.approved_contexts[primera] = None
         for i in range(127):
-            app.approved_contexts[(app.profile.endpoint, app.profile.provider, ("notas.md",), f"h{i}")] = None
+            app.approved_contexts[(app.profile.endpoint, app.profile.provider, app.profile.model, ("notas.md",), f"h{i}")] = None
 
         app.generation_counter += 1
         rid = app.generation_counter
@@ -992,7 +956,7 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         self.assertEqual(len(app.approved_contexts), 128, "El tope se mantiene")
         self.assertNotIn(primera, app.approved_contexts, "Se desaloja la más antigua")
         self.assertIn(
-            (app.profile.endpoint, app.profile.provider, ("notas.md",), "h126"),
+            (app.profile.endpoint, app.profile.provider, app.profile.model, ("notas.md",), "h126"),
             app.approved_contexts,
             "Las demás sobreviven: no es un vaciado total",
         )
@@ -1043,6 +1007,105 @@ class TestDocumentManagerEsElDuenoDeLaPersistencia(unittest.TestCase):
 
             self.assertFalse(ok)
             self.assertIn("No existe el artículo", error)
+
+
+@unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
+class TestGestionDePerfiles(unittest.TestCase):
+    """El diálogo de configuración permite crear y borrar perfiles."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        config = self.root / "config.toml"
+        config.write_text(
+            '[llm]\nactive_profile = "p1"\n\n'
+            '[profiles.p1]\nprovider = "openai_compatible"\n'
+            'endpoint = "https://x.example/v1/chat/completions"\n'
+            'model = "m1"\napi_key_env = "CLAVE_PERFILES"\n\n'
+            '[profiles.p2]\nprovider = "openai_compatible"\n'
+            'endpoint = "https://x.example/v1/chat/completions"\n'
+            'model = "m2"\napi_key_env = "CLAVE_PERFILES"\n',
+            encoding="utf-8",
+        )
+        os.environ["CLAVE_PERFILES"] = "clave"
+        self.addCleanup(lambda: os.environ.pop("CLAVE_PERFILES", None))
+        self.app = ArticuladorApp(config)
+        self.addCleanup(self.app.destroy)
+        self._settle()
+
+    def _settle(self):
+        for _ in range(5):
+            self.app.update()
+            self.app.update_idletasks()
+
+    def _widgets(self):
+        from tkinter import ttk
+
+        dialogo = next(w for w in self.app.winfo_children() if w.winfo_class() == "Toplevel")
+
+        def walk(widget):
+            yield widget
+            for child in widget.winfo_children():
+                yield from walk(child)
+
+        widgets = list(walk(dialogo))
+        return dialogo, widgets
+
+    def test_el_dialogo_lista_todos_los_perfiles(self):
+        from tkinter import ttk
+
+        from articulador_ui.dialogs import show_settings_dialog
+
+        show_settings_dialog(self.app)
+        self._settle()
+        _dialogo, widgets = self._widgets()
+        combo = next(
+            w for w in widgets
+            if isinstance(w, ttk.Combobox) and w.cget("values") == ("default", "p1", "p2")
+        )
+        self.assertEqual(list(combo.cget("values")), ["default", "p1", "p2"])
+
+    def test_borrar_un_perfil_lo_quita_y_guardar_actualiza_la_app(self):
+        from tkinter import ttk
+
+        from articulador_ui.dialogs import show_settings_dialog
+
+        show_settings_dialog(self.app)
+        self._settle()
+        _dialogo, widgets = self._widgets()
+        buttons = {w.cget("text"): w for w in widgets if isinstance(w, ttk.Button)}
+
+        with patch("articulador_ui.dialogs.messagebox.askyesno", return_value=True):
+            buttons["Borrar"].invoke()  # borra el activo «p1»
+        self._settle()
+
+        with patch("articulador_ui.dialogs.messagebox.showinfo"):
+            buttons["Guardar"].invoke()
+        self._settle()
+
+        self.assertNotIn("p1", self.app.profiles, "El perfil borrado ya no debe existir")
+        self.assertIn("p2", self.app.profiles)
+
+    def test_nuevo_perfil_se_crea_y_pasa_a_ser_activo(self):
+        from tkinter import ttk
+
+        from articulador_ui.dialogs import show_settings_dialog
+
+        show_settings_dialog(self.app)
+        self._settle()
+        _dialogo, widgets = self._widgets()
+        buttons = {w.cget("text"): w for w in widgets if isinstance(w, ttk.Button)}
+
+        with patch("articulador_ui.dialogs.simpledialog.askstring", return_value="p3"):
+            buttons["Nuevo"].invoke()
+        self._settle()
+
+        with patch("articulador_ui.dialogs.messagebox.showinfo"):
+            buttons["Guardar"].invoke()
+        self._settle()
+
+        self.assertIn("p3", self.app.profiles, "El perfil nuevo debe guardarse")
+        self.assertEqual(self.app.active_profile, "p3", "El perfil nuevo pasa a ser el activo")
 
 
 if __name__ == "__main__":

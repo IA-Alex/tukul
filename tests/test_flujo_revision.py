@@ -1,7 +1,7 @@
 """Flujo de revisión y de conversación: qué se envía y qué se muestra.
 
-Ejecutan `review()`, `_solicitar_revision()`, `finish()` y `ContextIndex.packet()`
-reales. Los defectos que fijan estas pruebas se observaron en la interfaz:
+Ejecutan `review()`, `_solicitar_revision()` y `finish()` reales. Los defectos
+que fijan estas pruebas se observaron en la interfaz:
 
 - «Revisar artículo» pasaba por el flujo general, así que indexaba el workspace,
   proponía compartir README.md o NEXT_STEPS.md y se quedaba bloqueado en
@@ -18,11 +18,10 @@ import threading
 import tkinter as tk
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_core.context import ContextIndex
 from articulador_ui.app import REVIEW_PROMPT, ArticuladorApp
 from articulador_ui.estado import EstadoUI
 
@@ -68,7 +67,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             encoding="utf-8")
         import os
         os.environ["CLAVE_PRUEBA_REVISION"] = "clave"
-        self.app = ArticuladorApp(config, self.raiz)
+        self.app = ArticuladorApp(config)
         self.app.load_document(self.documento)
         self._asentar()
 
@@ -87,16 +86,6 @@ class TestFlujoDeRevision(unittest.TestCase):
         return self.app.history.get("1.0", "end-1c")
 
     # --- 1. no busca contexto local ------------------------------------
-    def test_revisar_no_prepara_contexto_local(self):
-        with patch.object(self.app.context, "prepare_context") as buscar, \
-             patch.object(self.app.llm, "stream_response"):
-            self.app.review()
-            self._asentar()
-
-        buscar.assert_not_called()
-        self.assertEqual(self.app.scope.context_files, [],
-                         "La revisión no debe proponer archivos locales")
-
     def test_revisar_no_muestra_la_barra_de_confirmacion(self):
         with patch.object(self.app.llm, "stream_response"):
             self.app.review()
@@ -214,45 +203,6 @@ class TestFlujoDeRevision(unittest.TestCase):
         self.assertEqual(self.app.review_dialogs, [], "No se abre un diálogo vacío")
 
 
-class TestContextoSinRepliegue(unittest.TestCase):
-    """Sin coincidencias no se propone nada: no hay repliegue por nombre."""
-
-    def _indice(self) -> tuple[ContextIndex, Path]:
-        directorio = tempfile.TemporaryDirectory()
-        self.addCleanup(directorio.cleanup)
-        raiz = Path(directorio.name)
-        (raiz / "README.md").write_text("Instalación y uso del proyecto", encoding="utf-8")
-        (raiz / "NEXT_STEPS.md").write_text("Pasos siguientes del proyecto", encoding="utf-8")
-        (raiz / "notas.md").write_text("apuntes sobre la tesis del artículo", encoding="utf-8")
-        return ContextIndex(raiz), raiz
-
-    # --- 4. "Hola" no pide compartir nada -------------------------------
-    def test_un_saludo_no_propone_ningun_archivo(self):
-        indice, _raiz = self._indice()
-        packet, files = indice.packet("Hola", 4_000)
-        self.assertEqual(files, [], "Un saludo no justifica compartir archivos")
-        self.assertEqual(packet, "")
-
-    def test_una_consulta_sin_coincidencias_no_propone_archivos_tecnicos(self):
-        indice, _raiz = self._indice()
-        _packet, files = indice.packet("xyzzy plugh", 4_000)
-        self.assertEqual(files, [])
-        self.assertNotIn("README.md", files)
-        self.assertNotIn("NEXT_STEPS.md", files)
-
-    def test_una_consulta_relevante_si_propone_su_archivo(self):
-        indice, _raiz = self._indice()
-        _packet, files = indice.packet("tesis del artículo", 4_000)
-        self.assertIn("notas.md", files, "La relevancia real sí debe proponerse")
-
-    def test_sin_archivos_no_hay_confirmacion_de_privacidad(self):
-        """La barra solo tiene sentido si de verdad se va a compartir algo."""
-        indice, _raiz = self._indice()
-        _packet, files = indice.packet("Hola", 4_000)
-        # Reproduce la condición exacta de confirm_and_send.
-        self.assertFalse(bool(files), "Sin archivos no se pide confirmación")
-
-
 @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
 class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
     """El artículo visible es directo; las referencias son siempre explícitas."""
@@ -270,7 +220,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             encoding="utf-8")
         import os
         os.environ["CLAVE_PRUEBA_NORMAL"] = "clave"
-        self.app = ArticuladorApp(config, self.raiz)
+        self.app = ArticuladorApp(config)
         for _ in range(5):
             self.app.update()
 
@@ -286,12 +236,10 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.update_idletasks()
 
     def test_un_mensaje_normal_no_explora_el_workspace(self):
-        with patch.object(self.app.context, "prepare_context") as buscar, \
-             patch.object(self.app.llm, "stream_response") as enviar:
+        with patch.object(self.app.llm, "stream_response") as enviar:
             self.app.request("¿Cómo mejoro la tesis?")
             for _ in range(5):
                 self.app.update()
-        buscar.assert_not_called()
         self.assertEqual(
             enviar.call_args[0][2],
             self.app.editor.get("1.0", "end-1c"),
@@ -317,29 +265,42 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
                 self.app.update()
         self.assertFalse(self.app.barra_aprobacion.winfo_ismapped())
 
-    def test_referencias_elegidas_se_conservan_y_piden_confirmacion(self):
+    def test_articulo_anterior_autorizado_se_envia_sin_segunda_confirmacion(self):
         anterior = self.raiz / "articulo-anterior.md"
         anterior.write_text("La tesis anterior trataba seguridad y criterio.", encoding="utf-8")
-        self.app.editor.insert("1.0", "Artículo actual sobre criterio humano.")
-        self.assertEqual(self.app._add_references([str(anterior)]), 1)
-        self.assertEqual(self.app._add_references([str(anterior)]), 0, "No duplica una referencia")
-        self.assertEqual(self.app.references_button.cget("text"), "Referencias: 1")
+        actual = self.raiz / "articulo-actual.md"
+        actual.write_text("Artículo actual sobre criterio humano.", encoding="utf-8")
+        self.app.load_document(anterior)
+        self.assertTrue(self.app._add_current_article_to_context())
+        self.app._authorize_context_articles()
+        self.app.load_document(actual)
+        self.assertEqual(self.app.references_button.cget("text"), "Contexto: 1 artículo")
 
         with patch.object(self.app.llm, "stream_response") as enviar:
             self.app.request("Compara ambos artículos")
             self._asentar()
-            self.assertTrue(self.app.barra_aprobacion.winfo_ismapped())
-            self.assertIn("articulo-anterior.md", self.app.aprobacion_texto.get())
-            enviar.assert_not_called()
+            self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
+                             "Aceptar al conservar no puede pedir permiso otra vez")
 
-            self.app.boton_aprobar.invoke()
+        # El activo y el previo viajan por campos distintos del prompt.
+        self.assertEqual(enviar.call_args[0][2], "Artículo actual sobre criterio humano.")
+        self.assertIn("ARTÍCULO DE CONTEXTO: articulo-anterior.md", enviar.call_args[0][3])
+        self.assertIn("tesis anterior", enviar.call_args[0][3])
+
+    def test_cambiar_modelo_vuelve_a_requerir_autorizacion(self):
+        anterior = self.raiz / "articulo-anterior.md"
+        anterior.write_text("Contexto previo.", encoding="utf-8")
+        self.app.load_document(anterior)
+        self.app._add_current_article_to_context()
+        self.app._authorize_context_articles()
+        self.app.profile.model = "otro-modelo"
+
+        with patch.object(self.app.llm, "stream_response"):
+            self.app.request("Consulta")
             self._asentar()
 
-        # `Text.get("1.0", "end-1c")` descarta el salto de línea final implícito
-        # que Tk mantiene siempre, así que el artículo viaja sin él.
-        self.assertEqual(enviar.call_args[0][2], "Artículo actual sobre criterio humano.")
-        self.assertIn("REFERENCIA LOCAL: articulo-anterior.md", enviar.call_args[0][3])
-        self.assertIn("tesis anterior", enviar.call_args[0][3])
+        self.assertTrue(self.app.barra_aprobacion.winfo_ismapped(),
+                        "Un modelo distinto es otro destino de autorización")
 
 
 if __name__ == "__main__":
