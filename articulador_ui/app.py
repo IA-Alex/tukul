@@ -4,6 +4,7 @@ import hashlib
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -117,6 +118,11 @@ class ArticuladorApp(tk.Tk):
         self._ui_events_after: str | None = None
         self.report_callback_exception = self.handle_callback_error
         self.cancel_event: threading.Event | None = None
+        # Hilos daemon de peticiones en curso (review/request), para poder
+        # esperarlos brevemente en destroy() antes de tirar la ventana de Tk.
+        # Sin esto, un hilo que todavía no había arrancado a ejecutarse podía
+        # seguir vivo tras el cierre y chocar con Tcl desde otro hilo.
+        self._worker_threads: list[threading.Thread] = []
         self.streaming_request: int | None = None
         self.streaming_text = ""
         self.closing = False
@@ -1032,7 +1038,9 @@ class ArticuladorApp(tk.Tk):
                 request_id=request_id,
                 cancel_event=cancel_event,
             )
-        threading.Thread(target=work, daemon=True).start()
+        hilo = threading.Thread(target=work, daemon=True)
+        self._worker_threads.append(hilo)
+        hilo.start()
 
     def request(self, message: str, request_type: str = "normal"):
         """Envía una consulta sobre el artículo, sin explorar archivos locales.
@@ -1191,7 +1199,9 @@ class ArticuladorApp(tk.Tk):
                 request_id=request_id,
                 cancel_event=cancel_event,
             )
-        threading.Thread(target=work,daemon=True).start()
+        hilo = threading.Thread(target=work, daemon=True)
+        self._worker_threads.append(hilo)
+        hilo.start()
 
     def _pedir_aprobacion(self, request_id: int, files: list[str],
                           key: ContextApprovalKey, al_aceptar) -> None:
@@ -1845,4 +1855,27 @@ class ArticuladorApp(tk.Tk):
                     self.after_cancel(after_id)
                 except tk.TclError:
                     pass
+        self._esperar_hilos_de_peticion()
         super().destroy()
+
+    def _esperar_hilos_de_peticion(self, timeout: float = 2.0) -> None:
+        """Da a los hilos de review/request una última oportunidad de terminar.
+
+        `close()` ya cancela la petición activa (cancel_event) antes de llegar
+        aquí, pero la cancelación es cooperativa: el hilo tarda un momento en
+        notarla. Sin esta espera, un hilo que aún no había ni empezado a
+        ejecutarse podía sobrevivir a la ventana de Tk ya destruida y chocar
+        con Tcl desde otro hilo al ejecutarse. El tope es total, no por hilo,
+        para no alargar el cierre por una petición realmente colgada: si no
+        terminan a tiempo, siguen como daemon y el proceso no se bloquea por
+        ellos, solo se registra el aviso.
+        """
+        limite = time.monotonic() + timeout
+        for hilo in self._worker_threads:
+            restante = limite - time.monotonic()
+            if restante <= 0:
+                break
+            hilo.join(timeout=restante)
+        vivos = [hilo for hilo in self._worker_threads if hilo.is_alive()]
+        if vivos:
+            logger.warning("%d hilo(s) de petición seguían activos al cerrar", len(vivos))
