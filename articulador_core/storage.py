@@ -35,6 +35,33 @@ def credential_backend() -> str:
     return "llavero del sistema" if keyring is not None else "solo sesión (instala keyring para recordar la key)"
 
 
+def estado_ui_path(config_path: Path | str = CONFIG_PATH) -> Path:
+    """Ruta del estado de interfaz, junto al config de perfiles.
+
+    Vive al lado de `config.toml` para que una instalación tenga un único
+    directorio de estado y, de paso, para que los tests puedan aislarlo pasando
+    un `config_path` en un directorio temporal.
+    """
+    return Path(config_path).with_name("estado.json")
+
+
+def load_ui_state(config_path: Path | str = CONFIG_PATH) -> dict:
+    """Carga el estado de interfaz de forma defensiva. Nunca falla."""
+    try:
+        data = json.loads(estado_ui_path(config_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_ui_state(state: dict, config_path: Path | str = CONFIG_PATH) -> None:
+    """Persiste el estado de interfaz de forma atómica."""
+    atomic_write(
+        estado_ui_path(config_path),
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
 def _fsync_directory(directory: Path) -> None:
     """Persiste la entrada de directorio para que el os.replace sobreviva a un corte.
 

@@ -27,6 +27,7 @@ from articulador_ui.document_manager import DocumentManager
 from articulador_ui.document_scope import DocumentScope
 from articulador_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from articulador_ui.llm_session_manager import LLMSessionManager
+from articulador_ui.tooltip import ToolTip
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
 # Vivían en articulador_core/context.py junto al índice BM25; al retirar ese
@@ -70,14 +71,24 @@ class ArticuladorApp(tk.Tk):
         # UI config
         self.COLORS = COLORS
         self.title("Articulador")
+        self.config_path = config_path
+        # Estado de interfaz persistente: zoom, geometría, recientes y
+        # conversaciones. Vive junto al config para que una instalación tenga un
+        # único directorio de estado y los tests puedan aislarlo.
+        self.ui_state = storage.load_ui_state(config_path)
+        # El zoom se aplica antes del tema para que las fuentes nazcan escaladas.
+        es.ZOOM = self._zoom_validado(self.ui_state.get("zoom"))
         # El tamaño se calcula UNA vez, aquí y de forma síncrona. Antes se fijaba
         # un valor y 100 ms después un `after` lo sobrescribía, pisando también
         # cualquier geometría que el usuario o quien integra la app hubiera
         # establecido entretanto.
         self._aplicar_tamano_inicial()
+        self._restaurar_geometria()
+        self.recent_paths = self._recientes_validados(self.ui_state.get("recent"))
+        self._foco_activo = False
+        self._foco_previo_asistente = True
 
         # LLM profiles
-        self.config_path = config_path
         self.profiles, self.active_profile = storage.load_profiles(config_path)
         # Auditoría de arranque: deja en el log por qué un perfil no responderá,
         # sin interrumpir con diálogos al abrir.
@@ -171,6 +182,31 @@ class ArticuladorApp(tk.Tk):
             self.minsize(720, 540)
             self.geometry("1180x760")
 
+    @staticmethod
+    def _zoom_validado(valor: object) -> float:
+        """Convierte el zoom persistido a un factor acotado; 1.0 ante basura."""
+        try:
+            zoom = float(valor)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 1.0
+        return max(es.ZOOM_MIN, min(es.ZOOM_MAX, zoom))
+
+    @staticmethod
+    def _recientes_validados(valor: object) -> list[str]:
+        """Filtra la lista de recientes persistida a rutas útiles, con tope."""
+        if not isinstance(valor, list):
+            return []
+        return [ruta for ruta in valor if isinstance(ruta, str) and ruta][:10]
+
+    def _restaurar_geometria(self) -> None:
+        """Aplica la geometría guardada si es válida; si no, queda la propuesta."""
+        guardada = self.ui_state.get("geometry")
+        if isinstance(guardada, str) and guardada.strip():
+            try:
+                self.geometry(guardada)
+            except tk.TclError:
+                pass
+
     def _theme(self) -> None:
         """Aplica el sistema visual: un fondo, dos superficies, un acento."""
         self.configure(bg=es.FONDO)
@@ -234,7 +270,7 @@ class ArticuladorApp(tk.Tk):
                   background=[("disabled", es.SUPERFICIE_ALTA), ("pressed", es.ACENTO),
                               ("active", es.ACENTO_ACTIVO)],
                   foreground=[("disabled", es.TEXTO_TENUE)],
-                  bordercolor=[("focus", es.FOCO), ("disabled", es.SUPERFICIE_ALTA)])
+                  bordercolor=[("focus", es.ACENTO_TEXTO), ("disabled", es.SUPERFICIE_ALTA)])
         style.configure("Guardar.TButton", background=es.SUPERFICIE_ALTA,
                         foreground=es.TEXTO, bordercolor=es.BORDE, relief="flat",
                         focuscolor=es.FOCO, font=es.fuente(negrita=True),
@@ -310,6 +346,9 @@ class ArticuladorApp(tk.Tk):
         self._build_editor(panes)
         self._build_asistente(panes)
         self._registrar_atajos()
+        # Estado persistido: el panel puede nacer oculto si así se dejó la última vez.
+        if self.ui_state.get("panel_visible") is False:
+            self.toggle_asistente()
         self.append("Articulador", "Cuéntame qué quieres explorar o mejorar. Puedo usar el artículo completo o una selección.", es_respuesta=False)
         self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
@@ -319,9 +358,9 @@ class ArticuladorApp(tk.Tk):
         """Barra mínima: solo lo que se usa a diario. El resto, en el menú."""
         # Tk no soporta desenfoque real; esta superficie elevada compacta da la
         # misma separación visual sin efectos pesados ni recursos gráficos.
-        barra = ttk.Frame(self, style="Cabecera.TFrame",
-                          padding=(es.ESP["sm"], es.ESP["xs"], es.ESP["sm"], es.ESP["xs"]))
-        barra.pack(fill="x")
+        self.barra = ttk.Frame(self, style="Cabecera.TFrame",
+                               padding=(es.ESP["sm"], es.ESP["xs"], es.ESP["sm"], es.ESP["xs"]))
+        self.barra.pack(fill="x")
 
         menu_archivo = tk.Menu(self, tearoff=False, background=es.SUPERFICIE_ALTA,
                                foreground=es.TEXTO, activebackground=es.ACENTO,
@@ -344,26 +383,42 @@ class ArticuladorApp(tk.Tk):
             else:
                 etiqueta, orden, acelerador = entrada
                 menu_archivo.add_command(label=etiqueta, command=orden, accelerator=acelerador)
+        # Recientes: un submenú vivo, justo tras «Guardar como…».
+        self.menu_recientes = tk.Menu(menu_archivo, tearoff=False, background=es.SUPERFICIE_ALTA,
+                                      foreground=es.TEXTO, activebackground=es.ACENTO,
+                                      activeforeground=es.ACENTO_TEXTO, font=es.fuente())
+        menu_archivo.insert_cascade(3, label="Recientes", menu=self.menu_recientes)
         self.menu_archivo = menu_archivo
-        ttk.Menubutton(barra, text="☰  Menú", menu=menu_archivo).pack(side="left")
-        ttk.Button(barra, text="Guardar", style="Guardar.TButton",
-                   command=self.save_document).pack(side="left", padx=(es.ESP["sm"], 0))
-        self.references_button = ttk.Button(barra, text="Contexto: 0 artículos",
+        self._refrescar_menu_recientes()
+
+        self.boton_menu = ttk.Menubutton(self.barra, text="☰  Menú", menu=menu_archivo)
+        self.boton_menu.pack(side="left")
+        self.boton_guardar = ttk.Button(self.barra, text="Guardar", style="Guardar.TButton",
+                                        command=self.save_document)
+        self.boton_guardar.pack(side="left", padx=(es.ESP["sm"], 0))
+        self.references_button = ttk.Button(self.barra, text="Contexto: 0 artículos",
+                                            style="Plana.TButton",
                                             command=self.manage_references)
         self.references_button.pack(side="left", padx=(es.ESP["sm"], 0))
 
         # Estado de sincronía del documento: símbolo + texto, nunca solo color.
         # Grupo de estado, separado del grupo de acciones por espacio, no por reglas.
-        self.sync_label = ttk.Label(barra, text="○  Sin cambios", style="Cabecera.TLabel")
+        self.sync_label = ttk.Label(self.barra, text="○  Sin cambios", style="Cabecera.TLabel")
         self.sync_label.pack(side="left", padx=(es.ESP["lg"], 0))
 
-        self.boton_panel = ttk.Button(barra, text="◧  Ocultar panel IA  (F6)",
+        self.boton_panel = ttk.Button(self.barra, text="◧  Ocultar panel IA  (F6)",
                                       command=self.toggle_asistente)
         self.boton_panel.pack(side="right")
         self.profile_chip = ttk.Button(
-            barra, text=f"Modelo: {self.profile.model or 'sin configurar'}",
+            self.barra, text=f"Modelo: {self.profile.model or 'sin configurar'}",
             style="Plana.TButton", command=self.settings)
         self.profile_chip.pack(side="right", padx=(0, es.ESP["sm"]))
+
+        ToolTip(self.boton_menu, "Archivo: abrir, guardar y proyectos")
+        ToolTip(self.boton_guardar, "Guardar el artículo (Ctrl+S)")
+        ToolTip(self.references_button, "Gestionar los artículos de contexto")
+        ToolTip(self.boton_panel, "Mostrar u ocultar el panel IA (F6)")
+        ToolTip(self.profile_chip, "Cambiar el modelo y sus ajustes")
 
     def _build_editor(self, panes) -> None:
         editor = ttk.Labelframe(panes, text="TU ARTÍCULO", padding=es.ESP["md"])
@@ -491,6 +546,7 @@ class ArticuladorApp(tk.Tk):
         pie = ttk.Frame(self, style="Pie.TFrame",
                         padding=(es.ESP["sm"], es.ESP["xs"]))
         pie.pack(side="bottom", fill="x")
+        self.pie = pie
         self.status = tk.StringVar(value="Listo.")
         ttk.Label(pie, textvariable=self.status, style="Pie.TLabel",
                   anchor="w").pack(side="left", fill="x", expand=True)
@@ -505,7 +561,12 @@ class ArticuladorApp(tk.Tk):
             ("<Control-S>", lambda: self.save_document(save_as=True)),
             ("<Control-o>", self.open_document),
             ("<F6>", self.toggle_asistente),
+            ("<F11>", self.toggle_foco),
             ("<Escape>", self.cancel_request),
+            ("<Control-plus>", lambda: self._ajustar_zoom(es.ZOOM_STEP)),
+            ("<Control-equal>", lambda: self._ajustar_zoom(es.ZOOM_STEP)),
+            ("<Control-minus>", lambda: self._ajustar_zoom(-es.ZOOM_STEP)),
+            ("<Control-0>", self._restablecer_zoom),
         ]
         for secuencia, accion in atajos:
             self.bind_all(secuencia, self._manejador_atajo(accion))
@@ -520,6 +581,108 @@ class ArticuladorApp(tk.Tk):
             accion()
             return "break"
         return manejador
+
+    def toggle_foco(self) -> None:
+        """Modo foco: deja solo el artículo, sin barra ni pie (F11 para salir)."""
+        if not self._foco_activo:
+            self._foco_previo_asistente = self.asistente_visible
+            self._foco_activo = True
+            self.barra.pack_forget()
+            self.pie.pack_forget()
+            if self.asistente_visible:
+                self.panes.forget(self.panel_asistente)
+            self.status.set("Modo foco: solo el artículo (F11 para salir).")
+            self.editor.focus_set()
+        else:
+            self._foco_activo = False
+            # Re-empaquetar los tres en el orden original (barra, pie, panes):
+            # olvidar también los panes evita que el packer deje las capas con
+            # tamaño cero al restaurarlas después de un `pack_forget`.
+            self.panes.pack_forget()
+            self.barra.pack(fill="x")
+            self.pie.pack(side="bottom", fill="x")
+            self.panes.pack(fill="both", expand=True, padx=es.ESP["sm"],
+                            pady=(0, es.ESP["xs"]))
+            if self._foco_previo_asistente and not self.asistente_visible:
+                self.panes.add(self.panel_asistente, weight=32)
+            self._sincronizar_boton_panel()
+            self.status.set("Modo foco desactivado.")
+
+    def _sincronizar_boton_panel(self) -> None:
+        """Mantiene el texto del botón coherente con la visibilidad del panel."""
+        if self.asistente_visible:
+            self.boton_panel.config(text="◧  Ocultar panel IA  (F6)")
+        else:
+            self.boton_panel.config(text="◨  Mostrar panel IA  (F6)")
+
+    def _ajustar_zoom(self, delta: float) -> None:
+        """Sube o baja el cuerpo tipográfico, acotado y reaplicando el tema."""
+        nuevo = round(es.ZOOM + delta, 1)
+        if nuevo < es.ZOOM_MIN or nuevo > es.ZOOM_MAX:
+            return
+        es.ZOOM = nuevo
+        self._aplicar_escala()
+        self.status.set(f"Zoom: {int(nuevo * 100)}%")
+
+    def _restablecer_zoom(self) -> None:
+        es.ZOOM = 1.0
+        self._aplicar_escala()
+        self.status.set("Zoom: 100%")
+
+    def _aplicar_escala(self) -> None:
+        """Reaplica el tema y las fuentes de los campos de texto tras cambiar el zoom."""
+        self._theme()
+        self.editor.configure(font=es.fuente(es.TIPO_LG))
+        self.input.configure(font=es.fuente())
+        self.history.configure(font=es.fuente())
+        self.history.tag_configure("rotulo_usuario", font=es.fuente(es.TIPO_SM, negrita=True))
+        self.history.tag_configure("rotulo_bot", font=es.fuente(es.TIPO_SM, negrita=True))
+        self.history.tag_configure("nota", font=es.fuente(es.TIPO_SM))
+        self.history.tag_configure("you", font=es.fuente(negrita=True))
+        self.history.tag_configure("bot", font=es.fuente(negrita=True))
+
+    def _refrescar_menu_recientes(self) -> None:
+        """Repinta el submenú de recientes desde la lista en memoria."""
+        self.menu_recientes.delete(0, "end")
+        if not self.recent_paths:
+            self.menu_recientes.add_command(label="(vacío)", state="disabled")
+            return
+        for ruta in self.recent_paths:
+            # def anidado en vez de lambda: mypy no infiere el tipo del parámetro
+            # por defecto de una lambda, y esta captura temprana de `ruta` evita
+            # el clásico bug de late binding en bucles.
+            def _abrir(ruta: str = ruta) -> None:
+                self._abrir_reciente(ruta)
+            self.menu_recientes.add_command(label=ruta, command=_abrir)
+        self.menu_recientes.add_separator()
+        self.menu_recientes.add_command(label="Limpiar recientes",
+                                        command=self._limpiar_recientes)
+
+    def _registrar_reciente(self, path: Path) -> None:
+        """Añade una ruta al frente de recientes, sin duplicados y con tope."""
+        ruta = str(path.resolve())
+        if ruta in self.recent_paths:
+            self.recent_paths.remove(ruta)
+        self.recent_paths.insert(0, ruta)
+        del self.recent_paths[10:]
+        self._refrescar_menu_recientes()
+
+    def _abrir_reciente(self, ruta: str) -> None:
+        """Abre un documento reciente; lo retira si ya no existe."""
+        path = Path(ruta)
+        if not path.is_file():
+            if ruta in self.recent_paths:
+                self.recent_paths.remove(ruta)
+                self._refrescar_menu_recientes()
+            self.show_error("Documento no disponible",
+                            f"{ruta}\n\nEl archivo ya no existe.")
+            return
+        self.load_document(path)
+
+    def _limpiar_recientes(self) -> None:
+        self.recent_paths = []
+        self._refrescar_menu_recientes()
+        self.status.set("Lista de recientes vaciada.")
 
     def append(self, who:str, text:str, es_respuesta: bool = True) -> None:
         """Escribe en el historial. `es_respuesta=False` para textos de orientación,
@@ -572,13 +735,12 @@ class ArticuladorApp(tk.Tk):
         """Oculta o restaura el panel del asistente para dar todo el ancho al artículo."""
         if self.asistente_visible:
             self.panes.forget(self.panel_asistente)
-            self.boton_panel.config(text="◨  Mostrar panel IA  (F6)")
             self.status.set("Asistente oculto. F6 lo vuelve a mostrar.")
             self.editor.focus_set()
         else:
             self.panes.add(self.panel_asistente, weight=32)
-            self.boton_panel.config(text="◧  Ocultar panel IA  (F6)")
             self.status.set("Asistente visible.")
+        self._sincronizar_boton_panel()
 
     @property
     def asistente_visible(self) -> bool:
@@ -629,9 +791,29 @@ class ArticuladorApp(tk.Tk):
     def history_menu(self,event):
         menu=tk.Menu(self,tearoff=False,background=es.SUPERFICIE_ALTA,foreground=es.TEXTO,activebackground=es.ACENTO,activeforeground=es.ACENTO_TEXTO,font=es.fuente())
         menu.add_command(label="Copiar",command=lambda:self.history.event_generate("<<Copy>>"))
+        menu.add_command(label="Copiar mensaje",command=lambda:self._copiar_mensaje(event))
         menu.add_command(label="Seleccionar todo",command=lambda:self.history.tag_add("sel","1.0","end-1c"))
         menu.tk_popup(event.x_root,event.y_root); menu.grab_release()
         return "break"
+
+    def _copiar_mensaje(self, event) -> None:
+        """Copia el mensaje que contiene al cursor (voz, cuerpo o nota)."""
+        indice = f"@{event.x},{event.y}"
+        for etiqueta in ("cuerpo_usuario", "cuerpo_bot", "nota"):
+            rango = self.history.tag_prevrange(etiqueta, f"{indice}+1c")
+            if not rango:
+                continue
+            inicio, final = rango
+            if self.history.compare(indice, "<", inicio) or self.history.compare(indice, ">", final):
+                continue
+            texto = self.history.get(inicio, final).strip()
+            if not texto:
+                continue
+            self.clipboard_clear()
+            self.clipboard_append(texto)
+            self.status.set("Mensaje copiado.")
+            return
+        self.status.set("No hay mensaje aquí.")
     def modified(self,_=None):
         if not self.editor.edit_modified(): return
         self.editor.edit_modified(False)
@@ -693,8 +875,21 @@ class ArticuladorApp(tk.Tk):
         # Revisar solo lo seleccionado es deliberado (edición granular); el botón debe
         # decir sobre qué va a actuar en vez de prometer siempre el artículo entero.
         self.review_button.config(text="Revisar selección" if selected else "Revisar artículo")
+        # La selección también cambia las métricas del pie: se refrescan junto al contexto.
+        self.schedule_stats()
     def update_stats(self):
-        self.stats_after=None; words=len(self.editor.get("1.0","end-1c").split()); self.editor_stats.config(text=f"{words:,} palabras · {max(1,round(words/220))} min de lectura" if words else "0 palabras · 0 min de lectura")
+        self.stats_after=None
+        total=len(self.editor.get("1.0","end-1c").split())
+        seleccion=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
+        palabras_sel=len(seleccion.split()) if seleccion else 0
+        if total:
+            lectura=max(1,round(total/220))
+            if palabras_sel:
+                self.editor_stats.config(text=f"{palabras_sel} de {total:,} palabras · {lectura} min de lectura")
+            else:
+                self.editor_stats.config(text=f"{total:,} palabras · {lectura} min de lectura")
+        else:
+            self.editor_stats.config(text="0 palabras · 0 min de lectura")
     def handle_callback_error(self, exc_type, exc_value, _traceback):
         logger.exception("Excepción no controlada de Tkinter", exc_info=(exc_type, exc_value, _traceback))
         self.status.set("Ocurrió un error interno. Puedes continuar o reiniciar Articulador.")
@@ -703,7 +898,7 @@ class ArticuladorApp(tk.Tk):
         self.status.set(title)
         messagebox.showerror(title, detail, parent=self)
     def load_document(self, path: Path) -> bool:
-        """Sustituye el artículo activo y conserva la conversación de sesión."""
+        """Sustituye el artículo activo y su conversación, cada una por documento."""
         success, error, session = self.docs.open_document(path)
         if not success:
             self.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
@@ -729,17 +924,29 @@ class ArticuladorApp(tk.Tk):
             ):
                 session.article = respaldo
             clear_autosave(documento)
-        # La conversación pertenece a la sesión de trabajo, no al archivo que
-        # ocupa el editor. El documento nuevo reemplaza únicamente la izquierda;
-        # conservar estos turnos permite seguir comparando varios artículos.
-        conversation = list(self.session.conversation)
-        self.docs.set_session(session)
-        self.session.conversation = conversation
+        # La conversación es del documento, no de la sesión de trabajo: cada
+        # artículo tiene su propia hebra. Al abandonar uno se guarda en memoria
+        # lo que llevaba (se vuelca a disco al cerrar, en _guardar_estado_ui) y
+        # se restaura la del documento que se abre, o queda vacía si es nuevo.
+        if previous != documento:
+            self._persistir_conversacion_en_memoria(previous)
+            self.docs.set_session(session)
+            self.session.conversation = self._restaurar_conversacion(documento)
+            self._clear_history_widget()
+            for item in self.session.conversation:
+                self.append("Tú" if item.role == "user" else "Articulador", item.content)
+        else:
+            # Reabrir el mismo documento (p. ej. desde «Recientes»): el artículo
+            # en disco se recarga, pero la conversación en curso no se toca.
+            conversacion_en_curso = list(self.session.conversation)
+            self.docs.set_session(session)
+            self.session.conversation = conversacion_en_curso
         self._enter_document_scope(session.document_path)
         self._replace_editor_text(session.article)
         self.append("Articulador", f"Artículo activo: «{path.name}». La conversación y los artículos "
                     "de contexto se conservan para continuar el trabajo.",
                     es_respuesta=False)
+        self._registrar_reciente(path)
         self.session.dirty=False; self.sync_label.config(text="○  Sin cambios", foreground=es.TEXTO_TENUE)
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
         return True
@@ -1362,11 +1569,12 @@ class ArticuladorApp(tk.Tk):
         # lo colocado después es lo que se recorta al estrechar la ventana.
         actions = ttk.Frame(frame, style="Superficie.TFrame")
         actions.pack(side="bottom", fill="x", pady=(es.ESP["lg"], 0))
-        entries = tk.Listbox(frame, selectmode="extended", background=es.SUPERFICIE_ALTA,
-                             foreground=es.TEXTO, selectbackground=es.SELECCION,
-                             selectforeground=es.TEXTO, relief="flat", highlightthickness=1,
+        entries = tk.Listbox(frame, selectmode="extended", exportselection=False,
+                             background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                             selectbackground=es.SELECCION, selectforeground=es.TEXTO,
+                             relief="flat", highlightthickness=1,
                              highlightbackground=es.BORDE, highlightcolor=es.FOCO,
-                             font=es.fuente())
+                             borderwidth=0, font=es.fuente(), activestyle="none")
         entries.pack(fill="both", expand=True)
 
         def refresh() -> None:
@@ -1551,10 +1759,77 @@ class ArticuladorApp(tk.Tk):
         # Cancelar cualquier solicitud activa
         if self.session.request_active:
             self._cancel_active_request()
+        # Persistir el estado de interfaz (geometría, zoom, recientes y conversación).
+        self._guardar_estado_ui()
         # Cierre limpio: la decisión ya está tomada, el respaldo de recuperación
         # no debe resucitar cambios descartados en la próxima apertura.
         self._clear_current_autosave()
         self.destroy()
+
+    def _restaurar_conversacion(self, path: Path | None) -> list[ChatMessage]:
+        """Recupera la conversación persistida de un documento, si existe."""
+        if path is None:
+            return []
+        conversaciones = self.ui_state.get("conversations")
+        if not isinstance(conversaciones, dict):
+            return []
+        cruda = conversaciones.get(str(path))
+        if not isinstance(cruda, list):
+            return []
+        restaurada: list[ChatMessage] = []
+        for item in cruda:
+            if (isinstance(item, dict) and item.get("role") in {"user", "assistant"}
+                    and isinstance(item.get("content"), str)):
+                restaurada.append(ChatMessage(item["role"], item["content"]))
+        return restaurada
+
+    def _persistir_conversacion_en_memoria(self, path: Path | None) -> None:
+        """Vuelca la conversación activa al estado en memoria, bajo la clave del documento.
+
+        No toca disco (eso ocurre en `_guardar_estado_ui`, al cerrar). Se llama
+        al abandonar un documento por otro, para no perder sus turnos aunque la
+        sesión siga abierta; y de nuevo al cerrar, para capturar el documento
+        que queda activo en ese momento.
+        """
+        if path is None:
+            return
+        conversaciones = self.ui_state.get("conversations")
+        if not isinstance(conversaciones, dict):
+            conversaciones = {}
+        conversaciones[str(path)] = [
+            {"role": m.role, "content": m.content} for m in self.session.conversation[-30:]
+        ]
+        self.ui_state["conversations"] = conversaciones
+
+    def _podar_conversaciones(self, conversaciones: dict) -> dict:
+        """Descarta conversaciones de documentos que ya no están vigentes.
+
+        Vigente = sigue en «recientes» o es el documento activo. Sin esto,
+        `estado.json` acumula para siempre una entrada por cada artículo que se
+        abrió alguna vez, aunque ya no exista o el usuario lo haya limpiado de
+        recientes.
+        """
+        vigentes = set(self.recent_paths)
+        if self.session.document_path is not None:
+            vigentes.add(str(self.session.document_path))
+        return {ruta: turnos for ruta, turnos in conversaciones.items() if ruta in vigentes}
+
+    def _guardar_estado_ui(self) -> None:
+        """Vuelca el estado de interfaz al disco; best-effort, nunca rompe el cierre."""
+        try:
+            self._persistir_conversacion_en_memoria(self.session.document_path)
+            estado = dict(self.ui_state)
+            estado["geometry"] = self.geometry()
+            estado["panel_visible"] = self.asistente_visible
+            estado["zoom"] = es.ZOOM
+            estado["recent"] = self.recent_paths
+            conversaciones = estado.get("conversations", {})
+            if not isinstance(conversaciones, dict):
+                conversaciones = {}
+            estado["conversations"] = self._podar_conversaciones(conversaciones)
+            storage.save_ui_state(estado, self.config_path)
+        except Exception:
+            logger.warning("No se pudo guardar el estado de interfaz", exc_info=True)
 
     def destroy(self) -> None:
         """Cancela los callbacks `after` pendientes antes de destruir la ventana.

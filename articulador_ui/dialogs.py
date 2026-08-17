@@ -124,8 +124,8 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     body.add(right, weight=2)
     items = tk.Listbox(left, exportselection=False, background=es.SUPERFICIE_ALTA,
                        foreground=es.TEXTO, selectbackground=es.SELECCION,
-                       selectforeground=es.TEXTO, highlightthickness=1,
-                       highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO,
+                       selectforeground=es.TEXTO, relief="flat", highlightthickness=1,
+                       highlightbackground=es.BORDE, highlightcolor=es.FOCO,
                        borderwidth=0, font=es.fuente(), activestyle="none")
     items.pack(fill="both", expand=True, padx=(0, es.ESP["sm"]))
     for item in findings:

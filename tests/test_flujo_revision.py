@@ -15,6 +15,7 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -31,6 +32,24 @@ RESPUESTA_VALIDA = json.dumps({"findings": [
     {"category": "redundancia", "severity": "baja", "original": "conviene recortarla",
      "suggestion": "conviene acortarla", "reason": "repite la idea"},
 ]}, ensure_ascii=False)
+
+
+def _esperar_llamada(app: ArticuladorApp, mock_obj, timeout: float = 2.0) -> None:
+    """Espera a que el hilo en segundo plano invoque el mock parcheado.
+
+    `review()`/`request()`/`send_message()`/`confirm_and_send()` lanzan un hilo
+    daemon que llama a `self.llm.stream_response`. Sin esta espera, el `with
+    patch.object(...)` podía deshacer el parche antes de que el hilo arrancara
+    a ejecutarlo: entonces caía al método real, una petición de red genuina
+    (con los reintentos y el backoff de la v0.2.1) que sobrevivía minutos y
+    terminaba abortando un test completamente distinto, ya con la interfaz de
+    Tk destruida. Se espera aquí, DENTRO del bloque del parche.
+    """
+    limite = time.monotonic() + timeout
+    while not mock_obj.called and time.monotonic() < limite:
+        app.update()
+        time.sleep(0.01)
+    assert mock_obj.called, "El hilo en segundo plano no invocó el mock a tiempo"
 
 
 def _hay_display() -> bool:
@@ -87,16 +106,18 @@ class TestFlujoDeRevision(unittest.TestCase):
 
     # --- 1. no busca contexto local ------------------------------------
     def test_revisar_no_muestra_la_barra_de_confirmacion(self):
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
         self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
                          "No hay contexto que aprobar: la barra no debe aparecer")
 
     # --- 2. el prompt técnico no llega al historial ---------------------
     def test_revisar_no_escribe_el_prompt_interno_en_el_historial(self):
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
 
         historial = self._historial()
@@ -108,8 +129,9 @@ class TestFlujoDeRevision(unittest.TestCase):
 
     # --- 3. envía el texto correcto ------------------------------------
     def test_revisar_envia_el_articulo_completo(self):
-        with patch.object(self.app.llm, "stream_response") as enviar:
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.review()
+            _esperar_llamada(self.app, enviar)
             self._asentar()
 
         enviado = enviar.call_args[0][2]  # (profile, api_key, article, packet, conv)
@@ -119,30 +141,34 @@ class TestFlujoDeRevision(unittest.TestCase):
     def test_revisar_envia_solo_la_seleccion_cuando_la_hay(self):
         self.app.editor.tag_add("sel", "1.0", "1.16")
         seleccion = self.app.editor.get("sel.first", "sel.last")
-        with patch.object(self.app.llm, "stream_response") as enviar:
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.review()
+            _esperar_llamada(self.app, enviar)
             self._asentar()
 
         self.assertEqual(enviar.call_args[0][2], seleccion)
         self.assertNotEqual(seleccion, self.app.editor.get("1.0", "end-1c"))
 
     def test_el_estado_indica_el_ambito_revisado(self):
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
         self.assertIn("revisando el artículo", self.app.activity.get())
 
         self.app.session.request_active = False
         self.app.editor.tag_add("sel", "1.0", "1.16")
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
         self.assertIn("revisando la selección", self.app.activity.get())
 
     # --- 5. resultado legible, sin JSON --------------------------------
     def test_una_revision_valida_abre_los_hallazgos_sin_pintar_json(self):
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
         request_id = self.app.generation_counter
 
@@ -164,8 +190,9 @@ class TestFlujoDeRevision(unittest.TestCase):
 
     # --- 6. error legible y UI utilizable ------------------------------
     def test_un_error_de_revision_es_legible_y_devuelve_la_ui(self):
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
         request_id = self.app.generation_counter
 
@@ -183,8 +210,9 @@ class TestFlujoDeRevision(unittest.TestCase):
                          "La interfaz vuelve a ser utilizable")
 
     def test_una_respuesta_no_json_no_muestra_nada_tecnico(self):
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
         request_id = self.app.generation_counter
         basura = "Claro, aquí van mis comentarios sobre el texto..."
@@ -236,8 +264,9 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.update_idletasks()
 
     def test_un_mensaje_normal_no_explora_el_workspace(self):
-        with patch.object(self.app.llm, "stream_response") as enviar:
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.request("¿Cómo mejoro la tesis?")
+            _esperar_llamada(self.app, enviar)
             for _ in range(5):
                 self.app.update()
         self.assertEqual(
@@ -249,8 +278,9 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
 
     def test_un_mensaje_normal_si_aparece_en_el_historial(self):
         self.app.input.insert("1.0", "¿Cómo mejoro la tesis?")
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.send_message()
+            _esperar_llamada(self.app, enviar)
             for _ in range(10):
                 self.app.update()
         self.assertIn("¿Cómo mejoro la tesis?", self.app.history.get("1.0", "end-1c"))
@@ -259,8 +289,9 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
         self.app.generation_counter += 1
         rid = self.app.generation_counter
         self.app.request_types[rid] = "normal"
-        with patch.object(self.app.llm, "stream_response"):
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.confirm_and_send(rid, "Hola", "artículo", "", [], threading.Event())
+            _esperar_llamada(self.app, enviar)
             for _ in range(5):
                 self.app.update()
         self.assertFalse(self.app.barra_aprobacion.winfo_ismapped())
@@ -276,8 +307,9 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
         self.app.load_document(actual)
         self.assertEqual(self.app.references_button.cget("text"), "Contexto: 1 artículo")
 
-        with patch.object(self.app.llm, "stream_response") as enviar:
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.request("Compara ambos artículos")
+            _esperar_llamada(self.app, enviar)
             self._asentar()
             self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
                              "Aceptar al conservar no puede pedir permiso otra vez")
@@ -295,7 +327,9 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
         self.app._authorize_context_articles()
         self.app.profile.model = "otro-modelo"
 
-        with patch.object(self.app.llm, "stream_response"):
+        # Este camino se detiene en la barra de aprobación: nunca llega a
+        # invocar stream_response, así que no hay hilo que esperar aquí.
+        with patch.object(self.app.llm, "stream_response", return_value=None):
             self.app.request("Consulta")
             self._asentar()
 

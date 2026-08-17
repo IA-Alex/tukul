@@ -18,6 +18,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -32,6 +33,27 @@ from articulador_ui.app import ArticuladorApp
 from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.document_scope import DocumentScope
 from articulador_ui.estado import EstadoUI
+
+
+def _esperar_hilo_de_envio(app: ArticuladorApp, desde: int = 0, timeout: float = 2.0) -> None:
+    """Espera a que el hilo daemon de `confirm_and_send` invoque `app.llm.stream_response`.
+
+    `confirm_and_send()` lanza un hilo real; mantener el parche activo hasta
+    `tearDown` no basta si el hilo ni siquiera ha empezado a ejecutarse cuando
+    el test termina. Sin esta espera, ese hilo puede seguir sin arrancar
+    minutos después —bajo la carga de la suite completa— y aparecer en medio
+    de un test totalmente distinto, colisionando con Tk desde otro hilo.
+
+    `desde` es el `call_count` antes de invocar `confirm_and_send`: un mismo
+    test puede enviar varias veces sobre el mismo mock, así que comprobar solo
+    `.called` no distinguiría un envío nuevo de uno anterior ya resuelto.
+    """
+    mock_obj = app.llm.stream_response
+    limite = time.monotonic() + timeout
+    while mock_obj.call_count <= desde and time.monotonic() < limite:
+        app.update()
+        time.sleep(0.01)
+    assert mock_obj.call_count > desde, "El hilo de confirm_and_send no invocó el mock a tiempo"
 
 
 class _Var:
@@ -207,7 +229,8 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self.assertTrue(self.app.session.dirty)
         self.assertIn("Cambios sin guardar", self.app.sync_label.cget("text"))
 
-    def test_cambiar_documento_conserva_la_conversacion_de_trabajo(self):
+    def test_cambiar_documento_cambia_a_la_conversacion_del_nuevo_articulo(self):
+        """La conversación es por documento: cambiar de artículo no arrastra la anterior."""
         from articulador_core.models import ChatMessage
 
         a = self.root / "a.md"
@@ -226,11 +249,20 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
 
         self.assertIsNot(self.app.session, sesion_a, "Debe ser una ArticleSession nueva")
         self.assertEqual(
-            [message.content for message in self.app.session.conversation],
-            ["hablo del artículo A"],
-            "La conversación es de la sesión de trabajo, no del archivo activo",
+            self.app.session.conversation,
+            [],
+            "B nunca tuvo conversación propia: debe abrir vacía, no heredar la de A",
         )
         self.assertEqual(self.app.session.document_path, b.resolve())
+        self.assertNotIn("artículo A", self.app.history.get("1.0", "end-1c"))
+
+        # A conserva su turno: al volver a A (dentro de la misma corrida), se restaura.
+        self.app.load_document(a)
+        self._settle()
+        self.assertEqual(
+            [message.content for message in self.app.session.conversation],
+            ["hablo del artículo A"],
+        )
         self.assertIn("artículo A", self.app.history.get("1.0", "end-1c"))
 
     def test_abrir_un_documento_ilegible_no_toca_la_sesion(self):
@@ -315,6 +347,15 @@ class TestAprobacionDeContexto(unittest.TestCase):
         )
         os.environ["TEST_KEY_AUDITORIA"] = "clave"
         self.app = ArticuladorApp(config)
+        # confirm_and_send() lanza un hilo daemon real hacia self.app.llm.
+        # Sin mock, cada _enviar() dispara una petición HTTP genuina contra un
+        # endpoint que no resuelve en este entorno, con reintentos y backoff
+        # que sobreviven al test y pueden abortar uno completamente distinto.
+        # El parche queda activo hasta tearDown, así que no importa cuándo el
+        # hilo llegue a ejecutarlo.
+        parche_llm = patch.object(self.app.llm, "stream_response", return_value=None)
+        parche_llm.start()
+        self.addCleanup(parche_llm.stop)
 
     def tearDown(self):
         self.app.destroy()
@@ -322,23 +363,38 @@ class TestAprobacionDeContexto(unittest.TestCase):
         os.environ.pop("TEST_KEY_AUDITORIA", None)
 
     def _enviar(self, mensaje: str) -> None:
-        """Ejecuta confirm_and_send con un paquete de contexto fijo."""
+        """Ejecuta confirm_and_send con un paquete de contexto fijo.
+
+        Si el contexto ya estaba aprobado, `confirm_and_send` lanza el hilo de
+        una: `_envio_previo` se fija ANTES de la llamada para que
+        `_aceptar_si_pregunta` (que se llama después, con o sin aprobación de
+        por medio) sepa qué `call_count` esperar.
+        """
         self.app.generation_counter += 1
         request_id = self.app.generation_counter
         self.app.request_types[request_id] = "normal"
+        self._envio_previo = self.app.llm.stream_response.call_count
         self.app.confirm_and_send(
             request_id, mensaje, "artículo", "ARCHIVO LOCAL: notas.md\n---\nseguridad",
             ["notas.md"], threading.Event(),
         )
 
     def _aceptar_si_pregunta(self) -> bool:
-        """Acepta la confirmación en línea si apareció. Devuelve si preguntó."""
+        """Acepta la confirmación en línea si apareció. Devuelve si preguntó.
+
+        En ambos caminos (aprobación nueva vía botón, o contexto ya aprobado
+        dentro de `confirm_and_send`) el hilo de envío ya se lanzó al volver
+        de aquí; solo falta esperar a que realmente llegue a ejecutarse antes
+        de que el test termine y arrastre esa espera a otro test distinto.
+        """
         self.app.update()
+        pregunto = False
         if self.app.barra_aprobacion.winfo_ismapped():
             self.app.boton_aprobar.invoke()
             self.app.update()
-            return True
-        return False
+            pregunto = True
+        _esperar_hilo_de_envio(self.app, self._envio_previo)
+        return pregunto
 
     def test_el_segundo_mensaje_no_vuelve_a_pedir_confirmacion(self):
         self._enviar("primer mensaje")
@@ -357,6 +413,7 @@ class TestAprobacionDeContexto(unittest.TestCase):
         self.app.generation_counter += 1
         rid = self.app.generation_counter
         self.app.request_types[rid] = "normal"
+        self._envio_previo = self.app.llm.stream_response.call_count
         self.app.confirm_and_send(
             rid, "otro", "artículo", "ARCHIVO LOCAL: notas.md\n---\nCONTENIDO NUEVO",
             ["notas.md"], threading.Event(),
@@ -937,6 +994,14 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         os.environ["TEST_KEY_FIFO"] = "clave"
         self.addCleanup(lambda: os.environ.pop("TEST_KEY_FIFO", None))
         app = ArticuladorApp(config)
+        # Igual que en TestAprobacionDeContexto: confirm_and_send() lanza un
+        # hilo real hacia app.llm si no se mockea, con el mismo riesgo de
+        # petición HTTP genuina y reintentos que sobreviven al test. Se
+        # registra antes que `app.destroy` para que, por orden LIFO de
+        # addCleanup, el parche siga activo hasta después de destruir la app.
+        parche_llm = patch.object(app.llm, "stream_response", return_value=None)
+        parche_llm.start()
+        self.addCleanup(parche_llm.stop)
         self.addCleanup(app.destroy)
 
         # Saturar con 128 aprobaciones previas, la primera identificable.
@@ -948,10 +1013,12 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         app.generation_counter += 1
         rid = app.generation_counter
         app.request_types[rid] = "normal"
+        desde = app.llm.stream_response.call_count
         app.confirm_and_send(rid, "hola", "art", "paquete nuevo", ["notas.md"], threading.Event())
         app.update()
         app.boton_aprobar.invoke()   # confirmación en línea, no modal
         app.update()
+        _esperar_hilo_de_envio(app, desde)
 
         self.assertEqual(len(app.approved_contexts), 128, "El tope se mantiene")
         self.assertNotIn(primera, app.approved_contexts, "Se desaloja la más antigua")

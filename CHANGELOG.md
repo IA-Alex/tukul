@@ -1,7 +1,40 @@
 # Historial de cambios
 
 Todas las modificaciones relevantes del proyecto. El formato sigue las
-recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/).
+recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
+proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
+
+## [Unreleased]
+
+### Añadido
+
+- Estado de interfaz persistente: geometría de ventana, nivel de zoom,
+  documentos recientes y conversación se guardan en `estado.json` (junto a
+  `config.toml`) y se recuperan al reabrir Articulador. Persistencia atómica,
+  igual que el resto del proyecto; nunca falla la carga (JSON corrupto o
+  ausente equivale a estado vacío).
+- Conversación por documento: cada artículo conserva su propia hebra entre
+  reinicios. Cambiar de artículo dentro de la misma sesión abre la
+  conversación de ese documento (o una vacía si es nuevo) en vez de arrastrar
+  los turnos del anterior.
+- Modo foco (`F11`): oculta la barra superior y el pie para dejar solo el
+  artículo visible; se restaura sin perder la disposición de paneles.
+- Zoom del cuerpo tipográfico (`Ctrl` `+`/`-`/`0`), acotado entre 80 % y 150 %.
+- Documentos recientes: submenú en el menú Archivo, con tope de 10 entradas y
+  opción de vaciar la lista.
+- Tooltips (`articulador_ui/tooltip.py`) en los controles de la barra
+  superior, sin dependencias externas.
+- Copiar un mensaje individual del historial de conversación desde su menú
+  contextual.
+- Métrica de palabras seleccionadas junto al total, en el pie del editor.
+
+### Corregido
+
+- El diccionario de conversaciones persistidas se poda a los documentos
+  vigentes (en recientes o el activo) en cada guardado de estado, evitando que
+  `estado.json` crezca sin límite con cada artículo que se abrió alguna vez.
+- Ajustes menores de contraste y jerarquía tipográfica en el sistema visual
+  (`estilo.py`), verificados contra WCAG 1.4.11 en las tres capas de fondo.
 
 ## [0.2.1] - 2026-08-15
 

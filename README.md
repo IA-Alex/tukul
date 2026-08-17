@@ -20,14 +20,35 @@ También puedes abrir un documento:
 python3 articulador.py /ruta/articulo.md
 ```
 
+Otras opciones de línea de comandos:
+
+| Flag | Efecto |
+|------|--------|
+| `--config RUTA` | Usa un `config.toml` de perfiles LLM distinto del predeterminado. |
+| `--health` | Imprime el diagnóstico de la instalación (config, logging, llavero) y sale, sin abrir la ventana. |
+
 ## Flujo
 
-1. Escribe o abre un artículo.
+1. Escribe o abre un artículo. El menú **Recientes** guarda los últimos 10 documentos abiertos.
 2. Conversa con Articulador en lenguaje natural; selecciona texto si quieres enfocar la consulta.
 3. Usa **Revisar artículo** para una revisión de ortografía, gramática, semántica, redundancias y estructura.
 4. Guarda el Markdown o un proyecto recuperable que conserva artículo y conversación.
 
 El contexto local es explícito: puedes añadir artículos previos desde **Contexto de artículos…**. Se conservan al abrir otro artículo y, antes de enviarlos junto al artículo activo, Articulador pide confirmación de privacidad.
+
+La conversación es por documento: cada artículo mantiene su propia hebra y se recupera al reabrirlo, incluso tras cerrar y volver a abrir Articulador.
+
+## Atajos de teclado
+
+| Atajo | Acción |
+|-------|--------|
+| `Ctrl+O` | Abrir artículo |
+| `Ctrl+S` / `Ctrl+Mayús+S` | Guardar / Guardar como |
+| `F6` | Mostrar u ocultar el panel del asistente |
+| `F11` | Modo foco: oculta barra y pie, deja solo el artículo |
+| `Ctrl+ +` / `Ctrl+ -` | Aumentar / reducir el zoom del texto |
+| `Ctrl+0` | Restablecer el zoom al 100 % |
+| `Esc` | Cancelar la consulta en curso |
 
 ## LLM y key
 
@@ -44,6 +65,8 @@ pip install ".[keyring]"
 Los diagnósticos técnicos se guardan en `~/.local/state/articulador/articulador.log`; no incluyen el artículo, la conversación ni API keys.
 
 Los cambios sin guardar se respaldan automáticamente en `~/.local/state/articulador/autosave/` y se ofrecen para restaurar si la aplicación se cierra de forma inesperada.
+
+El estado de interfaz (geometría de ventana, zoom, recientes y la conversación de cada documento) se guarda en `estado.json`, junto al `config.toml` de perfiles. Es local y de solo lectura defensiva: si se corrompe o no existe, Articulador arranca con los valores por defecto sin fallar.
 
 ## Calidad
 

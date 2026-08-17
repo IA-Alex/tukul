@@ -17,11 +17,11 @@ from __future__ import annotations
 
 # --- Capas ---------------------------------------------------------------
 FONDO = "#18181B"           # grafito de la aplicación
-SUPERFICIE = "#27272A"      # paneles: una separación sobria, no cajas pesadas
-SUPERFICIE_ALTA = "#303036" # campos, conversación y elementos activos
-BORDE = "#45454D"           # divisores discretos
+SUPERFICIE = "#2C2C30"      # paneles: una separación sobria, no cajas pesadas
+SUPERFICIE_ALTA = "#37373C" # campos, conversación y elementos activos
+BORDE = "#62626F"           # divisores discretos
 # El indicador de foco sí es información necesaria: WCAG 1.4.11 exige 3:1 contra
-# el fondo adyacente. Verificado contra las tres capas (6.4:1 en el peor caso).
+# el fondo adyacente. Verificado contra las tres capas (6.2:1 en el peor caso).
 FOCO = "#9DBBFF"
 
 # --- Acento (uno) --------------------------------------------------------
@@ -35,21 +35,29 @@ TEXTO_TENUE = "#C7C7CC"
 SELECCION = "#3A5182"
 
 # --- Señal de estado (funcional, no decorativa) --------------------------
-ESTADO_NEUTRO = "#C7C7CC"
-ESTADO_PROCESO = "#9DBBFF"
-ESTADO_EXITO = "#8FD3B0"
-ESTADO_ERROR = "#F0A3A3"
-ESTADO_AVISO = "#E8C77D"
+ESTADO_NEUTRO = "#A4A4AD"
+ESTADO_PROCESO = "#7FD6E0"
+ESTADO_EXITO = "#8DE2B6"
+ESTADO_ERROR = "#E28D8D"
+ESTADO_AVISO = "#E2C88D"
 
 # --- Rol conversacional --------------------------------------------------
-VOZ_USUARIO = "#9DBBFF"
+VOZ_USUARIO = "#9FD0C9"
 VOZ_ASISTENTE = "#D4B5FF"
 
 # --- Tipografía: tres tamaños --------------------------------------------
 FAMILIA = "Inter"
-TIPO_SM = 9    # metadatos, notas al pie
-TIPO_MD = 10   # controles compactos
-TIPO_LG = 13   # prosa: lectura prolongada
+TIPO_SM = 10   # metadatos, notas al pie
+TIPO_MD = 12   # controles compactos
+TIPO_LG = 14   # prosa: lectura prolongada
+
+# --- Escala (zoom) --------------------------------------------------------
+# Multiplica los tres tamaños por igual: la jerarquía se conserva, solo cambia
+# el cuerpo. Acotado para que un Ctrl+= o Ctrl+- no degrade la legibilidad.
+ZOOM = 1.0
+ZOOM_MIN = 0.8
+ZOOM_MAX = 1.5
+ZOOM_STEP = 0.1
 
 # --- Espaciado: rejilla de 4 --------------------------------------------
 ESP = {"xs": 4, "sm": 8, "md": 12, "lg": 16}
@@ -62,7 +70,8 @@ def fuente(tamano: int = TIPO_MD, *, negrita: bool = False, cursiva: bool = Fals
         estilos.append("bold")
     if cursiva:
         estilos.append("italic")
-    return (FAMILIA, tamano, *estilos)
+    cuerpo = max(1, round(tamano * ZOOM))
+    return (FAMILIA, cuerpo, *estilos)
 
 
 def _canal(valor: int) -> float:

@@ -1,6 +1,6 @@
 [project]
 name = "articulador"
-version = "0.2.0"
+version = "0.2.1"
 description = "Editor conversacional inteligente con análisis de contexto"
 readme = "README.md"
 requires-python = ">=3.11"

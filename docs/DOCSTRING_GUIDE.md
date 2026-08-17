@@ -82,7 +82,8 @@ articulador_ui/
 ├── document_scope.py     ✓ DocumentScope
 ├── estado.py             ✓ EstadoUI
 ├── estilo.py             ✓ sistema visual
-└── llm_session_manager.py ✓ LLMSessionManager
+├── llm_session_manager.py ✓ LLMSessionManager
+└── tooltip.py             ✓ ToolTip
 ```
 
 ## Regla práctica
