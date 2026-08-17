@@ -1,0 +1,95 @@
+name: Build standalone executables
+
+# Compila un ejecutable independiente (sin Python instalado) para Windows, macOS
+# y Linux. PyInstaller no compila entre sistemas operativos distintos: cada
+# binario se construye en un runner del propio SO, no en uno solo.
+#
+# Se dispara al publicar un tag "vX.Y.Z" (release real) o a mano para probar
+# el empaquetado sin cortar una versión.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: articulador-linux-x86_64
+          - os: windows-latest
+            asset_name: articulador-windows-x86_64.exe
+          - os: macos-latest
+            asset_name: articulador-macos-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Solo Linux necesita las bibliotecas de sistema de Tk para compilar;
+      # Windows y macOS traen Tk en el propio instalador de Python.
+      - name: Install Tk system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-tk
+
+      - name: Install project + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[keyring]"
+          pip install pyinstaller
+
+      - name: Build standalone executable
+        run: pyinstaller --onefile --name articulador --noconfirm articulador.py
+
+      # Humo mínimo: el binario debe arrancar y correr el diagnóstico sin
+      # ventana. No prueba la GUI (no hay Xvfb en Windows/macOS), pero confirma
+      # que el empaquetado no dejó nada roto en el arranque.
+      - name: Smoke test (--health)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./dist/articulador.exe --health
+          else
+            ./dist/articulador --health
+          fi
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            mv dist/articulador.exe "dist/${{ matrix.asset_name }}"
+          else
+            mv dist/articulador "dist/${{ matrix.asset_name }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}
+          if-no-files-found: error
+
+  release:
+    # Solo al publicar un tag real: workflow_dispatch deja los binarios como
+    # artefactos del run, sin crear un Release de GitHub por cada prueba.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release with the three binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
