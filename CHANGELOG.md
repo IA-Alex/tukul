@@ -4,6 +4,27 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.3.1] - 2026-08-17
+
+### Añadido
+
+- `.github/workflows/build-release.yml`: ejecutables standalone (sin Python
+  instalado) para Linux, Windows y macOS, compilados con PyInstaller en un
+  runner nativo de cada sistema. Publica un GitHub Release con los tres
+  binarios al empujar un tag `vX.Y.Z`.
+- `LICENSE` (MIT) y metadata de empaquetado (`license`, `classifiers`,
+  `[project.urls]`) en `pyproject.toml`: sin esto, publicar el paquete
+  (PyPI o cualquier release) quedaba en ambigüedad legal.
+
+### Corregido
+
+- La consola de Windows arranca en `cp1252`, no UTF-8: el primer emoji o
+  acento que `--health` imprimía (o que el logger de consola registraba)
+  tronaba con `UnicodeEncodeError` y tumbaba la app antes de mostrar nada.
+  No era un problema del empaquetado: pasaba igual corriendo
+  `python articulador.py` nativo en Windows. `sys.stdout`/`sys.stderr` se
+  reconfiguran a UTF-8 al arrancar `main()`.
+
 ## [0.3.0] - 2026-08-17
 
 ### Añadido
