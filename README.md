@@ -2,6 +2,10 @@
 
 Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional. La conversación es el espacio principal; el artículo permanece editable a la izquierda.
 
+## Instalar sin Python
+
+Para Linux y Windows hay un ejecutable standalone (no requiere Python instalado) en cada [Release](https://github.com/IA-Alex/articulador/releases): descargá el binario de tu sistema y corré `--health` una vez para confirmar la instalación.
+
 ## Ejecutar
 
 ```bash

@@ -35,7 +35,7 @@ jobs:
           python-version: "3.12"
 
       # Solo Linux necesita las bibliotecas de sistema de Tk para compilar;
-      # Windows y macOS traen Tk en el propio instalador de Python.
+      # Windows trae Tk en el propio instalador de Python.
       - name: Install Tk system libraries (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-tk
@@ -50,8 +50,8 @@ jobs:
         run: pyinstaller --onefile --name articulador --noconfirm articulador.py
 
       # Humo mínimo: el binario debe arrancar y correr el diagnóstico sin
-      # ventana. No prueba la GUI (no hay Xvfb en Windows/macOS), pero confirma
-      # que el empaquetado no dejó nada roto en el arranque.
+      # ventana. No prueba la GUI (no hay Xvfb en Windows), pero confirma que
+      # el empaquetado no dejó nada roto en el arranque.
       - name: Smoke test (--health)
         shell: bash
         run: |
