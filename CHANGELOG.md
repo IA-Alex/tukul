@@ -4,6 +4,16 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.3.2] - 2026-08-17
+
+### Corregido
+
+- `build-release.yml`: el job `release` no tenía `permissions: contents:
+  write`, así que `softprops/action-gh-release` fallaba con 403 al intentar
+  publicar el Release (confirmado en el run que disparó el tag `v0.3.1`: los
+  tres binarios compilaron bien, pero el Release nunca se creó). Sin cambios
+  de código de aplicación en esta versión.
+
 ## [0.3.1] - 2026-08-17
 
 ### Añadido
