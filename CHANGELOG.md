@@ -4,6 +4,14 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Eliminado
+
+- macOS de `build-release.yml`: no es un objetivo soportado. Se retira el
+  binario `articulador-macos-arm64` también del Release `v0.3.2` ya
+  publicado. Solo Linux y Windows.
+
 ## [0.3.2] - 2026-08-17
 
 ### Corregido

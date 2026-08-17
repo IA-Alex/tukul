@@ -1,8 +1,10 @@
 name: Build standalone executables
 
-# Compila un ejecutable independiente (sin Python instalado) para Windows, macOS
-# y Linux. PyInstaller no compila entre sistemas operativos distintos: cada
-# binario se construye en un runner del propio SO, no en uno solo.
+# Compila un ejecutable independiente (sin Python instalado) para Windows y
+# Linux. PyInstaller no compila entre sistemas operativos distintos: cada
+# binario se construye en un runner del propio SO, no en uno solo. macOS no
+# es un objetivo soportado: sin runner de Apple Silicon propio para probarlo
+# y sin necesidad declarada, no se mantiene un target que nadie valida.
 #
 # Se dispara al publicar un tag "vX.Y.Z" (release real) o a mano para probar
 # el empaquetado sin cortar una versión.
@@ -21,8 +23,6 @@ jobs:
             asset_name: articulador-linux-x86_64
           - os: windows-latest
             asset_name: articulador-windows-x86_64.exe
-          - os: macos-latest
-            asset_name: articulador-macos-arm64
 
     runs-on: ${{ matrix.os }}
 
