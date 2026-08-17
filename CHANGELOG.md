@@ -4,7 +4,7 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [0.3.0] - 2026-08-17
 
 ### Añadido
 
@@ -35,6 +35,9 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   `estado.json` crezca sin límite con cada artículo que se abrió alguna vez.
 - Ajustes menores de contraste y jerarquía tipográfica en el sistema visual
   (`estilo.py`), verificados contra WCAG 1.4.11 en las tres capas de fondo.
+- `destroy()` espera (con tope) a que terminen los hilos de `review()`/
+  `request()` antes de destruir la ventana, evitando que uno arranque tarde
+  y sobreviva al cierre.
 
 ## [0.2.1] - 2026-08-15
 

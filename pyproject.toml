@@ -1,15 +1,31 @@
 [project]
 name = "articulador"
-version = "0.2.1"
+version = "0.3.0"
 description = "Editor conversacional inteligente con análisis de contexto"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Israel Alexis H", email = "israelalexish@gmail.com"}
+]
+classifiers = [
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Editors",
 ]
 dependencies = [
     "tomli-w>=1.0.0",  # For writing TOML files
 ]
+
+[project.urls]
+Repository = "https://github.com/IA-Alex/articulador"
+Changelog = "https://github.com/IA-Alex/articulador/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 keyring = ["keyring>=24.0.0"]  # For secure credential storage
