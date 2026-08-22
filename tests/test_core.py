@@ -279,6 +279,18 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 storage.load_project(project)
 
+    def test_load_project_rejects_oversized_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "bad.articulador.json"
+            # JSON válido de por sí; lo que debe rechazarse es el tamaño, antes
+            # de intentar parsearlo.
+            data = {"version": 2, "document": "draft.md", "conversation": []}
+            padding = " " * (storage.MAX_PROJECT_BYTES + 1)
+            project.write_text(json.dumps({**data, "_padding": padding}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                storage.load_project(project)
+
     def test_load_profiles_recovers_from_invalid_types(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "config.toml"
@@ -548,6 +560,46 @@ model = "test-model"
             loaded = loaded_profiles["custom"]
             available_input_tokens = loaded.max_total_model_tokens - loaded.max_output_tokens
             self.assertEqual(available_input_tokens, 2500)  # 4000 - 1500
+
+
+class PathValidationTests(unittest.TestCase):
+    """Validación cross-platform de _validate_relative_path: solo rutas relativas del proyecto."""
+
+    def _rejected(self, candidate: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ValueError):
+                storage._validate_relative_path(candidate, Path(directory))
+
+    def test_rejects_parent_escape_with_forward_slash(self):
+        self._rejected("../outside.md")
+
+    def test_rejects_posix_absolute_path(self):
+        self._rejected("/tmp/outside.md")
+
+    def test_rejects_windows_drive_absolute_path(self):
+        self._rejected(r"C:\temp\secret.md")
+
+    def test_rejects_windows_unc_path(self):
+        self._rejected(r"\\server\share\secret.md")
+
+    def test_rejects_parent_escape_with_backslash(self):
+        self._rejected(r"..\outside.md")
+
+    def test_rejects_nested_escape_with_backslash(self):
+        self._rejected(r"subdir\..\..\outside.md")
+
+    def test_accepts_nested_relative_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            resolved = storage._validate_relative_path("subdir/article.md", base)
+            self.assertEqual(resolved, (base / "subdir/article.md").resolve())
+            self.assertTrue(resolved.is_relative_to(base.resolve()))
+
+    def test_accepts_relative_path_that_stays_inside_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            resolved = storage._validate_relative_path("subdir/../article.md", base)
+            self.assertEqual(resolved, (base / "article.md").resolve())
 
 
 if __name__ == "__main__":

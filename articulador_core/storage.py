@@ -6,7 +6,7 @@ import stat
 import tempfile
 import tomllib
 from dataclasses import fields as dataclass_fields
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from .logging_config import setup_logging
@@ -270,25 +270,46 @@ def save_project(session: ArticleSession, path: Path) -> None:
 def _validate_relative_path(path_str: str, base_dir: Path) -> Path:
     """Valida que una ruta sea relativa y descendiente del directorio base (cross-platform).
 
+    Rechaza rutas absolutas POSIX (`/tmp/...`), rutas absolutas Windows
+    (`C:\\...`), rutas UNC (`\\\\server\\share\\...`) e intentos de escapar con
+    `..` usando tanto `/` como `\\` como separador. Corre igual en Linux,
+    Windows y macOS.
+
     Raises ValueError si la ruta es absoluta o intenta escapar del directorio base.
     """
     if not path_str:
         raise ValueError("Ruta no puede estar vacía.")
 
-    # Detectar rutas absolutas de forma cross-platform usando pathlib
-    path_obj=Path(path_str)
-    if path_obj.is_absolute():
+    # Unificar separadores: en Windows '\\' separa y en POSIX es parte del nombre.
+    # Normalizar a '/' hace que la validación y la resolución sean idénticas en
+    # las tres plataformas y evita que escapes estilo '..\\outside.md' pasen
+    # desapercibidos en Linux (Path() los trataría como un nombre literal).
+    normalized = path_str.replace("\\", "/")
+
+    # Absolutas POSIX: empiezan con '/'. Cubre también raíces estilo '\\foo'
+    # (ya normalizadas a '/foo') y UNC con doble barra '//server/share/...'.
+    if normalized.startswith("/"):
         raise ValueError(f"Ruta no puede ser absoluta: {path_str}")
 
-    # Resuelve la ruta contra el base directory
-    resolved=(base_dir / path_str).resolve()
-    base_resolved=base_dir.resolve()
+    # Absolutas Windows (C:\\...) y UNC (\\\\server\\share\\...): PureWindowsPath
+    # las reconoce aunque el proceso corra en Linux/macOS. También se rechazan
+    # prefijos de unidad estilo 'C:...' (drive-relative), que en Windows se
+    # resuelven contra el directorio actual de esa unidad y no son rutas
+    # relativas seguras al proyecto.
+    windows_path = PureWindowsPath(path_str)
+    if windows_path.is_absolute() or windows_path.drive:
+        raise ValueError(f"Ruta no puede ser absoluta: {path_str}")
 
-    # Verifica que el resultado sea descendiente de base_dir
+    # Escapes con '..' (usando '/' o '\\'): resolver contra base_dir y exigir
+    # que el resultado siga siendo descendiente del proyecto.
+    resolved = (base_dir / normalized).resolve()
+    base_resolved = base_dir.resolve()
     try:
         resolved.relative_to(base_resolved)
-    except ValueError as e:
-        raise ValueError(f"Ruta intenta escapar del directorio del proyecto: {path_str}") from e
+    except ValueError as error:
+        raise ValueError(
+            f"Ruta intenta escapar del directorio del proyecto: {path_str}"
+        ) from error
 
     return resolved
 
@@ -313,7 +334,20 @@ def _validated_conversation(raw: object) -> list[ChatMessage]:
     return conversation
 
 
+# Tope de lectura del archivo de proyecto: es JSON pequeño por diseño (ruta del
+# artículo + hasta 30 mensajes de conversación). Sin este límite, un .json de
+# proyecto corrupto o manipulado con un tamaño desmedido se cargaba entero en
+# memoria antes de que cualquier validación pudiera rechazarlo.
+MAX_PROJECT_BYTES = 2 * 1024 * 1024
+
+
 def load_project(path: Path) -> dict:
+    size = path.stat().st_size
+    if size > MAX_PROJECT_BYTES:
+        raise ValueError(
+            f"El proyecto pesa {size:,} bytes y supera el límite de "
+            f"{MAX_PROJECT_BYTES // (1024 * 1024)} MB."
+        )
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or "document" not in data:
         raise ValueError("Proyecto no válido.")

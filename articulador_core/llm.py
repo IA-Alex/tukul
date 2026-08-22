@@ -175,7 +175,10 @@ class LLMClient:
             if cancel_event is not None and cancel_event.is_set():
                 return None
             try:
-                return urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS)
+                # Bandit B310 (urlopen scheme audit) suprimido abajo: el esquema
+                # ya se valida en validate_endpoint() (solo http(s), y http: solo
+                # hacia loopback) antes de construir `request`.
+                return urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS)  # nosec B310
             except urllib.error.HTTPError as error:
                 last_error = error
                 if error.code not in RETRYABLE_STATUS:
