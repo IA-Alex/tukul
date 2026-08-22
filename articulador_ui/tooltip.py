@@ -33,6 +33,17 @@ class ToolTip:
         self._cancelar()
         self._id = self.widget.after(self.demora, self._mostrar)
 
+    def set_texto(self, texto: str) -> None:
+        """Actualiza la pista (p. ej. al cambiar de tema) sin recrear el registro."""
+        self.texto = texto
+        if self._ventana is not None:
+            try:
+                for hijo in self._ventana.winfo_children():
+                    if isinstance(hijo, tk.Label):
+                        hijo.config(text=self.texto)
+            except tk.TclError:
+                pass
+
     def _mostrar(self) -> None:
         self._id = None
         if not self.widget.winfo_exists() or not self.widget.winfo_ismapped():

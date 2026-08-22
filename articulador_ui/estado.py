@@ -26,13 +26,18 @@ from articulador_ui import estilo
 
 @dataclass(frozen=True)
 class Estado:
-    """Presentación de un estado de la conversación."""
+    """Presentación de un estado de la conversación.
+
+    `token` nombra el color en la paleta activa (`estilo.token`): el valor real
+    se resuelve al consultarlo, de modo que un cambio de tema se refleja al
+    instante sin reconstruir ni los estados ni la ventana.
+    """
 
     clave: str
     simbolo: str
     titulo: str
     ayuda: str
-    color: str
+    token: str
 
     def descripcion_accesible(self, detalle: str = "") -> str:
         """Texto para lectores de pantalla: estado, explicación y detalle."""
@@ -48,32 +53,32 @@ class EstadoUI(Enum):
     REPOSO = Estado(
         "reposo", "○", "En reposo",
         "Escribe un mensaje y pulsa Enviar",
-        estilo.ESTADO_NEUTRO,
+        "estado_neutro",
     )
     PREPARANDO = Estado(
         "preparando", "◐", "Preparando contexto",
         "Buscando en tus artículos locales lo relevante para la consulta",
-        estilo.ESTADO_PROCESO,
+        "estado_proceso",
     )
     TRANSMITIENDO = Estado(
         "transmitiendo", "◉", "Recibiendo respuesta",
         "El modelo está escribiendo; puedes cancelar en cualquier momento",
-        estilo.ACENTO,
+        "acento",
     )
     EXITO = Estado(
         "exito", "✓", "Respuesta completa",
         "La respuesta llegó entera",
-        estilo.ESTADO_EXITO,
+        "estado_exito",
     )
     ERROR = Estado(
         "error", "✕", "No se pudo completar",
         "Revisa la conexión, el modelo o los límites del perfil",
-        estilo.ESTADO_ERROR,
+        "estado_error",
     )
     CANCELADO = Estado(
         "cancelado", "⊘", "Cancelado",
         "Se descartará la respuesta que llegue tarde",
-        estilo.ESTADO_AVISO,
+        "estado_aviso",
     )
 
     @property
@@ -90,7 +95,7 @@ class EstadoUI(Enum):
 
     @property
     def color(self) -> str:
-        return self.value.color
+        return estilo.token(self.value.token)
 
     def etiqueta(self, detalle: str = "") -> str:
         """Línea visible: símbolo + título, más el detalle concreto si lo hay."""

@@ -50,13 +50,9 @@ class ContextArticle:
     label: str
     content: str
 
-# Compatibilidad para los diálogos, que leen app.COLORS. El sistema visual vive
-# en articulador_ui/estilo.py y es la fuente única.
-COLORS = {"bg": es.FONDO, "panel": es.SUPERFICIE, "raised": es.SUPERFICIE_ALTA,
-          "field": es.SUPERFICIE_ALTA, "text": es.TEXTO, "muted": es.TEXTO_TENUE,
-          "muted_light": es.TEXTO_TENUE, "accent": es.ACENTO,
-          "accent_text": es.ACENTO_TEXTO, "border": es.BORDE,
-          "selection": es.SELECCION, "assistant": es.VOZ_ASISTENTE}
+# Compatibilidad con los diálogos, que leían `app.COLORS`: ahora es una
+# instantánea regenerada en cada `_theme()` desde `es.colores()` (el sistema
+# visual vive en articulador_ui/estilo.py y es la fuente única de color).
 REVIEW_PROMPT = (
     'Revisa el artículo y responde SOLO JSON válido: '
     '{"findings":[{"category":"ortografía|gramática|semántica|redundancia|estructura",'
@@ -69,16 +65,17 @@ logger = setup_logging()
 class ArticuladorApp(tk.Tk):
     def __init__(self, config_path: Path = storage.CONFIG_PATH) -> None:
         super().__init__()
-        # UI config
-        self.COLORS = COLORS
         self.title("Articulador")
         self.config_path = config_path
-        # Estado de interfaz persistente: zoom, geometría, recientes y
+        # Estado de interfaz persistente: zoom, geometría, tema, recientes y
         # conversaciones. Vive junto al config para que una instalación tenga un
         # único directorio de estado y los tests puedan aislarlo.
         self.ui_state = storage.load_ui_state(config_path)
         # El zoom se aplica antes del tema para que las fuentes nazcan escaladas.
         es.ZOOM = self._zoom_validado(self.ui_state.get("zoom"))
+        # El tema se valida de forma defensiva antes de pintar nada: un valor
+        # extraño (o un estado.json corrupto) nunca rompe el arranque.
+        self.theme = self._tema_validado(self.ui_state.get("theme"))
         # El tamaño se calcula UNA vez, aquí y de forma síncrona. Antes se fijaba
         # un valor y 100 ms después un `after` lo sobrescribía, pisando también
         # cualquier geometría que el usuario o quien integra la app hubiera
@@ -129,6 +126,12 @@ class ArticuladorApp(tk.Tk):
         # Tk encola <<Modified>> de forma asíncrona: sin esta bandera, el documento
         # recién abierto se marcaba como "Cambios sin guardar" en el ciclo siguiente.
         self._suppress_modified = False
+        # Estado visible del rótulo de sincronía del documento (clean/dirty/saved):
+        # se repinta al cambiar de tema conservando el estado real del documento.
+        self._sync_estado = "clean"
+        # Diálogos abiertos que deben repintarse al cambiar de tema: pares
+        # (ventana ancla, cómo reaplicar). Se podan solos al destruirse.
+        self._reaplicar_tema_hooks: list[tuple[tk.Misc, Callable[[], None]]] = []
 
         # Contador de generación global (nunca reinicia) para prevenir contaminación de respuestas
         self.generation_counter = 0
@@ -142,7 +145,6 @@ class ArticuladorApp(tk.Tk):
         # finalización de la petición esperando con la conexión abierta.
         self.control_queue: queue.Queue = queue.Queue()
         self.chunks = ChunkBuffer()
-
         self._theme()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -213,8 +215,20 @@ class ArticuladorApp(tk.Tk):
             except tk.TclError:
                 pass
 
+    @staticmethod
+    def _tema_validado(valor: object) -> str:
+        """Convierte el tema persistido a uno válido; 'dark' ante basura."""
+        return es.tema_validado(valor)
+
     def _theme(self) -> None:
-        """Aplica el sistema visual: un fondo, dos superficies, un acento."""
+        """Aplica el sistema visual del tema activo: un fondo, dos superficies.
+
+        Los estilos ttk se repintan en bloque; los widgets Tk con colores
+        directos se reconfiguran en `_reaplicar_estilos_widgets` sin destruir
+        ni recrear nada.
+        """
+        es.aplicar_tema(self.theme)
+        self.COLORS = es.colores()
         self.configure(bg=es.FONDO)
         style = ttk.Style(self)
         try: style.theme_use("clam")
@@ -326,6 +340,141 @@ class ArticuladorApp(tk.Tk):
         style.configure("Horizontal.TScrollbar", background=es.SUPERFICIE_ALTA,
                         troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
                         arrowcolor=es.TEXTO_TENUE, relief="flat")
+        self._reaplicar_estilos_widgets()
+
+    def _cambiar_tema(self) -> None:
+        """Alterna entre oscuro y claro desde el botón de la barra."""
+        self._aplicar_tema("light" if self.theme == "dark" else "dark")
+
+    def _aplicar_tema(self, nombre: object) -> None:
+        """Activa un tema y reaplica el sistema visual sin reconstruir la ventana.
+
+        El cambio es inmediato: no se recrea la ventana, no se tocan el editor,
+        el historial, la selección, el scroll, la petición LLM ni los diálogos
+        abiertos (solo se repintan). La preferencia se persiste al instante con
+        `_guardar_preferencia_tema`: no depende del cierre limpio de la app.
+        """
+        self.theme = es.tema_validado(nombre)
+        self._theme()
+        self._actualizar_boton_tema()
+        nombre_humano = "claro" if self.theme == "light" else "oscuro"
+        self.status.set(f"Tema {nombre_humano} activado.")
+        self._guardar_preferencia_tema()
+
+    def _actualizar_boton_tema(self) -> None:
+        """Mantiene el botón coherente: la etiqueta anuncia la acción, no el color."""
+        if not hasattr(self, "boton_tema") or self.boton_tema is None:
+            return
+        if self.theme == "light":
+            etiqueta = "☾  Cambiar a oscuro"
+            tooltip = "Cambiar a tema oscuro (actual: claro)"
+        else:
+            etiqueta = "☀  Cambiar a claro"
+            tooltip = "Cambiar a tema claro (actual: oscuro)"
+        self.boton_tema.config(text=etiqueta)
+        if getattr(self, "tooltip_tema", None) is not None:
+            self.tooltip_tema.set_texto(tooltip)
+
+    def _sincronizar_estado_sync(self, estado: str) -> None:
+        """Rótulo del documento: símbolo + texto + color, nunca solo color."""
+        self._sync_estado = estado
+        if estado == "dirty":
+            texto, color = "●  Cambios sin guardar", es.ESTADO_AVISO
+        elif estado == "saved":
+            texto, color = "✓  Guardado", es.ESTADO_EXITO
+        else:
+            texto, color = "○  Sin cambios", es.TEXTO_TENUE
+        self.sync_label.config(text=texto, foreground=color)
+
+    def _configurar_tags_historial(self) -> None:
+        """Colores y fuentes de los bloques del historial (se reaplican al cambiar de tema)."""
+        self.history.tag_configure(
+            "rotulo_usuario", foreground=es.VOZ_USUARIO, font=es.fuente(es.TIPO_SM, negrita=True),
+            spacing1=es.ESP["sm"], spacing3=2, lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"])
+        self.history.tag_configure(
+            "cuerpo_usuario", foreground=es.TEXTO, background=es.SUPERFICIE,
+            lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"], rmargin=es.ESP["sm"],
+            spacing1=2, spacing2=2, spacing3=es.ESP["sm"])
+        self.history.tag_configure(
+            "rotulo_bot", foreground=es.VOZ_ASISTENTE, font=es.fuente(es.TIPO_SM, negrita=True),
+            spacing1=es.ESP["sm"], spacing3=2, lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"])
+        self.history.tag_configure(
+            "cuerpo_bot", foreground=es.TEXTO,
+            lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"], rmargin=es.ESP["sm"],
+            spacing1=2, spacing2=2, spacing3=es.ESP["sm"])
+        self.history.tag_configure(
+            "nota", foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM),
+            lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"], rmargin=es.ESP["sm"],
+            spacing1=es.ESP["sm"], spacing3=es.ESP["sm"])
+        self.history.tag_configure("separacion", spacing3=es.ESP["xs"])
+        # Compatibilidad con los nombres antiguos de etiqueta.
+        self.history.tag_configure("you", foreground=es.VOZ_USUARIO, font=es.fuente(negrita=True))
+        self.history.tag_configure("bot", foreground=es.VOZ_ASISTENTE, font=es.fuente(negrita=True))
+
+    def _reaplicar_estilos_widgets(self) -> None:
+        """Reaplica colores directos (Tk) a los widgets ya creados.
+
+        Los estilos ttk se repintan solos al reconfigurar `ttk.Style`; los
+        widgets Tk (Text/ScrolledText, Listbox, Menus) reciben colores por
+        `.configure()` y hay que volver a aplicárselos sin destruirlos.
+        """
+        if getattr(self, "editor", None) is not None and self.editor.winfo_exists():
+            self.editor.configure(background=es.SUPERFICIE, foreground=es.TEXTO,
+                                  insertbackground=es.ACENTO, selectbackground=es.SELECCION,
+                                  highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
+        if getattr(self, "input", None) is not None and self.input.winfo_exists():
+            self.input.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                                 insertbackground=es.ACENTO, selectbackground=es.SELECCION,
+                                 highlightbackground=es.SUPERFICIE_ALTA, highlightcolor=es.FOCO)
+        if getattr(self, "history", None) is not None and self.history.winfo_exists():
+            self.history.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                                   insertbackground=es.ACENTO, selectbackground=es.SELECCION,
+                                   highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
+            self._configurar_tags_historial()
+        # Etiqueta de aprobación de contexto: colores directos sobre ttk.Label.
+        if getattr(self, "aprobacion_label", None) is not None and self.aprobacion_label.winfo_exists():
+            self.aprobacion_label.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO)
+        # Estado del documento: símbolo + texto + color (nunca solo color).
+        if getattr(self, "sync_label", None) is not None and self.sync_label.winfo_exists():
+            self._sincronizar_estado_sync(getattr(self, "_sync_estado", "clean"))
+        # Estado de conversación: se repinta el color vigente; el resto viaja aparte.
+        estado_actual = getattr(self, "estado_actual", None)
+        if estado_actual is not None and getattr(self, "estado_label", None) is not None:
+            if self.estado_label.winfo_exists():
+                self.estado_label.config(foreground=estado_actual.color)
+        self._reaplicar_tema_menus()
+        self._reaplicar_tema_dialogos()
+
+    def _reaplicar_tema_menus(self) -> None:
+        """Repinta los menús Tk de la barra (no obedecen a ttk.Style)."""
+        for menu in (getattr(self, "menu_archivo", None), getattr(self, "menu_recientes", None)):
+            if menu is None:
+                continue
+            try:
+                menu.config(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                            activebackground=es.ACENTO, activeforeground=es.ACENTO_TEXTO)
+            except tk.TclError:
+                pass
+
+    def _registrar_reaplicar_tema(self, ancla: tk.Misc, reaplicar: Callable[[], None]) -> None:
+        """Registra cómo repintar un diálogo abierto cuando cambie el tema.
+
+        `ancla` es la ventana (Toplevel) que da de alta el cierre: cuando se
+        destruye, el gancho se poda solo en la siguiente reaplicación.
+        """
+        self._reaplicar_tema_hooks.append((ancla, reaplicar))
+
+    def _reaplicar_tema_dialogos(self) -> None:
+        """Reaplica el tema a los diálogos abiertos sin recrearlos ni perder su estado."""
+        vivos: list[tuple[tk.Misc, Callable[[], None]]] = []
+        for ancla, reaplicar in self._reaplicar_tema_hooks:
+            try:
+                if ancla.winfo_exists():
+                    reaplicar()
+                    vivos.append((ancla, reaplicar))
+            except tk.TclError:
+                pass  # El diálogo se destruyó; se olvida en la siguiente pasada.
+        self._reaplicar_tema_hooks = vivos
 
     def _text(self, parent, **kwargs):
         """Área de texto del sistema, con foco visible por teclado."""
@@ -415,15 +564,23 @@ class ArticuladorApp(tk.Tk):
         self.boton_panel = ttk.Button(self.barra, text="◧  Ocultar panel IA  (F6)",
                                       command=self.toggle_asistente)
         self.boton_panel.pack(side="right")
+        # Acción secundaria de tema: visible en la barra, operable con teclado y
+        # con tooltip. La etiqueta anuncia la acción (y de paso el tema vigente).
+        self.boton_tema = ttk.Button(self.barra, style="Plana.TButton",
+                                     command=self._cambiar_tema)
+        self.boton_tema.pack(side="right", padx=(0, es.ESP["sm"]))
         self.profile_chip = ttk.Button(
             self.barra, text=f"Modelo: {self.profile.model or 'sin configurar'}",
             style="Plana.TButton", command=self.settings)
         self.profile_chip.pack(side="right", padx=(0, es.ESP["sm"]))
+        self._actualizar_boton_tema()
 
         ToolTip(self.boton_menu, "Archivo: abrir, guardar y proyectos")
         ToolTip(self.boton_guardar, "Guardar el artículo (Ctrl+S)")
         ToolTip(self.references_button, "Gestionar los artículos de contexto")
         ToolTip(self.boton_panel, "Mostrar u ocultar el panel IA (F6)")
+        self.tooltip_tema = ToolTip(self.boton_tema, "Cambiar de tema claro/oscuro")
+        self._actualizar_boton_tema()
         ToolTip(self.profile_chip, "Cambiar el modelo y sus ajustes")
 
     def _build_editor(self, panes) -> None:
@@ -496,10 +653,12 @@ class ArticuladorApp(tk.Tk):
         self.barra_aprobacion = ttk.Frame(chat, style="Alta.TFrame",
                                           padding=(es.ESP["sm"], es.ESP["sm"]))
         self.aprobacion_texto = tk.StringVar(value="")
-        ttk.Label(self.barra_aprobacion, textvariable=self.aprobacion_texto,
-                  background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                  font=es.fuente(es.TIPO_SM), wraplength=300,
-                  justify="left").pack(fill="x")
+        self.aprobacion_label = ttk.Label(self.barra_aprobacion,
+                                          textvariable=self.aprobacion_texto,
+                                          background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                                          font=es.fuente(es.TIPO_SM), wraplength=300,
+                                          justify="left")
+        self.aprobacion_label.pack(fill="x")
         acciones = ttk.Frame(self.barra_aprobacion, style="Alta.TFrame")
         acciones.pack(fill="x", pady=(es.ESP["sm"], 0))
         self.boton_aprobar = ttk.Button(acciones, text="Enviar artículos",
@@ -517,29 +676,8 @@ class ArticuladorApp(tk.Tk):
         # Bloques de conversación. Tk no tiene cajas con borde dentro de un Text,
         # así que la separación se expresa con fondo, sangría y margen: el turno
         # se distingue por forma y posición, no solo por el color del rótulo.
-        self.history.tag_configure(
-            "rotulo_usuario", foreground=es.VOZ_USUARIO, font=es.fuente(es.TIPO_SM, negrita=True),
-            spacing1=es.ESP["sm"], spacing3=2, lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"])
-        self.history.tag_configure(
-            "cuerpo_usuario", foreground=es.TEXTO, background=es.SUPERFICIE,
-            lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"], rmargin=es.ESP["sm"],
-            spacing1=2, spacing2=2, spacing3=es.ESP["sm"])
-        self.history.tag_configure(
-            "rotulo_bot", foreground=es.VOZ_ASISTENTE, font=es.fuente(es.TIPO_SM, negrita=True),
-            spacing1=es.ESP["sm"], spacing3=2, lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"])
-        self.history.tag_configure(
-            "cuerpo_bot", foreground=es.TEXTO,
-            lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"], rmargin=es.ESP["sm"],
-            spacing1=2, spacing2=2, spacing3=es.ESP["sm"])
-        # Nota de sistema: ni voz del usuario ni del asistente.
-        self.history.tag_configure(
-            "nota", foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM),
-            lmargin1=es.ESP["sm"], lmargin2=es.ESP["sm"], rmargin=es.ESP["sm"],
-            spacing1=es.ESP["sm"], spacing3=es.ESP["sm"])
-        self.history.tag_configure("separacion", spacing3=es.ESP["xs"])
-        # Compatibilidad con los nombres antiguos de etiqueta.
-        self.history.tag_configure("you", foreground=es.VOZ_USUARIO, font=es.fuente(negrita=True))
-        self.history.tag_configure("bot", foreground=es.VOZ_ASISTENTE, font=es.fuente(negrita=True))
+        # El método también lo reaplica al cambiar de tema/zoom.
+        self._configurar_tags_historial()
 
     def _build_pie(self) -> None:
         """Una sola fila con el estado a la izquierda y las métricas a la derecha.
@@ -824,7 +962,7 @@ class ArticuladorApp(tk.Tk):
         if not self.editor.edit_modified(): return
         self.editor.edit_modified(False)
         if self._suppress_modified: return  # Carga programática, no edición del usuario.
-        self.session.dirty=True; self.sync_label.config(text="●  Cambios sin guardar", foreground=es.ESTADO_AVISO); self.update_context(); self.schedule_stats(); self._schedule_autosave()
+        self.session.dirty=True; self._sincronizar_estado_sync("dirty"); self.update_context(); self.schedule_stats(); self._schedule_autosave()
 
     def _schedule_autosave(self) -> None:
         """Programa (o rearma) el respaldo de recuperación tras una edición."""
@@ -953,7 +1091,7 @@ class ArticuladorApp(tk.Tk):
                     "de contexto se conservan para continuar el trabajo.",
                     es_respuesta=False)
         self._registrar_reciente(path)
-        self.session.dirty=False; self.sync_label.config(text="○  Sin cambios", foreground=es.TEXTO_TENUE)
+        self.session.dirty=False; self._sincronizar_estado_sync("clean")
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
         return True
 
@@ -1640,7 +1778,17 @@ class ArticuladorApp(tk.Tk):
         ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         refresh()
+        self._registrar_reaplicar_tema(dialog,
+                                       lambda: self._reaplicar_tema_contexto(dialog, entries))
         entries.focus_set()
+
+    def _reaplicar_tema_contexto(self, dialog: tk.Toplevel, entries: tk.Listbox) -> None:
+        """Repinta el diálogo de contexto al cambiar de tema, sin perder la lista."""
+        dialog.configure(bg=es.SUPERFICIE)
+        entries.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                          selectbackground=es.SELECCION, selectforeground=es.TEXTO,
+                          highlightbackground=es.BORDE, highlightcolor=es.FOCO)
+
     def save_document(self, save_as: bool = False)->bool:
         previous_path = self.session.document_path
         if save_as or previous_path is None:
@@ -1670,7 +1818,7 @@ class ArticuladorApp(tk.Tk):
         self.scope.document_path = self.session.document_path
 
         # Marcar como guardado y actualizar UI
-        self.sync_label.config(text="✓  Guardado", foreground=es.ESTADO_EXITO)
+        self._sincronizar_estado_sync("saved")
         self.status.set("Artículo guardado.")
         return True
     def save_project(self):
@@ -1718,7 +1866,7 @@ class ArticuladorApp(tk.Tk):
         self._clear_history_widget()
         for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Articulador",item.content)
         self._enter_document_scope(self.session.document_path)
-        self.session.dirty=False; self.sync_label.config(text="○  Sin cambios", foreground=es.TEXTO_TENUE)
+        self.session.dirty=False; self._sincronizar_estado_sync("clean")
         self.update_context(); self.schedule_stats()
         self.status.set("Proyecto abierto.")
 
@@ -1824,20 +1972,49 @@ class ArticuladorApp(tk.Tk):
             vigentes.add(str(self.session.document_path))
         return {ruta: turnos for ruta, turnos in conversaciones.items() if ruta in vigentes}
 
+    def _snapshot_estado_ui(self) -> dict:
+        """Instantánea completa del estado de interfaz con los valores vivos.
+
+        Geometría, visibilidad del panel, zoom, tema, recientes y conversaciones
+        se leen de la ventana y de la sesión en el momento de escribir, nunca de
+        una copia congelada. Es la única forma de construir lo que llega a
+        `estado.json`: la usa tanto el cierre (`_guardar_estado_ui`) como la
+        persistencia inmediata del tema (`_guardar_preferencia_tema`), de modo
+        que el tema nunca pisa el resto de preferencias.
+        """
+        estado = dict(self.ui_state)
+        estado["geometry"] = self.geometry()
+        estado["panel_visible"] = self.asistente_visible
+        estado["zoom"] = es.ZOOM
+        estado["theme"] = self.theme
+        estado["recent"] = self.recent_paths
+        conversaciones = estado.get("conversations", {})
+        if not isinstance(conversaciones, dict):
+            conversaciones = {}
+        estado["conversations"] = self._podar_conversaciones(conversaciones)
+        return estado
+
+    def _guardar_preferencia_tema(self) -> None:
+        """Persiste el tema de inmediato, de forma atómica y defensiva.
+
+        Se llama desde `_aplicar_tema` en cada cambio: la preferencia sobrevive a
+        una terminación abrupta sin esperar al cierre de la aplicación. Escribe la
+        instantánea completa (nunca solo la clave `theme`, para no pisar el resto
+        de preferencias) con la escritura atómica de `storage`. Un fallo de
+        escritura se registra y se ignora: el cambio visual ya está aplicado y no
+        se revierte.
+        """
+        try:
+            self.ui_state["theme"] = self.theme
+            storage.save_ui_state(self._snapshot_estado_ui(), self.config_path)
+        except Exception:
+            logger.warning("No se pudo guardar la preferencia de tema", exc_info=True)
+
     def _guardar_estado_ui(self) -> None:
         """Vuelca el estado de interfaz al disco; best-effort, nunca rompe el cierre."""
         try:
             self._persistir_conversacion_en_memoria(self.session.document_path)
-            estado = dict(self.ui_state)
-            estado["geometry"] = self.geometry()
-            estado["panel_visible"] = self.asistente_visible
-            estado["zoom"] = es.ZOOM
-            estado["recent"] = self.recent_paths
-            conversaciones = estado.get("conversations", {})
-            if not isinstance(conversaciones, dict):
-                conversaciones = {}
-            estado["conversations"] = self._podar_conversaciones(conversaciones)
-            storage.save_ui_state(estado, self.config_path)
+            storage.save_ui_state(self._snapshot_estado_ui(), self.config_path)
         except Exception:
             logger.warning("No se pudo guardar el estado de interfaz", exc_info=True)
 

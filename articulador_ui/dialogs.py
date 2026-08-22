@@ -101,6 +101,22 @@ def _apply_suggestion(app, dialog, item: dict[str, str]) -> bool:
     return True
 
 
+def _reaplicar_tema_revision(app, dialog: tk.Toplevel, items: tk.Listbox, box) -> None:
+    """Repinta el diálogo de revisión al cambiar de tema sin reconstruirlo.
+
+    Gancho registrado por `show_review_dialog`: `app` se conserva solo para
+    mantener la firma homogénea de los ganchos de tema.
+    """
+    dialog.configure(bg=es.FONDO)
+    items.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                    selectbackground=es.SELECCION, selectforeground=es.TEXTO,
+                    highlightbackground=es.BORDE, highlightcolor=es.FOCO)
+    box.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+                  insertbackground=es.ACENTO, selectbackground=es.SELECCION,
+                  highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
+    box.tag_configure("rotulo", foreground=es.TEXTO_TENUE)
+
+
 def show_review_dialog(app, findings: list[dict[str, str]]):
     """Muestra los hallazgos de una revisión. Devuelve el Toplevel creado.
 
@@ -135,6 +151,9 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     box.pack(fill="both", expand=True)
     box.tag_configure("rotulo", foreground=es.TEXTO_TENUE,
                       font=es.fuente(es.TIPO_SM, negrita=True))
+
+    app._registrar_reaplicar_tema(
+        dialog, lambda: _reaplicar_tema_revision(app, dialog, items, box))
 
     def show(_event=None) -> None:
         if not items.curselection():
@@ -246,6 +265,9 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
 
 def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gestión de perfiles)
     dialog, frame = _abrir_dialogo(app, "Configurar modelo")
+    # Todo el cuerpo usa estilos ttk (se repintan solos); solo el fondo del
+    # Toplevel es un color directo que hay que reaplicar al cambiar de tema.
+    app._registrar_reaplicar_tema(dialog, lambda: dialog.configure(bg=es.FONDO))
 
     # Copia de trabajo: los cambios se persisten al disco solo al Guardar.
     working: dict[str, LlmProfile] = dict(app.profiles)
