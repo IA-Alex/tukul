@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import queue
 import threading
@@ -11,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
-from typing import TypeAlias
 
 from articulador_core import storage
 from articulador_core.autosave import clear_autosave, read_autosave, write_autosave
@@ -23,6 +21,7 @@ from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
 from articulador_ui import estilo as es
 from articulador_ui.chunk_buffer import ChunkBuffer
+from articulador_ui.context_approval import ContextApprovalCache, ContextApprovalKey
 from articulador_ui.dialogs import show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
 from articulador_ui.document_scope import DocumentScope
@@ -38,8 +37,6 @@ MAX_CONTEXT_EXCERPT_CHARS = 3_000
 MAX_INDEXED_FILE_BYTES = 50_000
 # Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
 AUTOSAVE_INTERVAL_MS = 5000
-
-ContextApprovalKey: TypeAlias = tuple[str, str, str, tuple[str, ...], str]
 
 
 @dataclass(frozen=True)
@@ -101,7 +98,7 @@ class ArticuladorApp(tk.Tk):
         # Session & UI state (referencia dinámica a través de property)
         # dict-como-conjunto-ordenado: autorizaciones de contexto por destino
         # (endpoint, proveedor y modelo), con desalojo FIFO real.
-        self.approved_contexts: dict[ContextApprovalKey, None] = {}
+        self.approved_contexts = ContextApprovalCache()
         # Todo el estado derivado del documento vive en un único objeto que se
         # reemplaza entero al cambiar de artículo (ver DocumentScope).
         self.scope = DocumentScope()
@@ -1279,7 +1276,7 @@ class ArticuladorApp(tk.Tk):
         # Lo que el usuario aprueba son los FRAGMENTOS locales: la huella cubre el
         # paquete de contexto, no el artículo ni la conversación. Con el prompt
         # completo el hash cambiaba en cada mensaje y el diálogo salía siempre.
-        key = self._context_approval_key(profile, packet, files)
+        key = self.approved_contexts.key_for(profile, packet, files)
 
         def lanzar() -> None:
             self._lanzar_envio(request_id, profile, message, selected, packet,
@@ -1291,28 +1288,6 @@ class ArticuladorApp(tk.Tk):
             self._pedir_aprobacion(request_id, files, key, lanzar)
             return
         lanzar()
-
-    @staticmethod
-    def _context_approval_key(profile: LlmProfile, packet: str,
-                              files: list[str]) -> ContextApprovalKey:
-        """Identifica contenido y destinatario exactos de una autorización."""
-        content_hash = hashlib.sha256(packet.encode("utf-8")).hexdigest()[:16]
-        return (profile.endpoint, profile.provider, profile.model, tuple(files), content_hash)
-
-    def _remember_context_approval(self, profile: LlmProfile, packet: str,
-                                   files: list[str]) -> None:
-        """Registra una autorización de sesión sin iniciar una petición."""
-        if not files:
-            return
-        self._remember_context_approval_key(self._context_approval_key(profile, packet, files))
-
-    def _remember_context_approval_key(self, key: ContextApprovalKey) -> None:
-        """Guarda una autorización ya calculada respetando el tope FIFO."""
-        if key in self.approved_contexts:
-            self.approved_contexts.pop(key)
-        while len(self.approved_contexts) >= 128:
-            self.approved_contexts.pop(next(iter(self.approved_contexts)), None)
-        self.approved_contexts[key] = None
 
     def _lanzar_envio(self, request_id, profile, message, selected, packet,
                       conversation_with_message, files, request_type, cancel_event) -> None:
@@ -1355,7 +1330,7 @@ class ArticuladorApp(tk.Tk):
             self._ocultar_aprobacion()
             # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
             # entero obligaba a reconfirmar todo de golpe.
-            self._remember_context_approval_key(key)
+            self.approved_contexts.remember(key)
             al_aceptar()
 
         def rechazar() -> None:
@@ -1666,7 +1641,7 @@ class ArticuladorApp(tk.Tk):
     def _authorize_context_articles(self) -> None:
         """Autoriza el conjunto actual para el destinatario activo, una sola vez."""
         packet, files = self._reference_packet()
-        self._remember_context_approval(self.profile, packet, files)
+        self.approved_contexts.remember_for(self.profile, packet, files)
 
     def _ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
         """La autorización ocurre al añadir contexto, nunca al enviar después."""
