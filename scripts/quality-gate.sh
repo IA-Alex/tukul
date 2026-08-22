@@ -9,6 +9,8 @@ cd "$PROJECT_ROOT" || exit 1
 
 PYTHON="${PYTHON:-python3}"
 FAILED=0
+TEST_REPORT="$(mktemp "${TMPDIR:-/tmp}/articulador-tests.XXXXXX.xml")"
+trap 'rm -f "$TEST_REPORT"' EXIT
 
 paso() { echo ""; echo "== $1 =="; }
 
@@ -27,17 +29,41 @@ else
 fi
 
 paso "pytest + cobertura"
-# Misma orden que el CI: bajo X si no hay display, para que la interfaz no se
-# salte en silencio y la cobertura refleje el código real.
+# Igual que en CI, el gate local exige que Tk sea operativo. Sin esta prueba,
+# pytest puede marcar toda la interfaz como `skipped` y producir una señal verde
+# engañosa con una cobertura artificialmente baja.
 if command -v xvfb-run >/dev/null 2>&1; then
     RUNNER=(xvfb-run -a)
 else
     RUNNER=()
 fi
-if "${RUNNER[@]}" "$PYTHON" -m pytest -q -rs \
+if ! "${RUNNER[@]}" "$PYTHON" -c \
+        'import tkinter as tk; root = tk.Tk(); root.destroy(); print("Tk operativo")'; then
+    echo "   ✗ Tk no pudo abrir una ventana; no se ejecuta la suite gráfica." >&2
+    echo "     Revisa Xvfb/DISPLAY antes de interpretar la cobertura." >&2
+    FAILED=1
+elif "${RUNNER[@]}" "$PYTHON" -m pytest -q -rs \
+        --junitxml="$TEST_REPORT" \
         --cov=articulador_core --cov=articulador_ui \
         --cov-report=term-missing --cov-fail-under=70; then
-    echo "   ✓ pytest"
+    if "$PYTHON" - "$TEST_REPORT" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+skipped = sum(int(suite.get("skipped", 0)) for suite in suites)
+total = sum(int(suite.get("tests", 0)) for suite in suites)
+print(f"   {total} pruebas registradas, {skipped} omitidas")
+if skipped:
+    print("   ✗ Hay pruebas omitidas; la cobertura de interfaz no es válida.", file=sys.stderr)
+    raise SystemExit(1)
+PY
+    then
+        echo "   ✓ pytest"
+    else
+        FAILED=1
+    fi
 else
     FAILED=1
 fi
