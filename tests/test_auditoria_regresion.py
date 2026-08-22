@@ -35,7 +35,7 @@ from articulador_ui.document_scope import DocumentScope
 from articulador_ui.estado import EstadoUI
 
 
-def _esperar_hilo_de_envio(app: ArticuladorApp, desde: int = 0, timeout: float = 2.0) -> None:
+def _esperar_hilo_de_envio(app: ArticuladorApp, desde: int = 0, timeout: float = 5.0) -> None:
     """Espera a que el hilo daemon de `confirm_and_send` invoque `app.llm.stream_response`.
 
     `confirm_and_send()` lanza un hilo real; mantener el parche activo hasta
@@ -43,6 +43,15 @@ def _esperar_hilo_de_envio(app: ArticuladorApp, desde: int = 0, timeout: float =
     el test termina. Sin esta espera, ese hilo puede seguir sin arrancar
     minutos después —bajo la carga de la suite completa— y aparecer en medio
     de un test totalmente distinto, colisionando con Tk desde otro hilo.
+
+    El límite se subió de 2.0s a 5.0s: 2s resultaba insuficiente en algunas
+    ejecuciones bajo cobertura (`--cov`) con la suite completa ya corrida en
+    el mismo proceso. Sigue habiendo un caso residual —solo reproducido con
+    `--cov` + `--junitxml` + los 221 tests juntos, nunca en aislamiento— donde
+    la espera se agota igualmente; ver la nota de la auditoría 2026-08-21 en
+    el historial de commits antes de subir este número de nuevo: no parece
+    ser una cuestión de cuánto se espera, sino de orden/composición de la
+    suite, y merece su propia investigación en vez de un timeout mayor.
 
     `desde` es el `call_count` antes de invocar `confirm_and_send`: un mismo
     test puede enviar varias veces sobre el mismo mock, así que comprobar solo
@@ -386,8 +395,18 @@ class TestAprobacionDeContexto(unittest.TestCase):
         dentro de `confirm_and_send`) el hilo de envío ya se lanzó al volver
         de aquí; solo falta esperar a que realmente llegue a ejecutarse antes
         de que el test termine y arrastre esa espera a otro test distinto.
+
+        `winfo_ismapped()` refleja el resultado de `pack()` solo después de que
+        el gestor de geometría procesó la solicitud: un único `update()` no
+        siempre alcanza si el servidor X tarda en confirmarlo (visto de forma
+        intermitente bajo Xvfb con la suite corriendo bajo `--cov`). Se
+        reintenta brevemente en vez de asumir que un solo ciclo basta.
         """
+        limite = time.monotonic() + 1.0
         self.app.update()
+        while not self.app.barra_aprobacion.winfo_ismapped() and time.monotonic() < limite:
+            time.sleep(0.01)
+            self.app.update()
         pregunto = False
         if self.app.barra_aprobacion.winfo_ismapped():
             self.app.boton_aprobar.invoke()
