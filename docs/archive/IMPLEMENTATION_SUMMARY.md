@@ -24,7 +24,7 @@ Se implementaron **dos fases de reparación crítica** eliminando 5 hallazgos de
 ## FASE 1: Cinco Fixes Críticos
 
 ### 1. ✅ Reenvío Sin Reconfirmación → Clave Granular
-**Línea:** [app.py:381-384](articulador_ui/app.py#L381)
+**Línea:** [app.py:381-384](../../articulador_ui/app.py#L381)
 
 **Antes:**
 ```python
@@ -46,7 +46,7 @@ key = (self.profile.endpoint, self.profile.provider, tuple(files), content_hash)
 ---
 
 ### 2. ✅ Error de Streaming Oculto → Banner Visible
-**Línea:** [app.py:426-438](articulador_ui/app.py#L426)
+**Línea:** [app.py:426-438](../../articulador_ui/app.py#L426)
 
 **Antes:**
 ```python
@@ -70,7 +70,7 @@ self.session.conversation.append(ChatMessage("assistant", partial))  # ← No er
 ---
 
 ### 3. ✅ Cola de Eventos Bloqueante → put_nowait() Seguro
-**Línea:** [app.py:119-141](articulador_ui/app.py#L119)
+**Línea:** [app.py:119-141](../../articulador_ui/app.py#L119)
 
 **Antes:**
 ```python
@@ -95,7 +95,7 @@ def _queue_event(self, event: tuple) -> None:
 ---
 
 ### 4. ✅ Límite de Respuesta Incorrecto → Techo RAM Independiente
-**Línea:** [llm_session_manager.py:54-74](articulador_ui/llm_session_manager.py#L54)
+**Línea:** [llm_session_manager.py:54-74](../../articulador_ui/llm_session_manager.py#L54)
 
 **Antes:**
 ```python
@@ -117,7 +117,7 @@ if accumulated_bytes > MAX_RESPONSE_BYTES:
 ---
 
 ### 5. ✅ Parser Sin Validación → Validación Estricta
-**Línea:** [review.py:24-70](articulador_core/review.py#L24)
+**Línea:** [review.py:24-70](../../articulador_core/review.py#L24)
 
 **Antes:**
 ```python
@@ -176,16 +176,16 @@ process_ui_events() → {
 **Garantía:** Ciclo de vida NUNCA cuelga, incluso con UI lenta + 1000 chunks
 
 ### Archivos Clave
-- [app.py:70-83](articulador_ui/app.py#L70) - Definición de colas
-- [app.py:119-141](articulador_ui/app.py#L119) - Enrutamiento
-- [app.py:480-570](articulador_ui/app.py#L480) - Consumer priorizado
-- [docs/QUEUE_POLICY.md](docs/QUEUE_POLICY.md) - Documentación completa
+- [app.py:70-83](../../articulador_ui/app.py#L70) - Definición de colas
+- [app.py:119-141](../../articulador_ui/app.py#L119) - Enrutamiento
+- [app.py:480-570](../../articulador_ui/app.py#L480) - Consumer priorizado
+- [docs/QUEUE_POLICY.md](../QUEUE_POLICY.md) - Documentación completa
 
 ---
 
 ## Tests de Regresión
 
-**Suite:** [tests/test_queue_semantics.py](tests/test_queue_semantics.py)
+**Suite:** [tests/test_queue_semantics.py](../../tests/test_queue_semantics.py)
 
 **Cobertura:** 26 tests en 7 clases
 
@@ -323,10 +323,10 @@ articulador_core/models.py             ✅
 
 ## Referencias
 
-- [Queue Policy Documentation](docs/QUEUE_POLICY.md) - Arquitectura detallada
-- [Regression Tests](tests/test_queue_semantics.py) - Cobertura completa
-- [app.py](articulador_ui/app.py) - Implementación principal
-- [review.py](articulador_core/review.py) - Parser validado
+- [Queue Policy Documentation](../QUEUE_POLICY.md) - Arquitectura detallada
+- [Regression Tests](../../tests/test_queue_semantics.py) - Cobertura completa
+- [app.py](../../articulador_ui/app.py) - Implementación principal
+- [review.py](../../articulador_core/review.py) - Parser validado
 
 ---
 

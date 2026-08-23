@@ -11,7 +11,10 @@ Cobertura:
 - save_project explica la restricción de rutas en vez de filtrar un ValueError.
 - La huella de aprobación de contexto es estable entre mensajes.
 - validate_endpoint impide sacar la API key del transporte cifrado.
+- Las redirecciones HTTP no reenvían la API key a otro origen.
+- complete() acota la memoria de la respuesta no streaming.
 """
+import io
 import os
 import queue
 import stat
@@ -494,6 +497,188 @@ class TestLecturaSSEAcotada(unittest.TestCase):
                 return iter((b"data: uno\n", b"data: dos\n"))
 
         self.assertEqual(len(list(LLMClient._iter_lines(Response()))), 2)
+
+
+class TestNoRedireccionDeCredenciales(unittest.TestCase):
+    """Alta: urlopen sigue 3xx conservando Authorization/x-api-key/x-goog-api-key.
+
+    Un endpoint comprometido, mal configurado o controlado por un atacante
+    podría redirigir a otro origen y robar la API key. El cliente debe fallar
+    ante el 3xx sin contactar jamás con el destino redirigido.
+    """
+
+    def test_el_handler_de_redireccion_jamas_devuelve_un_seguimiento(self):
+        from articulador_core.llm import _NoRedirectHandler
+
+        handler = _NoRedirectHandler()
+        self.assertIsNone(
+            handler.redirect_request(
+                object(), None, 302, "Moved",
+                {"Location": "https://otro-origen.example/x"},
+                "https://otro-origen.example/x",
+            )
+        )
+
+    def test_un_302_real_no_reenvia_la_api_key_al_origen_redirigido(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        recibido: dict[str, str] = {}
+
+        class Destino(BaseHTTPRequestHandler):
+            def _registrar(self):
+                recibido["authorization"] = str(self.headers.get("Authorization"))
+                recibido["x-api-key"] = str(self.headers.get("x-api-key"))
+                recibido["x-goog-api-key"] = str(self.headers.get("x-goog-api-key"))
+
+            def do_POST(self):
+                self._registrar()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"choices":[{"message":{"content":"ok"}}]}')
+
+            def do_GET(self):
+                # Si la corrección se revierte, el 302 se sigue como GET (con la
+                # cabecera de autenticación copiada) y la key llega hasta aquí.
+                self._registrar()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"choices":[{"message":{"content":"ok"}}]}')
+
+            def log_message(self, *_args):
+                pass
+
+        destino = ThreadingHTTPServer(("127.0.0.1", 0), Destino)
+        hilo_destino = threading.Thread(target=destino.serve_forever, daemon=True)
+        hilo_destino.start()
+
+        class Redirige(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(302)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{destino.server_port}/v1/chat/completions",
+                )
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        redirige = ThreadingHTTPServer(("127.0.0.1", 0), Redirige)
+        hilo_redirige = threading.Thread(target=redirige.serve_forever, daemon=True)
+        hilo_redirige.start()
+
+        try:
+            profile = LlmProfile(
+                provider="openai_compatible",
+                endpoint=f"http://127.0.0.1:{redirige.server_port}/v1/chat/completions",
+                model="m",
+            )
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(profile, "KEY-SECRETA-DE-PRUEBA", "hola")
+            self.assertIn("302", str(ctx.exception))
+            self.assertEqual(
+                recibido, {}, "El destino de la redirección no debe recibir la API key"
+            )
+        finally:
+            redirige.shutdown()
+            destino.shutdown()
+            redirige.server_close()
+            destino.server_close()
+
+
+class TestRespuestaCompletaAcotada(unittest.TestCase):
+    """Media: complete() no debe cargar en memoria un cuerpo arbitrariamente grande."""
+
+    def _perfil(self):
+        return LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="m")
+
+    def test_content_length_gigante_se_rechaza_sin_leer_el_cuerpo(self):
+        class Response:
+            def __init__(self):
+                self.headers = {"Content-Length": "999999999"}
+
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+
+            def read(self, *_args):
+                raise AssertionError("No debe leerse un cuerpo ya predeclarado como excesivo")
+
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(self._perfil(), "key", "mensaje")
+        self.assertIn("mayor de lo esperado", str(ctx.exception))
+
+    def test_la_lectura_incremental_aborta_al_superar_el_techo(self):
+        from articulador_core.llm import BYTES_PER_OUTPUT_TOKEN, MAX_BODY_OVERHEAD_BYTES
+
+        max_bytes = MAX_BODY_OVERHEAD_BYTES + BYTES_PER_OUTPUT_TOKEN
+        perfil = LlmProfile(
+            provider="openai_compatible", endpoint="https://example.invalid",
+            model="m", max_output_tokens=1,
+        )
+
+        class Response:
+            def __init__(self, cuerpo: bytes):
+                self._buffer = io.BytesIO(cuerpo)
+
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+
+            def read(self, amt: int = -1):
+                return self._buffer.read(amt)
+
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open",
+                   return_value=Response(b"x" * (max_bytes + 4096))):
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(perfil, "key", "mensaje")
+        self.assertIn("mayor de lo esperado", str(ctx.exception))
+
+    def test_el_fallback_iterable_aborta_antes_de_acumular_el_cuerpo_entero(self):
+        from articulador_core.llm import BYTES_PER_OUTPUT_TOKEN, MAX_BODY_OVERHEAD_BYTES
+
+        max_bytes = MAX_BODY_OVERHEAD_BYTES + BYTES_PER_OUTPUT_TOKEN
+        perfil = LlmProfile(
+            provider="openai_compatible", endpoint="https://example.invalid",
+            model="m", max_output_tokens=1,
+        )
+
+        class Response:
+            def __init__(self):
+                self.headers = {}
+
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+
+            def __iter__(self):
+                yield b"x" * max_bytes
+                yield b"x"
+                raise AssertionError("No deben consumirse fragmentos tras exceder el techo")
+
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(perfil, "key", "mensaje")
+        self.assertIn("mayor de lo esperado", str(ctx.exception))
+
+    def test_respuesta_dentro_del_techo_se_acepta(self):
+        perfil = self._perfil()
+        cuerpo = b'{"choices":[{"message":{"content":"ok"}}]}'
+
+        class Response:
+            def __init__(self):
+                self.headers = {"Content-Length": str(len(cuerpo))}
+                self._buffer = io.BytesIO(cuerpo)
+
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+
+            def read(self, amt: int = -1):
+                return self._buffer.read(amt)
+
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+            result = LLMClient().complete(perfil, "key", "mensaje")
+        self.assertEqual(result.content, "ok")
 
 
 class TestCredenciales(unittest.TestCase):

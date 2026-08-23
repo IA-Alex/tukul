@@ -23,6 +23,14 @@ BACKOFF_MAX_SECONDS = 4.0
 # Techo por línea SSE: un proveedor que emita un flujo sin saltos de línea no debe
 # poder agotar la memoria del proceso.
 MAX_SSE_LINE_BYTES = 1_048_576
+# Techos para respuestas completas (no streaming): sin ellos, response.read()
+# cargaba en memoria un cuerpo remoto arbitrariamente grande antes de validarlo.
+# El máximo se deriva de max_output_tokens (≈3.2 caracteres por token, hasta 3
+# bytes en UTF-8, y el JSON puede escaparlos) con margen para usage y metadatos.
+BYTES_PER_OUTPUT_TOKEN = 16
+MAX_BODY_OVERHEAD_BYTES = 64 * 1024
+READ_CHUNK_BYTES = 64 * 1024
+RESPONSE_TOO_LARGE_ERROR = "El proveedor devolvió una respuesta mayor de lo esperado."
 ALLOWED_URL_SCHEMES = {"https", "http"}
 # http:// solo se acepta contra loopback (Ollama y similares); hacia la red abriría
 # la API key en claro.
@@ -37,6 +45,8 @@ HTTP_ERROR_MESSAGES = {
 
 @dataclass(frozen=True)
 class ProviderSpec:
+    """Especificación estática de un proveedor LLM y su protocolo."""
+
     identifier: str
     label: str
     endpoint_hint: str
@@ -57,10 +67,12 @@ PROVIDERS: dict[str, ProviderSpec] = {
 
 
 def provider_spec(identifier: str) -> ProviderSpec:
+    """Devuelve la especificación del proveedor; los desconocidos caen al compatible con OpenAI."""
     return PROVIDERS.get(identifier, PROVIDERS["openai_compatible"])
 
 
 def http_error_message(status: int) -> str:
+    """Traduce un código HTTP de error a un mensaje legible para el usuario."""
     return HTTP_ERROR_MESSAGES.get(status, f"El proveedor respondió HTTP {status}.")
 
 
@@ -89,6 +101,7 @@ def gemini_url(endpoint: str, model: str, stream: bool) -> str:
 
 
 class LlmError(RuntimeError):
+    """Error de la capa LLM con mensaje comprensible para el usuario final."""
     pass
 
 
@@ -112,8 +125,31 @@ def validate_endpoint(endpoint: str) -> str:
     return endpoint
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Nunca sigue redirecciones HTTP(S) en llamadas autenticadas.
+
+    urllib conserva Authorization, x-api-key y x-goog-api-key al seguir un
+    3xx: un endpoint comprometido, mal configurado o controlado por un
+    atacante podría redirigir a otro origen y robar la credencial. Devolver
+    None hace que el 3xx se convierta en HTTPError y llegue como error al
+    llamador, sin reenviar jamás las cabeceras de autenticación.
+    """
+
+    def redirect_request(self, *args, **kwargs):
+        """Rechaza el seguimiento: devuelve None para que el 3xx llegue como error."""
+        return None
+
+
+# Opener de uso exclusivo en _open_with_retry: sustituye el HTTPRedirectHandler
+# por defecto de urlopen. El resto de handlers (proxy, HTTPS, etc.) se conservan
+# vía build_opener().
+_OPENER_NO_REDIRECT = urllib.request.build_opener(_NoRedirectHandler())
+
+
 @dataclass
 class LlmResponse:
+    """Respuesta completa (no streaming) de un proveedor LLM."""
+
     content: str
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -121,12 +157,16 @@ class LlmResponse:
 
 @dataclass
 class StreamChunk:
+    """Fragmento incremental de una respuesta en streaming."""
+
     content: str = ""
     input_tokens: int | None = None
     output_tokens: int | None = None
 
 
 class LLMClient:
+    """Cliente HTTP para proveedores LLM, con reintentos y límites de seguridad."""
+
     def __init__(self) -> None:
         # Solo se guarda para poder cerrarlo desde otro hilo (cancelación).
         self._responses: dict[int, IO[bytes]] = {}
@@ -175,10 +215,12 @@ class LLMClient:
             if cancel_event is not None and cancel_event.is_set():
                 return None
             try:
-                # Bandit B310 (urlopen scheme audit) suprimido abajo: el esquema
-                # ya se valida en validate_endpoint() (solo http(s), y http: solo
-                # hacia loopback) antes de construir `request`.
-                return urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS)  # nosec B310
+                # Bandit B310 (scheme audit) suprimido abajo: el esquema ya se
+                # valida en validate_endpoint() (solo http(s), y http: solo hacia
+                # loopback) antes de construir `request`. El opener propio además
+                # nunca sigue redirecciones, que conservarían las cabeceras de
+                # autenticación (ver _NoRedirectHandler).
+                return _OPENER_NO_REDIRECT.open(request, timeout=HTTP_TIMEOUT_SECONDS)  # nosec B310
             except urllib.error.HTTPError as error:
                 last_error = error
                 if error.code not in RETRYABLE_STATUS:
@@ -211,6 +253,46 @@ class LLMClient:
         if stream:
             headers["Accept"] = "text/event-stream"
         return urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
+
+    @staticmethod
+    def _read_bounded(response, max_output_tokens: int) -> bytes:
+        """Lee una respuesta completa (no streaming) con techo de memoria.
+
+        Content-Length se prevalida contra el máximo derivado de
+        max_output_tokens y el cuerpo se lee por tramos, abortando en cuanto se
+        supera: un proveedor defectuoso (o un endpoint personalizado) no puede
+        agotar la memoria del proceso.
+        """
+        max_bytes = MAX_BODY_OVERHEAD_BYTES + max_output_tokens * BYTES_PER_OUTPUT_TOKEN
+        headers = getattr(response, "headers", None)
+        declared = headers.get("Content-Length") if headers is not None else None
+        if declared is not None:
+            try:
+                if int(declared) > max_bytes:
+                    raise LlmError(RESPONSE_TOO_LARGE_ERROR)
+            except ValueError:
+                pass  # Content-Length malformado: el techo se aplica al leer.
+        read = getattr(response, "read", None)
+        chunks: list[bytes] = []
+        total = 0
+        if read is None:
+            # Dobles de prueba y proveedores atípicos sin read(): se acota igual.
+            for chunk in response:
+                total += len(chunk)
+                if total > max_bytes:
+                    raise LlmError(RESPONSE_TOO_LARGE_ERROR)
+                chunks.append(chunk)
+            return b"".join(chunks)
+        while True:
+            remaining = max_bytes - total
+            chunk = read(min(READ_CHUNK_BYTES, remaining + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise LlmError(RESPONSE_TOO_LARGE_ERROR)
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     @staticmethod
     def _iter_lines(response):
@@ -275,6 +357,11 @@ class LLMClient:
                 yield chunk
 
     def stream(self, profile: LlmProfile, api_key: str, prompt: str, request_id: int | None = None, cancel_event: threading.Event | None = None):
+        """Abre la respuesta del proveedor en streaming y emite sus eventos SSE.
+
+        La cancelación es cooperativa (`cancel_event`) y los reintentos solo
+        ocurren en la apertura de la conexión, nunca a mitad de un stream.
+        """
         if not profile.enabled or not api_key:
             raise LlmError("Configura endpoint, modelo y API key.")
         request = self._request(profile, api_key, prompt, stream=True)
@@ -304,12 +391,17 @@ class LLMClient:
                 with self._response_lock:
                     self._responses.pop(request_id, None)
     def complete(self, profile: LlmProfile, api_key: str, prompt: str) -> LlmResponse:
+        """Solicita una respuesta completa (no streaming) y la devuelve parseada.
+
+        El cuerpo se lee con techo de memoria coherente con `max_output_tokens`
+        y las redirecciones HTTP se rechazan para no reenviar la API key.
+        """
         if not profile.enabled or not api_key:
             raise LlmError("Configura endpoint, modelo y API key.")
         request = self._request(profile, api_key, prompt, stream=False)
         try:
             with self._open_with_retry(request) as response:
-                data = json.loads(response.read().decode())
+                data = json.loads(self._read_bounded(response, profile.max_output_tokens).decode())
             protocol = provider_spec(profile.provider).protocol
             if protocol == "anthropic_messages": content = "".join(part.get("text", "") for part in data.get("content", []) if isinstance(part, dict))
             elif protocol == "gemini_generate_content": content = "".join(part.get("text", "") for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []) if isinstance(part, dict))

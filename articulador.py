@@ -45,6 +45,7 @@ def open_initial_document(app: ArticuladorApp, path: Path) -> None:
 
 
 def main() -> None:
+    """Parsea la línea de órdenes y arranca la app, o imprime el diagnóstico."""
     _forzar_utf8_en_consola()
     parser = argparse.ArgumentParser(description="Editor conversacional local para artículos Markdown.")
     parser.add_argument("--config", type=Path, default=storage.CONFIG_PATH, help="Ruta al archivo TOML de perfiles LLM")

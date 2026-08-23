@@ -80,7 +80,7 @@ class CoreTests(unittest.TestCase):
                 ))
 
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
-        with patch("urllib.request.urlopen", return_value=Response()):
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             chunks = list(LLMClient().stream(profile, "key", "mensaje"))
         self.assertTrue(all(isinstance(chunk, StreamChunk) for chunk in chunks))
         self.assertEqual("".join(chunk.content for chunk in chunks), "Hola mundo")
@@ -157,7 +157,7 @@ class CoreTests(unittest.TestCase):
                 ))
 
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
-        with patch("urllib.request.urlopen", return_value=Response()):
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             chunks = list(LLMClient().stream(profile, "key", "mensaje"))
         content = "".join(c.content for c in chunks)
         self.assertEqual(content, "OK bien")
@@ -167,7 +167,7 @@ class CoreTests(unittest.TestCase):
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
         fp = io.BytesIO(b'{"error":"unauthorized"}')
         http_err = urllib.error.HTTPError("https://example.invalid", 401, "Unauthorized", {}, fp)
-        with patch("urllib.request.urlopen", side_effect=http_err):
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=http_err):
             with self.assertRaises(LlmError) as ctx:
                 list(LLMClient().stream(profile, "key", "mensaje"))
         self.assertIn("rechazada", str(ctx.exception))
@@ -177,9 +177,11 @@ class CoreTests(unittest.TestCase):
         intentos = []
 
         class Response:
+            def __init__(self, body: bytes = b'{"choices":[{"message":{"content":"ok"}}]}'):
+                self._buffer = io.BytesIO(body)
             def __enter__(self): return self
             def __exit__(self, *_args): return False
-            def read(self): return b'{"choices":[{"message":{"content":"ok"}}]}'
+            def read(self, amt: int = -1): return self._buffer.read(amt)
 
         def urlopen(*_args, **_kwargs):
             intentos.append(1)
@@ -188,7 +190,7 @@ class CoreTests(unittest.TestCase):
                 raise urllib.error.HTTPError("https://example.invalid", 503, "Overloaded", {}, fp)
             return Response()
 
-        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep"):
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep"):
             result = LLMClient().complete(profile, "key", "mensaje")
         self.assertEqual(len(intentos), 2, "Un 503 transitorio se reintenta una vez")
         self.assertEqual(result.content, "ok")
@@ -202,7 +204,7 @@ class CoreTests(unittest.TestCase):
             fp = io.BytesIO(b'{"error":"unauthorized"}')
             raise urllib.error.HTTPError("https://example.invalid", 401, "Unauthorized", {}, fp)
 
-        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep") as dormir:
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep") as dormir:
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(profile, "key", "mensaje")
         self.assertIn("rechazada", str(ctx.exception))
@@ -218,7 +220,7 @@ class CoreTests(unittest.TestCase):
             raise urllib.error.HTTPError(
                 "https://example.invalid", 429, "Slow down", {"Retry-After": "7"}, fp)
 
-        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep") as dormir:
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep") as dormir:
             with self.assertRaises(LlmError):
                 LLMClient().complete(profile, "key", "mensaje")
         dormir.assert_called()
@@ -235,7 +237,7 @@ class CoreTests(unittest.TestCase):
             fp = io.BytesIO(b'{"error":"overloaded"}')
             raise urllib.error.HTTPError("https://example.invalid", 503, "Overloaded", {}, fp)
 
-        with patch("urllib.request.urlopen", side_effect=urlopen), patch("time.sleep"):
+        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep"):
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(profile, "key", "mensaje")
         self.assertEqual(len(intentos), MAX_HTTP_ATTEMPTS, "Se intenta el máximo de veces")

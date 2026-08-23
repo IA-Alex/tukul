@@ -156,6 +156,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
         dialog, lambda: _reaplicar_tema_revision(app, dialog, items, box))
 
     def show(_event=None) -> None:
+        """Muestra en el panel derecho el detalle del hallazgo seleccionado."""
         if not items.curselection():
             return
         item = findings[items.curselection()[0]]
@@ -174,6 +175,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     show()
 
     def decide(apply: bool) -> None:
+        """Aplica o ignora el hallazgo seleccionado y avanza al siguiente."""
         if not items.curselection():
             return
         if apply and (app.scope is not scope or not scope.owns(app.session.document_path)):
@@ -264,6 +266,7 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
 
 
 def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gestión de perfiles)
+    """Abre el diálogo de configuración de perfiles LLM (selector + gestión)."""
     dialog, frame = _abrir_dialogo(app, "Configurar modelo")
     # Todo el cuerpo usa estilos ttk (se repintan solos); solo el fondo del
     # Toplevel es un color directo que hay que reaplicar al cambiar de tema.
@@ -324,6 +327,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     previous_provider = provider.get()
 
     def update_provider_hint(_event=None) -> None:
+        """Actualiza la pista del proveedor y su endpoint sugerido al cambiar de proveedor."""
         nonlocal previous_provider
         proveedor_actual = provider_spec(provider.get())
         old_hint = provider_spec(previous_provider).endpoint_hint
@@ -405,6 +409,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     _bloque_credencial(cuerpo, api_key_row, key, remember)
 
     def save() -> None:
+        """Persiste los perfiles editados y la credencial, y cierra el diálogo."""
         # El perfil seleccionado pasa a ser el activo; se persiste todo junto.
         active = selected.get()
         if not _aplicar_a_working(active):

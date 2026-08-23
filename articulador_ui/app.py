@@ -20,6 +20,7 @@ from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
 from articulador_ui import estilo as es
+from articulador_ui import ui_state
 from articulador_ui.chunk_buffer import ChunkBuffer
 from articulador_ui.context_approval import ContextApprovalCache, ContextApprovalKey
 from articulador_ui.dialogs import show_review_dialog, show_settings_dialog
@@ -60,6 +61,8 @@ logger = setup_logging()
 
 
 class ArticuladorApp(tk.Tk):
+    """Ventana principal: widgets, estado, streaming y ciclo de vida de la sesión."""
+
     def __init__(self, config_path: Path = storage.CONFIG_PATH) -> None:
         super().__init__()
         self.title("Articulador")
@@ -152,9 +155,13 @@ class ArticuladorApp(tk.Tk):
         return self.docs.session
 
     @property
-    def profile(self) -> LlmProfile: return self.profiles[self.active_profile]
+    def profile(self) -> LlmProfile:
+        """Perfil LLM activo."""
+        return self.profiles[self.active_profile]
     @property
-    def key(self) -> str: return os.environ.get(self.profile.api_key_env) or self.session_keys.get(self.active_profile, "") or storage.load_key(self.active_profile)
+    def key(self) -> str:
+        """API key en vigor: variable de entorno > key de sesión > llavero."""
+        return os.environ.get(self.profile.api_key_env) or self.session_keys.get(self.active_profile, "") or storage.load_key(self.active_profile)
 
     def _add_session_key(self, profile: str, key: str) -> None:
         """Agrega o actualiza una key de sesión con desalojo LRU real.
@@ -719,6 +726,7 @@ class ArticuladorApp(tk.Tk):
     def _manejador_atajo(accion: Callable[[], object]) -> Callable[[object], str]:
         """Envuelve una acción como manejador de evento que detiene la propagación."""
         def manejador(_evento: object) -> str:
+            """Ejecuta la acción asociada al atajo y traga el evento de teclado."""
             accion()
             return "break"
         return manejador
@@ -885,14 +893,17 @@ class ArticuladorApp(tk.Tk):
 
     @property
     def asistente_visible(self) -> bool:
+        """True si el panel del asistente está visible."""
         # panes() devuelve rutas Tcl (cadenas), no objetos widget: comparar el
         # widget directamente daba siempre False y el panel nunca se ocultaba.
         return str(self.panel_asistente) in self.panes.panes()
     def copy_response(self):
+        """Copia la última respuesta al portapapeles, si la hay."""
         if not self.scope.last_response:return
         self.clipboard_clear(); self.clipboard_append(self.scope.last_response); self.status.set("Última respuesta copiada.")
     @staticmethod
     def select_all_text(event) -> str:
+        """Selecciona todo el texto del widget que recibió el evento."""
         event.widget.tag_add("sel", "1.0", "end-1c")
         return "break"
 
@@ -930,6 +941,7 @@ class ArticuladorApp(tk.Tk):
             pass
 
     def history_menu(self,event):
+        """Menú contextual del historial: copiar y seleccionar."""
         menu=tk.Menu(self,tearoff=False,background=es.SUPERFICIE_ALTA,foreground=es.TEXTO,activebackground=es.ACENTO,activeforeground=es.ACENTO_TEXTO,font=es.fuente())
         menu.add_command(label="Copiar",command=lambda:self.history.event_generate("<<Copy>>"))
         menu.add_command(label="Copiar mensaje",command=lambda:self._copiar_mensaje(event))
@@ -956,6 +968,7 @@ class ArticuladorApp(tk.Tk):
             return
         self.status.set("No hay mensaje aquí.")
     def modified(self,_=None):
+        """Marca la sesión como sucia al editar el documento."""
         if not self.editor.edit_modified(): return
         self.editor.edit_modified(False)
         if self._suppress_modified: return  # Carga programática, no edición del usuario.
@@ -1008,9 +1021,11 @@ class ArticuladorApp(tk.Tk):
             pass
         self._suppress_modified = False
     def schedule_stats(self):
+        """Reprograma la actualización de métricas del pie."""
         if self.stats_after: self.after_cancel(self.stats_after)
         self.stats_after=self.after(300,self.update_stats)
     def update_context(self):
+        """Actualiza la etiqueta de contexto y el botón de revisión según la selección."""
         selected=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
         self.status.set(f"Contexto: selección de {len(selected.split())} palabras." if selected else "Contexto: artículo completo.")
         # Revisar solo lo seleccionado es deliberado (edición granular); el botón debe
@@ -1019,6 +1034,7 @@ class ArticuladorApp(tk.Tk):
         # La selección también cambia las métricas del pie: se refrescan junto al contexto.
         self.schedule_stats()
     def update_stats(self):
+        """Reescribe las métricas del pie: palabras y tiempo de lectura."""
         self.stats_after=None
         total=len(self.editor.get("1.0","end-1c").split())
         seleccion=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
@@ -1032,10 +1048,12 @@ class ArticuladorApp(tk.Tk):
         else:
             self.editor_stats.config(text="0 palabras · 0 min de lectura")
     def handle_callback_error(self, exc_type, exc_value, _traceback):
+        """Manejador global de excepciones no controladas de Tkinter."""
         logger.exception("Excepción no controlada de Tkinter", exc_info=(exc_type, exc_value, _traceback))
         self.status.set("Ocurrió un error interno. Puedes continuar o reiniciar Articulador.")
         messagebox.showerror("Error interno",str(exc_value),parent=self)
     def show_error(self, title: str, detail: str) -> None:
+        """Muestra un error en la barra de estado y en un diálogo modal."""
         self.status.set(title)
         messagebox.showerror(title, detail, parent=self)
     def load_document(self, path: Path) -> bool:
@@ -1098,6 +1116,7 @@ class ArticuladorApp(tk.Tk):
         self.history.delete("1.0", "end")
         self.history.config(state="disabled")
     def send_message(self):
+        """Envía el mensaje del cuadro de entrada como consulta normal."""
         message=self.input.get("1.0","end-1c").strip()
         if not message or self.session.request_active:return
         # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
@@ -1165,6 +1184,7 @@ class ArticuladorApp(tk.Tk):
         api_key = self.key
         self.llm.cancel_event = cancel_event
         def work():
+            """Transmite la revisión en segundo plano y publica eventos de UI."""
             self.llm.stream_response(
                 profile, api_key, texto, "", conversacion,
                 on_chunk=lambda chunk: self.chunks.append(request_id, chunk),
@@ -1221,6 +1241,7 @@ class ArticuladorApp(tk.Tk):
         return "\n\n".join(parts), files
 
     def confirm_and_send(self, request_id, message, selected, packet, files, cancel_event):
+        """Confirma la privacidad del contexto y lanza el envío en un hilo."""
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types or cancel_event.is_set(): return
 
@@ -1279,6 +1300,7 @@ class ArticuladorApp(tk.Tk):
         key = self.approved_contexts.key_for(profile, packet, files)
 
         def lanzar() -> None:
+            """Arranca el envío de la petición ya confirmada."""
             self._lanzar_envio(request_id, profile, message, selected, packet,
                                conversation_with_message, files, request_type, cancel_event)
 
@@ -1302,6 +1324,7 @@ class ArticuladorApp(tk.Tk):
         api_key = self.key
         self.llm.cancel_event = cancel_event
         def work():
+            """Ejecuta la petición HTTP en un hilo daemon y publica eventos de UI."""
             # Usar LLMSessionManager con error handling robusto
             # Publicar eventos en queue para thread-safety (no self.after() desde thread)
             self.llm.stream_response(
@@ -1327,6 +1350,7 @@ class ArticuladorApp(tk.Tk):
         self.set_estado(EstadoUI.PREPARANDO, "esperando tu confirmación")
 
         def aceptar() -> None:
+            """Acepta la autorización del contexto y lanza el envío."""
             self._ocultar_aprobacion()
             # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
             # entero obligaba a reconfirmar todo de golpe.
@@ -1334,6 +1358,7 @@ class ArticuladorApp(tk.Tk):
             al_aceptar()
 
         def rechazar() -> None:
+            """Rechaza la autorización y aborta la petición."""
             self._ocultar_aprobacion()
             self._abort_request(request_id)
             self.set_estado(EstadoUI.CANCELADO, "no se envió nada")
@@ -1360,6 +1385,7 @@ class ArticuladorApp(tk.Tk):
         self.chunks.discard(request_id)
 
     def finish(self, request_id: int, result: str, files: list[str], usage=(None, None), request_type: str = "normal", is_error: bool = False):
+        """Cierra una petición: vuelca resultado o error según su tipo."""
         # Verificar que este request_id sigue siendo válido
         if self.closing or request_id not in self.request_types: return
         self.request_types.pop(request_id, None)
@@ -1442,6 +1468,7 @@ class ArticuladorApp(tk.Tk):
         self.send_button.state(["!disabled"])
         self.cancel_button.state(["disabled"])
     def stream_chunk(self, request_id, value):
+        """Pinta un fragmento incremental de la respuesta en curso."""
         # Verificar que este request_id sigue siendo válido (no cancelado/descartado)
         if self.closing or request_id not in self.request_types:
             return
@@ -1556,6 +1583,7 @@ class ArticuladorApp(tk.Tk):
 
     parse_findings = staticmethod(parse_findings)
     def show_findings(self,findings):
+        """Abre el diálogo de hallazgos de una revisión (una sola ventana a la vez)."""
         # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.
         self._close_review_dialogs()
         self.review_dialogs.append(show_review_dialog(self, findings))
@@ -1574,6 +1602,7 @@ class ArticuladorApp(tk.Tk):
         self.scope.review_before = text
 
     def undo_review(self):
+        """Deshace el último ajuste de revisión, si pertenece al documento actual."""
         if not self.scope.review_before:return
         # El deshacer solo es válido sobre el documento del que se tomó la instantánea:
         # sin esta comprobación volcaba el artículo anterior sobre el actual y lo
@@ -1583,6 +1612,7 @@ class ArticuladorApp(tk.Tk):
             self.status.set("El ajuste a deshacer pertenece a otro documento."); return
         self.editor.delete("1.0","end"); self.editor.insert("1.0",self.scope.review_before); self.scope.review_before=""; self.session.dirty=True; self.status.set("Último ajuste de revisión deshecho.")
     def open_document(self):
+        """Pide un archivo al usuario y abre el documento con las confirmaciones previas."""
         # Cancelar cualquier solicitud activa antes de cambiar de documento
         if self.session.request_active:
             if not messagebox.askyesno("Solicitud activa", "¿Cancelar la consulta en curso?"):
@@ -1701,11 +1731,13 @@ class ArticuladorApp(tk.Tk):
         entries.pack(fill="both", expand=True)
 
         def refresh() -> None:
+            """Recarga la lista de artículos de contexto desde la sesión."""
             entries.delete(0, "end")
             for article in self.context_articles:
                 entries.insert("end", article.label)
 
         def add() -> None:
+            """Añade artículos de contexto elegidos por el usuario, con autorización."""
             paths = filedialog.askopenfilenames(
                 parent=dialog, title="Añadir artículos al contexto",
                 filetypes=[("Artículos", "*.md *.txt"), ("Todos los archivos", "*.*")],
@@ -1723,6 +1755,7 @@ class ArticuladorApp(tk.Tk):
                 self.status.set(f"{count} artículo(s) añadido(s) al contexto.")
 
         def remove() -> None:
+            """Elimina los artículos de contexto seleccionados en la lista."""
             selected = list(entries.curselection())
             if not selected:
                 return
@@ -1734,6 +1767,7 @@ class ArticuladorApp(tk.Tk):
 
         # Acción primaria a la derecha, como en el resto de diálogos.
         def add_current() -> None:
+            """Añade el artículo activo como contexto."""
             path = self.session.document_path
             label = path.name if path else "Artículo sin guardar"
             if not self._ask_to_authorize_articles([label], dialog):
@@ -1765,6 +1799,7 @@ class ArticuladorApp(tk.Tk):
                           highlightbackground=es.BORDE, highlightcolor=es.FOCO)
 
     def save_document(self, save_as: bool = False)->bool:
+        """Guarda el artículo en su ruta, o pide destino si no la tiene."""
         previous_path = self.session.document_path
         if save_as or previous_path is None:
             options: dict = {"defaultextension": ".md", "filetypes": [("Markdown","*.md")]}
@@ -1797,6 +1832,7 @@ class ArticuladorApp(tk.Tk):
         self.status.set("Artículo guardado.")
         return True
     def save_project(self):
+        """Guarda el proyecto recuperable (artículo + conversación) en un JSON."""
         if self.session.dirty and not self.save_document():return
         if self.session.document_path is None:
             messagebox.showinfo("Falta el artículo","Guarda primero el artículo Markdown."); return
@@ -1820,6 +1856,7 @@ class ArticuladorApp(tk.Tk):
                 )
                 logger.error("Error guardando proyecto: %s", error)
     def open_project(self):
+        """Abre un proyecto y restaura el artículo y su conversación."""
         # Cancelar cualquier solicitud activa antes de cambiar de proyecto
         if self.session.request_active:
             if not messagebox.askyesno("Solicitud activa", "¿Cancelar la consulta en curso?"):
@@ -1859,6 +1896,7 @@ class ArticuladorApp(tk.Tk):
         self._close_review_dialogs()
         self.scope = DocumentScope(document_path=document_path)
     def settings(self):
+        """Abre el diálogo de configuración de perfiles LLM."""
         show_settings_dialog(self)
 
     def _cancel_active_request(self):
@@ -1887,6 +1925,7 @@ class ArticuladorApp(tk.Tk):
         self._ocultar_aprobacion()
 
     def close(self):
+        """Cierra la aplicación de forma limpia: confirma, cancela y persiste."""
         if self.session.dirty and not messagebox.askyesno("Cambios sin guardar","¿Cerrar sin guardar?"):return
         self.closing=True
         # Cancelar cualquier solicitud activa
@@ -1901,20 +1940,7 @@ class ArticuladorApp(tk.Tk):
 
     def _restaurar_conversacion(self, path: Path | None) -> list[ChatMessage]:
         """Recupera la conversación persistida de un documento, si existe."""
-        if path is None:
-            return []
-        conversaciones = self.ui_state.get("conversations")
-        if not isinstance(conversaciones, dict):
-            return []
-        cruda = conversaciones.get(str(path))
-        if not isinstance(cruda, list):
-            return []
-        restaurada: list[ChatMessage] = []
-        for item in cruda:
-            if (isinstance(item, dict) and item.get("role") in {"user", "assistant"}
-                    and isinstance(item.get("content"), str)):
-                restaurada.append(ChatMessage(item["role"], item["content"]))
-        return restaurada
+        return ui_state.restaurar_conversacion(self.ui_state.get("conversations"), path)
 
     def _persistir_conversacion_en_memoria(self, path: Path | None) -> None:
         """Vuelca la conversación activa al estado en memoria, bajo la clave del documento.
@@ -1926,13 +1952,9 @@ class ArticuladorApp(tk.Tk):
         """
         if path is None:
             return
-        conversaciones = self.ui_state.get("conversations")
-        if not isinstance(conversaciones, dict):
-            conversaciones = {}
-        conversaciones[str(path)] = [
-            {"role": m.role, "content": m.content} for m in self.session.conversation[-30:]
-        ]
-        self.ui_state["conversations"] = conversaciones
+        self.ui_state["conversations"] = ui_state.persistir_conversacion(
+            self.ui_state.get("conversations"), path, self.session.conversation
+        )
 
     def _podar_conversaciones(self, conversaciones: dict) -> dict:
         """Descarta conversaciones de documentos que ya no están vigentes.
@@ -1945,7 +1967,7 @@ class ArticuladorApp(tk.Tk):
         vigentes = set(self.recent_paths)
         if self.session.document_path is not None:
             vigentes.add(str(self.session.document_path))
-        return {ruta: turnos for ruta, turnos in conversaciones.items() if ruta in vigentes}
+        return ui_state.podar_conversaciones(conversaciones, vigentes)
 
     def _snapshot_estado_ui(self) -> dict:
         """Instantánea completa del estado de interfaz con los valores vivos.

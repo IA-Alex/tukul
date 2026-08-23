@@ -6,6 +6,8 @@ from pathlib import Path
 
 @dataclass
 class LlmProfile:
+    """Perfil LLM: proveedor, endpoint, modelo, límites de tokens y precios."""
+
     name: str = "default"
     provider: str = "disabled"
     endpoint: str = ""
@@ -35,11 +37,14 @@ class LlmProfile:
 
     @property
     def enabled(self) -> bool:
+        """True si el perfil está habilitado y tiene endpoint y modelo."""
         return self.provider != "disabled" and bool(self.endpoint and self.model)
 
 
 @dataclass
 class ChatMessage:
+    """Mensaje de conversación con validación de rol y contenido en runtime."""
+
     role: str
     content: str
 
@@ -59,6 +64,8 @@ class ChatMessage:
 
 @dataclass
 class ArticleSession:
+    """Sesión de trabajo sobre un documento: artículo activo y su conversación."""
+
     document_path: Path | None = None
     project_path: Path | None = None
     article: str = ""

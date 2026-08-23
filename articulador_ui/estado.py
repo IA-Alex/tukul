@@ -83,18 +83,22 @@ class EstadoUI(Enum):
 
     @property
     def simbolo(self) -> str:
+        """Símbolo del estado, distinguible sin depender del color."""
         return self.value.simbolo
 
     @property
     def titulo(self) -> str:
+        """Título corto del estado, legible sin documentación."""
         return self.value.titulo
 
     @property
     def ayuda(self) -> str:
+        """Explicación en lenguaje llano de qué está ocurriendo."""
         return self.value.ayuda
 
     @property
     def color(self) -> str:
+        """Color vigente del estado, resuelto contra la paleta del tema activo."""
         return estilo.token(self.value.token)
 
     def etiqueta(self, detalle: str = "") -> str:
@@ -103,6 +107,7 @@ class EstadoUI(Enum):
         return f"{base} · {detalle}" if detalle else base
 
     def descripcion_accesible(self, detalle: str = "") -> str:
+        """Texto para lectores de pantalla del estado de la enumeración."""
         return self.value.descripcion_accesible(detalle)
 
 

@@ -32,6 +32,7 @@ except ImportError:
 
 CONFIG_PATH = Path.home() / ".config" / "articulador" / "config.toml"
 def credential_backend() -> str:
+    """Devuelve el backend de credenciales en uso: llavero del sistema o solo sesión."""
     return "llavero del sistema" if keyring is not None else "solo sesión (instala keyring para recordar la key)"
 
 
@@ -216,6 +217,7 @@ def save_profiles(
 
 
 def load_key(profile: str) -> str:
+    """Recupera la API key del llavero; '' si no hay llavero o no existe entrada."""
     if keyring is None:
         return ""
     try:
@@ -225,6 +227,7 @@ def load_key(profile: str) -> str:
 
 
 def save_key(profile: str, key: str) -> None:
+    """Guarda la API key de un perfil en el llavero; RuntimeError si no hay llavero."""
     if keyring is None:
         raise RuntimeError("No hay llavero disponible. Instala keyring para recordar la key; de otro modo se usará solo durante esta sesión.")
     try:
@@ -245,6 +248,11 @@ def delete_key(profile: str) -> None:
 
 
 def save_project(session: ArticleSession, path: Path) -> None:
+    """Persiste un proyecto recuperable: ruta relativa del artículo y conversación.
+
+    Raises ValueError si el artículo no está guardado o no queda bajo la carpeta
+    elegida para el proyecto.
+    """
     if session.document_path is None:
         raise ValueError("Guarda primero el artículo Markdown.")
     base = path.parent.resolve()
@@ -342,6 +350,7 @@ MAX_PROJECT_BYTES = 2 * 1024 * 1024
 
 
 def load_project(path: Path) -> dict:
+    """Carga un proyecto validando tamaño, estructura y rutas relativas seguras."""
     size = path.stat().st_size
     if size > MAX_PROJECT_BYTES:
         raise ValueError(
