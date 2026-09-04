@@ -5,7 +5,8 @@
 > índice BM25) y cifras de tests desactualizadas. La referencia vigente son el
 > código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
 
-**Estado actual:** ✅ OPCIÓN B completo (Production Ready)  
+**Estado histórico de la revisión:** ✅ OPCIÓN B completo. No es estado actual ni
+una declaración vigente de readiness.
 **Próximo milestone:** v1.0 Enterprise  
 **Horizonte:** 2-3 semanas adicionales
 

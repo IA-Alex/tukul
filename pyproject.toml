@@ -34,6 +34,8 @@ dev = [
     "pytest-cov>=4.0.0",  # Cobertura: el pipeline la mide y la exige
     "ruff>=0.1.0",        # Fast Python linter
     "mypy>=1.0.0",        # Type checker
+    "pip-audit>=2.7.0",   # Auditoría de vulnerabilidades de dependencias
+    "bandit>=1.7.0",      # Análisis estático de seguridad
 ]
 
 # Sin esto, `pip install -e .` instalaba el paquete pero no dejaba un comando
@@ -112,6 +114,7 @@ exclude = '''
 
 [tool.mypy]
 python_version = "3.11"
+check_untyped_defs = true
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_configs = true

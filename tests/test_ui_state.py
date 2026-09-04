@@ -30,6 +30,15 @@ class TestRestaurarConversacion(unittest.TestCase):
     def test_devuelve_vacia_para_documento_sin_conversacion(self):
         self.assertEqual(ui_state.restaurar_conversacion({}, Path("sin.md")), [])
 
+    def test_descarta_mensajes_excesivos_y_respeta_tope_total(self):
+        grande = "x" * (ui_state.MAX_CONVERSATION_MESSAGE_CHARS + 1)
+        cruda = {"a.md": [
+            {"role": "user", "content": grande},
+            {"role": "assistant", "content": "válido"},
+        ]}
+        restaurada = ui_state.restaurar_conversacion(cruda, Path("a.md"))
+        self.assertEqual([item.content for item in restaurada], ["válido"])
+
 
 class TestPersistirConversacion(unittest.TestCase):
     def test_recorta_a_los_ultimos_turnos(self):
@@ -46,6 +55,14 @@ class TestPersistirConversacion(unittest.TestCase):
     def test_estado_corrupto_no_dict_se_trata_como_vacio(self):
         mapa = ui_state.persistir_conversacion(["no-dict"], Path("a.md"), [])
         self.assertEqual(mapa["a.md"], [])
+
+    def test_no_persiste_un_mensaje_que_supera_el_limite(self):
+        turnos = [
+            ChatMessage("user", "x" * (ui_state.MAX_CONVERSATION_MESSAGE_CHARS + 1)),
+            ChatMessage("assistant", "conservar"),
+        ]
+        mapa = ui_state.persistir_conversacion({}, Path("a.md"), turnos)
+        self.assertEqual(mapa["a.md"], [{"role": "assistant", "content": "conservar"}])
 
 
 class TestPodarConversaciones(unittest.TestCase):

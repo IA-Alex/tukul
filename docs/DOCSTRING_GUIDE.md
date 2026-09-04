@@ -1,5 +1,11 @@
 # Guía de Docstrings — Estándar Articulador
 
+**Estado:** SUPPORTING, no bloquea el quality gate. La guía conserva prioridad
+para APIs públicas y contratos de persistencia, seguridad y concurrencia; no
+exige docstrings mecánicos para cada función privada. No se añade enforcement
+automático porque el gate actual no obtiene valor suficiente de contar o medir
+docstrings.
+
 ## Objetivo
 
 Documentar toda función o método público con el formato Google-style. Prioridad:

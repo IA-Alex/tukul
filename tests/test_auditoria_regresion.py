@@ -701,6 +701,16 @@ class TestCredenciales(unittest.TestCase):
         finally:
             storage.keyring = original
 
+    def test_delete_key_propaga_fallos_reales_del_llavero(self):
+        original = storage.keyring
+        storage.keyring = Mock()
+        storage.keyring.delete_password.side_effect = OSError("backend caído")
+        try:
+            with self.assertRaises(OSError):
+                storage.delete_key("perfil")
+        finally:
+            storage.keyring = original
+
 
 class TestPerfilesInvalidos(unittest.TestCase):
     def test_perfil_corrupto_se_ignora_dejando_rastro(self):

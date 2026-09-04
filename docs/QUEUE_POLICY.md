@@ -38,6 +38,23 @@ process_ui_events()  →  _render_pending_chunks()  →  _dispatch_ui_event()
 - **Nunca se pierden**: una finalización no debe bloquearse detrás de una ráfaga
   de texto, porque dejaría la petición viva con la conexión abierta.
 
+### Ownership y generación
+
+Tkinter es dueño de `control_queue`, `ChunkBuffer`, `streaming_request` y del
+estado visual. El worker solo ejecuta `LLMSessionManager` y publica callbacks;
+no toca widgets. `ArticuladorApp` usa `generation_counter` como request ID y
+`request_types[request_id]` para distinguir `normal` de `review`; no existe una
+clase `RequestState` independiente en la implementación actual. Cada request
+tiene además su propio `threading.Event` de cancelación.
+
+Una petición cancelada se elimina del mapa, se descartan sus chunks pendientes y
+se ignoran callbacks tardíos. Cambiar de documento reemplaza el
+`DocumentScope`; el request ID evita que una respuesta antigua aplique al nuevo
+artículo. En el cierre, la app marca `closing`, cancela y espera con tope los
+workers antes de destruir Tk. Los workers son daemon como red de seguridad; no
+son el mecanismo normal de persistencia. Un timeout o excepción del proveedor
+se convierte en un evento `error` y se propaga a la UI.
+
 ## Consumidor: `process_ui_events()`
 
 Se reprograma con `after(50, ...)` en un `finally`, de modo que un manejador que

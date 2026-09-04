@@ -38,7 +38,11 @@ jobs:
       - name: Install project
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install --require-hashes -r requirements-dev.lock
+          pip install -e . --no-deps
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit --local --skip-editable
 
       # Guarda contra el modo de fallo silencioso: si Tk o el display no
       # funcionan, este paso falla en vez de dejar que 13 tests se omitan.
@@ -122,7 +126,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bandit
+          pip install --require-hashes -r requirements-dev.lock
 
       # Informe completo (incluye falsos positivos de baja severidad): queda como
       # artefacto para revisión manual, nunca bloquea por sí solo.

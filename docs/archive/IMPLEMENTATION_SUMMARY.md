@@ -6,7 +6,8 @@
 > código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
 
 **Fecha:** 2026-08-11  
-**Status:** ✅ **COMPLETADO - LISTO PARA PRODUCCIÓN**
+**Status histórico (2026-08-11):** COMPLETADO en esa fase. No representa el
+estado actual ni una declaración vigente de readiness.
 
 ---
 

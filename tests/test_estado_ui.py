@@ -51,6 +51,19 @@ class TestEstadoPersistente(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directorio:
             self.assertEqual(storage.load_ui_state(Path(directorio) / "config.toml"), {})
 
+    def test_estado_ui_demasiado_grande_no_se_carga(self):
+        with tempfile.TemporaryDirectory() as directorio:
+            cfg = Path(directorio) / "config.toml"
+            estado = storage.estado_ui_path(cfg)
+            estado.write_bytes(b" " * (storage.MAX_UI_STATE_BYTES + 1))
+            self.assertEqual(storage.load_ui_state(cfg), {})
+
+    def test_estado_ui_demasiado_grande_no_se_guarda(self):
+        with tempfile.TemporaryDirectory() as directorio:
+            cfg = Path(directorio) / "config.toml"
+            with self.assertRaises(ValueError):
+                storage.save_ui_state({"contenido": "x" * storage.MAX_UI_STATE_BYTES}, cfg)
+
 
 class TestEscalaZoom(unittest.TestCase):
     """El zoom escala la fuente y se valida defensivamente."""

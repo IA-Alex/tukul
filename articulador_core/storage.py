@@ -31,6 +31,16 @@ except ImportError:
     pass
 
 CONFIG_PATH = Path.home() / ".config" / "articulador" / "config.toml"
+MAX_UI_STATE_BYTES = 2 * 1024 * 1024
+
+
+def _is_missing_keyring_entry(error: Exception) -> bool:
+    """Indica si el backend señala que la credencial no existía."""
+    errors = getattr(keyring, "errors", None)
+    error_type = getattr(errors, "PasswordDeleteError", None)
+    return isinstance(error_type, type) and isinstance(error, error_type)
+
+
 def credential_backend() -> str:
     """Devuelve el backend de credenciales en uso: llavero del sistema o solo sesión."""
     return "llavero del sistema" if keyring is not None else "solo sesión (instala keyring para recordar la key)"
@@ -49,7 +59,11 @@ def estado_ui_path(config_path: Path | str = CONFIG_PATH) -> Path:
 def load_ui_state(config_path: Path | str = CONFIG_PATH) -> dict:
     """Carga el estado de interfaz de forma defensiva. Nunca falla."""
     try:
-        data = json.loads(estado_ui_path(config_path).read_text(encoding="utf-8"))
+        path = estado_ui_path(config_path)
+        if path.stat().st_size > MAX_UI_STATE_BYTES:
+            logger.warning("estado.json supera el límite de %d bytes; se ignora.", MAX_UI_STATE_BYTES)
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -57,9 +71,14 @@ def load_ui_state(config_path: Path | str = CONFIG_PATH) -> dict:
 
 def save_ui_state(state: dict, config_path: Path | str = CONFIG_PATH) -> None:
     """Persiste el estado de interfaz de forma atómica."""
+    content = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    if len(content.encode("utf-8")) > MAX_UI_STATE_BYTES:
+        raise ValueError(
+            f"El estado de interfaz supera el límite de {MAX_UI_STATE_BYTES // (1024 * 1024)} MB."
+        )
     atomic_write(
         estado_ui_path(config_path),
-        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        content,
     )
 
 
@@ -242,9 +261,13 @@ def delete_key(profile: str) -> None:
         return
     try:
         keyring.delete_password("articulador", profile)
-    except Exception:
-        # keyring lanza PasswordDeleteError cuando no había nada guardado: no es un fallo.
-        pass
+    except Exception as error:
+        # keyring usa esta excepción únicamente cuando no había entrada. Todo
+        # fallo distinto debe llegar al llamador para no ocultar problemas del
+        # backend (bloqueo, permisos, servicio caído, etc.).
+        if not _is_missing_keyring_entry(error):
+            raise
+        logger.debug("No había credencial para revocar en el perfil %s", profile)
 
 
 def save_project(session: ArticleSession, path: Path) -> None:

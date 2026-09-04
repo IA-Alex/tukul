@@ -6,7 +6,8 @@
 > código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
 
 **Fecha:** 2026-08-11  
-**Status:** ✅ OPCIÓN B COMPLETO - Maduro, Observable, Maintainable
+**Status histórico (2026-08-11):** OPCIÓN B completado en esa fase; no representa
+el estado actual ni una declaración vigente de madurez.
 
 ---
 

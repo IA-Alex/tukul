@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import threading
 import time
 import tkinter as tk
@@ -110,7 +111,7 @@ class ArticuladorApp(tk.Tk):
         # esta sesión hasta que la persona las quite.
         self.context_articles: list[ContextArticle] = []
         self.review_dialogs: list[tk.Toplevel] = []
-        self.stats_after = None
+        self.stats_after: str | None = None
         self.autosave_after: str | None = None
         self._ui_events_after: str | None = None
         self.report_callback_exception = self.handle_callback_error
@@ -211,13 +212,35 @@ class ArticuladorApp(tk.Tk):
         return [ruta for ruta in valor if isinstance(ruta, str) and ruta][:10]
 
     def _restaurar_geometria(self) -> None:
-        """Aplica la geometría guardada si es válida; si no, queda la propuesta."""
+        """Restaura la geometría sin permitir que la ventana desaparezca.
+
+        Una geometría guardada puede venir de otro monitor, de un cambio de
+        resolución o de una sesión remota. Tk acepta esos valores sin error,
+        pero el resultado puede dejar controles esenciales fuera del viewport.
+        Se conserva el tamaño/posición cuando caben y se corrigen de forma
+        defensiva cuando no.
+        """
         guardada = self.ui_state.get("geometry")
-        if isinstance(guardada, str) and guardada.strip():
-            try:
-                self.geometry(guardada)
-            except tk.TclError:
-                pass
+        if not isinstance(guardada, str) or not guardada.strip():
+            return
+
+        coincidencia = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", guardada.strip())
+        if coincidencia is None:
+            return
+
+        ancho, alto, x, y = (int(valor) for valor in coincidencia.groups())
+        pantalla_ancho = self.winfo_screenwidth()
+        pantalla_alto = self.winfo_screenheight()
+        if pantalla_ancho <= 100 or pantalla_alto <= 100:
+            return
+
+        # Mantiene un margen visible para que la barra del sistema y los
+        # bordes no oculten la ventana completa en escritorios pequeños.
+        ancho = min(max(ancho, 720), max(720, pantalla_ancho - 32))
+        alto = min(max(alto, 540), max(540, pantalla_alto - 64))
+        x = min(max(x, 0), max(0, pantalla_ancho - ancho))
+        y = min(max(y, 0), max(0, pantalla_alto - alto))
+        self.geometry(f"{ancho}x{alto}+{x}+{y}")
 
     @staticmethod
     def _tema_validado(valor: object) -> str:
@@ -504,6 +527,12 @@ class ArticuladorApp(tk.Tk):
         # El artículo va primero y con más peso: es el foco del trabajo.
         self._build_editor(panes)
         self._build_asistente(panes)
+        # Los anchos solicitados por los controles del asistente pueden hacer
+        # que ttk ignore la proporción declarada en `add(weight=...)`. Medir el
+        # layout una vez antes de mostrar la ventana conserva la jerarquía
+        # editorial; después la persona puede arrastrar el divisor normalmente.
+        self.update_idletasks()
+        self._alinear_panes_iniciales()
         self._registrar_atajos()
         # Estado persistido: el panel puede nacer oculto si así se dejó la última vez.
         if self.ui_state.get("panel_visible") is False:
@@ -512,6 +541,17 @@ class ArticuladorApp(tk.Tk):
         self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
+
+    def _alinear_panes_iniciales(self) -> None:
+        """Da al artículo la mayor superficie inicial del espacio de trabajo."""
+        if not self.panes.winfo_exists() or not self.asistente_visible:
+            return
+        ancho = self.panes.winfo_width()
+        if ancho > 0:
+            try:
+                self.panes.sashpos(0, round(ancho * 0.68))
+            except tk.TclError:
+                pass
 
     def _build_barra(self) -> None:
         """Barra mínima: solo lo que se usa a diario. El resto, en el menú."""

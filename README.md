@@ -4,7 +4,7 @@ Editor conversacional local para escribir y revisar artículos Markdown con un L
 
 ## Instalar sin Python
 
-Para Linux y Windows hay un ejecutable standalone (no requiere Python instalado) en cada [Release](https://github.com/IA-Alex/articulador/releases): descargá el binario de tu sistema y corré `--health` una vez para confirmar la instalación.
+Para Linux x86_64 y Windows x86_64 se publican ejecutables standalone (sin Python instalado) en los Releases verificados por CI. macOS no es un target soportado actualmente. Ejecuta `--health` después de instalar.
 
 ## Ejecutar
 
@@ -80,3 +80,11 @@ Hay una sola puerta de calidad, espejo del pipeline de CI:
 pip install -e ".[dev]"
 ./scripts/quality-gate.sh   # ruff + mypy + pytest con cobertura (mínimo 70 %)
 ```
+
+## Documentación
+
+Consulta el [índice documental](docs/README.md), que enlaza arquitectura,
+seguridad, privacidad, configuración, operaciones, testing, releases y
+trazabilidad. La seguridad de las API keys depende del endpoint, proveedor,
+variable de entorno o keyring que configure el usuario; revisa
+[SECURITY.md](docs/SECURITY.md) antes de enviar contenido sensible.

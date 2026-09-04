@@ -11,6 +11,9 @@ from pathlib import Path
 
 from articulador_core.models import ChatMessage
 
+MAX_CONVERSATION_MESSAGE_CHARS = 200_000
+MAX_CONVERSATION_CHARS = 1_000_000
+
 
 def restaurar_conversacion(conversaciones: object, path: Path | None) -> list[ChatMessage]:
     """Conversación persistida de un documento, o [] si no existe o es inválida.
@@ -24,10 +27,17 @@ def restaurar_conversacion(conversaciones: object, path: Path | None) -> list[Ch
     if not isinstance(cruda, list):
         return []
     restaurada: list[ChatMessage] = []
+    total_chars = 0
     for item in cruda:
         if (isinstance(item, dict) and item.get("role") in {"user", "assistant"}
                 and isinstance(item.get("content"), str)):
-            restaurada.append(ChatMessage(item["role"], item["content"]))
+            content = item["content"]
+            if len(content) > MAX_CONVERSATION_MESSAGE_CHARS:
+                continue
+            if total_chars + len(content) > MAX_CONVERSATION_CHARS:
+                continue
+            restaurada.append(ChatMessage(item["role"], content))
+            total_chars += len(content)
     return restaurada
 
 
@@ -40,7 +50,16 @@ def persistir_conversacion(
     vacío. Solo se conservan los `max_turnos` más recientes del documento.
     """
     base = dict(conversaciones) if isinstance(conversaciones, dict) else {}
-    base[str(path)] = [{"role": m.role, "content": m.content} for m in turnos[-max_turnos:]]
+    persisted = []
+    total_chars = 0
+    for message in reversed(turnos[-max_turnos:]):
+        if len(message.content) > MAX_CONVERSATION_MESSAGE_CHARS:
+            continue
+        if total_chars + len(message.content) > MAX_CONVERSATION_CHARS:
+            break
+        persisted.append({"role": message.role, "content": message.content})
+        total_chars += len(message.content)
+    base[str(path)] = list(reversed(persisted))
     return base
 
 

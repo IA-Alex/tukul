@@ -9,6 +9,7 @@ model = "elige-un-modelo"
 api_key_env = "DEEPINFRA_API_KEY"
 max_output_tokens = 1000
 max_context_chars = 48000
+max_total_model_tokens = 128000
 temperature = 0.5
 
 [profiles.deepseek]
@@ -18,4 +19,5 @@ model = "elige-un-modelo"
 api_key_env = "DEEPSEEK_API_KEY"
 max_output_tokens = 1000
 max_context_chars = 48000
+max_total_model_tokens = 128000
 temperature = 0.5

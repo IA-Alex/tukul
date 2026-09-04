@@ -7,7 +7,17 @@ set -u
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT" || exit 1
 
-PYTHON="${PYTHON:-python3}"
+if [[ -z "${PYTHON:-}" ]]; then
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+        PYTHON="$PROJECT_ROOT/.venv/bin/python"
+    else
+        PYTHON="$(command -v python3 || true)"
+    fi
+fi
+if [[ -z "$PYTHON" || ! -x "$PYTHON" ]]; then
+    echo "No se encontró un intérprete Python ejecutable." >&2
+    exit 1
+fi
 FAILED=0
 TEST_REPORT="$(mktemp "${TMPDIR:-/tmp}/articulador-tests.XXXXXX.xml")"
 trap 'rm -f "$TEST_REPORT"' EXIT
