@@ -438,7 +438,7 @@ class TukulApp(tk.Tk):
         elif estado == "saved":
             texto, color = "✓  Guardado", es.ESTADO_EXITO
         else:
-            texto, color = "○  Sin cambios", es.TEXTO_TENUE
+            texto, color = "◌  Sin cambios", es.TEXTO_TENUE
         self.sync_label.config(text=texto, foreground=color)
 
     def _configurar_tags_historial(self) -> None:
@@ -478,7 +478,9 @@ class TukulApp(tk.Tk):
                                   insertbackground=es.ACENTO, selectbackground=es.SELECCION,
                                   highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
         if getattr(self, "input", None) is not None and self.input.winfo_exists():
-            self.input.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+            # Preservar el color tenue si el placeholder está activo
+            input_fg = es.TEXTO_TENUE if self._placeholder_activo else es.TEXTO
+            self.input.configure(background=es.SUPERFICIE_ALTA, foreground=input_fg,
                                  insertbackground=es.ACENTO, selectbackground=es.SELECCION,
                                  highlightbackground=es.SUPERFICIE_ALTA, highlightcolor=es.FOCO)
         if getattr(self, "history", None) is not None and self.history.winfo_exists():
@@ -487,8 +489,14 @@ class TukulApp(tk.Tk):
                                    highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
             self._configurar_tags_historial()
         # Etiqueta de aprobación de contexto: colores directos sobre ttk.Label.
-        if getattr(self, "aprobacion_label", None) is not None and self.aprobacion_label.winfo_exists():
-            self.aprobacion_label.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO)
+        # Vive en AssistantPanel, no directamente en TukulApp.
+        panel = getattr(self, "panel_asistente", None)
+        if panel is not None and getattr(panel, "aprobacion_label", None) is not None:
+            try:
+                if panel.aprobacion_label.winfo_exists():
+                    panel.aprobacion_label.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO)
+            except tk.TclError:
+                pass
         # Estado del documento: símbolo + texto + color (nunca solo color).
         if getattr(self, "sync_label", None) is not None and self.sync_label.winfo_exists():
             self._sincronizar_estado_sync(getattr(self, "_sync_estado", "clean"))
@@ -565,7 +573,14 @@ class TukulApp(tk.Tk):
         # Estado persistido: el panel puede nacer oculto si así se dejó la última vez.
         if self.ui_state.get("panel_visible") is False:
             self.toggle_asistente()
-        self.append("Tukul", "Cuéntame qué quieres explorar o mejorar. Puedo usar el artículo completo o una selección.", es_respuesta=False)
+        self.append("Tukul",
+            "¡Hola! Soy Tukul, tu asistente de escritura.\n\n"
+            "• **Escribe o pega** un artículo en el panel izquierdo.\n"
+            "• **Pregúntame** cualquier cosa sobre tu texto en el chat de la derecha.\n"
+            "• **Selecciona texto** y pregúntame solo sobre esa parte.\n"
+            "• **Revisar artículo** analiza ortografía, gramática y estructura.\n\n"
+            "Empieza con un mensaje o abre un documento con Ctrl+O.",
+            es_respuesta=False)
         self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
@@ -669,8 +684,31 @@ class TukulApp(tk.Tk):
         self.estado_ayuda = self.panel_asistente.estado_ayuda
         self.cost_label = self.panel_asistente.cost_label
 
-        # Configuraciones adicionales que requieren referencias directas
-        self.input.bind("<Return>", lambda e: self.send_message() or "break")
+        # Placeholder en el campo de entrada: orienta sin estorbar
+        self._placeholder_activo = True
+        self._placeholder_texto = "Escribe tu mensaje aquí…"
+        self.input.insert("1.0", self._placeholder_texto)
+        self.input.config(foreground=es.TEXTO_TENUE)
+
+        def _on_input_focus_in(_event: object = None) -> None:
+            """Limpia el placeholder al recibir el foco."""
+            if self._placeholder_activo:
+                self.input.delete("1.0", "end")
+                self.input.config(foreground=es.TEXTO)
+                self._placeholder_activo = False
+
+        def _on_input_focus_out(_event: object = None) -> None:
+            """Restaura el placeholder si el campo quedó vacío."""
+            content = self.input.get("1.0", "end-1c").strip()
+            if not content:
+                self.input.delete("1.0", "end")
+                self.input.insert("1.0", self._placeholder_texto)
+                self.input.config(foreground=es.TEXTO_TENUE)
+                self._placeholder_activo = True
+
+        self.input.bind("<FocusIn>", _on_input_focus_in)
+        self.input.bind("<FocusOut>", _on_input_focus_out)
+        self.input.bind("<Return>", lambda e: self._enviar_desde_input() or "break")
         self.input.bind("<Control-Return>", lambda e: self.input.insert("insert", "\n") or "break")
         self.input.bind("<Button-3>", self.text_menu)
         self.history.bind("<Button-3>", self.history_menu)
@@ -1055,14 +1093,32 @@ class TukulApp(tk.Tk):
     def handle_callback_error(self, exc_type, exc_value, _traceback):
         """Manejador global de excepciones no controladas de Tkinter."""
         logger.exception("Excepción no controlada de Tkinter", exc_info=(exc_type, exc_value, _traceback))
-        self.status.set("Ocurrió un error interno. Puedes continuar o reiniciar Tukul.")
-        messagebox.showerror("Error interno",str(exc_value),parent=self)
+        error_msg = str(exc_value)
+        # Mensaje humano: si es un error técnico conocido, lo traduce
+        if "TclError" in type(exc_value).__name__ or "tk" in error_msg.lower():
+            user_msg = "La interfaz tuvo un pequeño contratiempo. Puedes continuar trabajando."
+        elif "memory" in error_msg.lower():
+            user_msg = "Tukul se quedó sin memoria. Guarda tu trabajo y reinicia la aplicación."
+        elif "permission" in error_msg.lower() or "denied" in error_msg.lower():
+            user_msg = "No tengo permisos para acceder a un archivo. Revisa los permisos del sistema."
+        else:
+            user_msg = "Algo no salió como esperaba. Puedes continuar o reiniciar Tukul."
+        self.status.set(f"⚠ {user_msg}")
+        # Solo mostrar diálogo si el error no es trivial
+        if not any(skip in error_msg.lower() for skip in ["geometry", "winfo", "tcl"]):
+            messagebox.showerror(
+                "Algo ocurrió",
+                f"{user_msg}\n\nSi el problema persiste, revisa el registro en ~/.local/state/tukul/tukul.log",
+                parent=self,
+            )
     def show_error(self, title: str, detail: str) -> None:
         """Muestra un error en la barra de estado y en un diálogo modal."""
         self.status.set(title)
         messagebox.showerror(title, detail, parent=self)
     def load_document(self, path: Path) -> bool:
         """Sustituye el artículo activo y su conversación, cada una por documento."""
+        self.status.set(f"Cargando {path.name}…")
+        self.update_idletasks()
         success, error, session = self.docs.open_document(path)
         if not success:
             self.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
@@ -1120,16 +1176,29 @@ class TukulApp(tk.Tk):
         self.history.config(state="normal")
         self.history.delete("1.0", "end")
         self.history.config(state="disabled")
-    def send_message(self):
-        """Envía el mensaje del cuadro de entrada como consulta normal."""
-        message=self.input.get("1.0","end-1c").strip()
-        if not message or self.session.request_active:return
+    def _enviar_desde_input(self) -> None:
+        """Extrae el mensaje del input respetando el placeholder y lo envía."""
+        if self._placeholder_activo:
+            return
+        message = self.input.get("1.0", "end-1c").strip()
+        if not message or self.session.request_active:
+            return
         # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
         # como un turno fantasma del usuario que nunca recibe respuesta.
         if not self.profile.enabled or not self.key:
-            self.append("Tukul","Configura un perfil LLM y una key para responder.")
+            self.append("Tukul", "Configura un perfil LLM y una key para responder.")
             return
-        self.input.delete("1.0","end"); self.append("Tú",message); self.request(message)
+        self.input.delete("1.0", "end")
+        # Restaurar placeholder tras enviar
+        self._placeholder_activo = True
+        self.input.insert("1.0", self._placeholder_texto)
+        self.input.config(foreground=es.TEXTO_TENUE)
+        self.append("Tú", message)
+        self.request(message)
+
+    def send_message(self):
+        """Envía el mensaje del cuadro de entrada como consulta normal."""
+        self._enviar_desde_input()
     def review(self):
         """Revisa el artículo abierto, o la selección si la hay.
 
@@ -1364,12 +1433,16 @@ class TukulApp(tk.Tk):
             # entero obligaba a reconfirmar todo de golpe.
             self.approved_contexts.remember(key)
             al_aceptar()
+            # Devolver el foco al editor para seguir trabajando
+            self.editor.focus_set()
 
         def rechazar() -> None:
             """Rechaza la autorización y aborta la petición."""
             self.panel_asistente.hide_approval()
             self._abort_request(request_id)
             self.set_estado(EstadoUI.CANCELADO, "no se envió nada")
+            # Devolver el foco al editor tras rechazar
+            self.editor.focus_set()
 
         self.panel_asistente.show_approval(text, aceptar, rechazar)
 
@@ -1489,7 +1562,15 @@ class TukulApp(tk.Tk):
             return
         self._cancel_active_request()
         self.set_estado(EstadoUI.CANCELADO)
-        self.status.set("La respuesta tardía será descartada.")
+        # Feedback visible y accionable
+        self._append_notice("Has cancelado la consulta. Puedes enviar un nuevo mensaje o seguir editando.")
+        self.status.set("✕ Consulta cancelada.")
+        # Restaurar el placeholder en el input si estaba vacío
+        if self._placeholder_activo:
+            self.input.delete("1.0", "end")
+            self.input.insert("1.0", self._placeholder_texto)
+            self.input.config(foreground=es.TEXTO_TENUE)
+        self.editor.focus_set()
 
     def process_ui_events(self):
         """Consume eventos de UI publicados por threads (thread-safe, no monopoliza UI).

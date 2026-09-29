@@ -227,7 +227,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self._settle()
 
         self.assertFalse(self.app.session.dirty)
-        self.assertEqual(self.app.sync_label.cget("text"), "○  Sin cambios")
+        self.assertEqual(self.app.sync_label.cget("text"), "◌  Sin cambios")
 
     def test_edicion_del_usuario_si_marca_como_sucio(self):
         document = self.root / "a.md"

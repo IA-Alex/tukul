@@ -24,7 +24,7 @@ class TopBar(ttk.Frame):
         self.references_button = ttk.Button(self, text="Contexto: 0 artículos", style="Plana.TButton", command=self.callbacks["manage_references"])
         self.references_button.pack(side="left", padx=(es.ESP["sm"], 0))
 
-        self.sync_label = ttk.Label(self, text="○  Sin cambios", style="Cabecera.TLabel")
+        self.sync_label = ttk.Label(self, text="◌  Sin cambios", style="Cabecera.TLabel")
         self.sync_label.pack(side="left", padx=(es.ESP["lg"], 0))
 
         self.boton_panel = ttk.Button(self, text="◧  Ocultar panel IA  (F6)", command=self.callbacks["toggle_asistente"])
