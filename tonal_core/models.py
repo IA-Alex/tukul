@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -171,3 +172,53 @@ class ConsumerSuggestion:
         "Esta sugerencia no constituye consejo profesional de seguridad."
     )
     generated_at: datetime = field(default_factory=lambda: datetime.now())
+
+
+# ─── Correlación entre fuentes e ideas de artículo ──────────────────────────
+
+
+@dataclass(frozen=True)
+class CorrelationGroup:
+    """Grupo de entradas correlacionadas entre distintas fuentes.
+
+    Se forma cuando dos o más entradas comparten un mismo CVE ID, tópicos
+    afines o keywords en común. Permite rastrear qué fuentes hablan del
+    mismo tema y con qué nivel de relevancia.
+    """
+
+    id: str
+    entries: tuple[FeedEntry, ...]
+    sources: tuple[str, ...]
+    topics: tuple[str, ...]
+    cve_id: str | None = None
+    relevance_score: float = 0.0
+    summary: str = ""
+
+    @staticmethod
+    def new_id() -> str:
+        return f"corr:{uuid.uuid4().hex[:12]}"
+
+
+@dataclass(frozen=True)
+class ArticleIdea:
+    """Idea concreta para un artículo, derivada de correlaciones entre fuentes.
+
+    No es una sugerencia genérica: tiene trazabilidad directa a las entradas
+    que la respaldan, un ángulo narrativo, audiencia objetivo y nivel de
+    urgencia. El usuario decide si desarrollarla o no.
+    """
+
+    id: str
+    title: str
+    angle: str
+    supporting_entries: tuple[str, ...]  # source_ids de FeedEntry
+    target_audience: str  # "directivos" | "tecnicos" | "publico general"
+    urgency: str  # "inmediata" | "alta" | "media" | "baja"
+    confidence: float  # 0.0-1.0
+    reasoning: str  # Por qué esta idea es relevante ahora
+    correlation_id: str  # ID del CorrelationGroup que la originó
+    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @staticmethod
+    def new_id() -> str:
+        return f"idea:{uuid.uuid4().hex[:12]}"

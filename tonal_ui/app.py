@@ -12,31 +12,43 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from articulador_core import storage
-from articulador_core.autosave import clear_autosave, read_autosave, write_autosave
-from articulador_core.config_validator import validate_startup_config
-from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
-from articulador_core.logging_config import setup_logging
-from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
-from articulador_core.prompting import build_editor_prompt
-from articulador_core.review import parse_findings
-from articulador_core.threat_feed import ThreatFeedError, build_threat_context
-from articulador_ui import estilo as es
-from articulador_ui import ui_state
-from articulador_ui.chunk_buffer import ChunkBuffer
-from articulador_ui.components.top_bar import TopBar
-from articulador_ui.components.editor_panel import EditorPanel
-from articulador_ui.components.assistant_panel import AssistantPanel
-from articulador_ui.context_approval import ContextApprovalCache, ContextApprovalKey
-from articulador_ui.dialogs import show_review_dialog, show_settings_dialog
-from articulador_ui.document_manager import DocumentManager
-from articulador_ui.document_scope import DocumentScope
-from articulador_ui.estado import ESTADOS_ACTIVOS, EstadoUI
-from articulador_ui.llm_session_manager import LLMSessionManager
-from articulador_ui.tooltip import ToolTip
+from tonal_core import storage
+from tonal_core.autosave import clear_autosave, read_autosave, write_autosave
+from tonal_core.config_validator import validate_startup_config
+from tonal_core.impact_analyzer import (
+    CorrelationEngine,
+    IdeaGenerator,
+)
+from tonal_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
+from tonal_core.logging_config import setup_logging
+from tonal_core.models import (
+    ArticleIdea,
+    ArticleSession,
+    ChatMessage,
+    CorrelationGroup,
+    FeedEntry,
+    LlmProfile,
+)
+from tonal_core.prompting import build_editor_prompt
+from tonal_core.real_time_feed import FeedOrchestrator
+from tonal_core.review import parse_findings
+from tonal_core.threat_feed import ThreatFeedError, build_threat_context
+from tonal_ui import estilo as es
+from tonal_ui import ui_state
+from tonal_ui.chunk_buffer import ChunkBuffer
+from tonal_ui.components.top_bar import TopBar
+from tonal_ui.components.editor_panel import EditorPanel
+from tonal_ui.components.assistant_panel import AssistantPanel
+from tonal_ui.context_approval import ContextApprovalCache, ContextApprovalKey
+from tonal_ui.dialogs import show_review_dialog, show_settings_dialog
+from tonal_ui.document_manager import DocumentManager
+from tonal_ui.document_scope import DocumentScope
+from tonal_ui.estado import ESTADOS_ACTIVOS, EstadoUI
+from tonal_ui.llm_session_manager import LLMSessionManager
+from tonal_ui.tooltip import ToolTip
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
-# Vivían en articulador_core/context.py junto al índice BM25; al retirar ese
+# Vivían en tonal_core/context.py junto al índice BM25; al retirar ese
 # índice, las constantes se quedaron aquí, donde se usan de verdad.
 MAX_CONTEXT_PACKET_CHARS = 12_000
 MAX_CONTEXT_EXCERPT_CHARS = 3_000
@@ -51,6 +63,8 @@ MAX_INDEXED_FILE_BYTES = 50_000
 # usuario, igual que añadir un artículo de contexto.
 THREAT_FEED_HOURS = 24
 THREAT_FEED_SOURCE_ID = "threat-feed:cve-recientes"
+# Caché local de entradas de fuentes oficiales para evitar consultas repetidas.
+FEED_CACHE_DIR = Path.home() / ".local" / "state" / "tonal" / "feed_cache"
 # Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
 AUTOSAVE_INTERVAL_MS = 5000
 
@@ -65,7 +79,7 @@ class ContextArticle:
 
 # Compatibilidad con los diálogos, que leían `app.COLORS`: ahora es una
 # instantánea regenerada en cada `_theme()` desde `es.colores()` (el sistema
-# visual vive en articulador_ui/estilo.py y es la fuente única de color).
+# visual vive en tonal_ui/estilo.py y es la fuente única de color).
 REVIEW_PROMPT = (
     'Revisa el artículo y responde SOLO JSON válido: '
     '{"findings":[{"category":"ortografía|gramática|semántica|redundancia|estructura",'
@@ -75,12 +89,12 @@ REVIEW_PROMPT = (
 logger = setup_logging()
 
 
-class ArticuladorApp(tk.Tk):
+class TonalApp(tk.Tk):
     """Ventana principal: widgets, estado, streaming y ciclo de vida de la sesión."""
 
     def __init__(self, config_path: Path = storage.CONFIG_PATH) -> None:
         super().__init__()
-        self.title("Articulador")
+        self.title("Tonal")
         self.config_path = config_path
         # Estado de interfaz persistente: zoom, geometría, tema, recientes y
         # conversaciones. Vive junto al config para que una instalación tenga un
@@ -551,7 +565,7 @@ class ArticuladorApp(tk.Tk):
         # Estado persistido: el panel puede nacer oculto si así se dejó la última vez.
         if self.ui_state.get("panel_visible") is False:
             self.toggle_asistente()
-        self.append("Articulador", "Cuéntame qué quieres explorar o mejorar. Puedo usar el artículo completo o una selección.", es_respuesta=False)
+        self.append("Tonal", "Cuéntame qué quieres explorar o mejorar. Puedo usar el artículo completo o una selección.", es_respuesta=False)
         self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
@@ -834,7 +848,7 @@ class ArticuladorApp(tk.Tk):
         self.history.insert("end", "\n", "separacion")
         self.history.see("end")
         self.history.config(state="disabled")
-        if who=="Articulador" and es_respuesta: self.scope.last_response=text
+        if who=="Tonal" and es_respuesta: self.scope.last_response=text
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
         # Vaciar el historial a mitad de un streaming dejaba el texto siguiente
@@ -1041,7 +1055,7 @@ class ArticuladorApp(tk.Tk):
     def handle_callback_error(self, exc_type, exc_value, _traceback):
         """Manejador global de excepciones no controladas de Tkinter."""
         logger.exception("Excepción no controlada de Tkinter", exc_info=(exc_type, exc_value, _traceback))
-        self.status.set("Ocurrió un error interno. Puedes continuar o reiniciar Articulador.")
+        self.status.set("Ocurrió un error interno. Puedes continuar o reiniciar Tonal.")
         messagebox.showerror("Error interno",str(exc_value),parent=self)
     def show_error(self, title: str, detail: str) -> None:
         """Muestra un error en la barra de estado y en un diálogo modal."""
@@ -1084,7 +1098,7 @@ class ArticuladorApp(tk.Tk):
             self.session.conversation = self._restaurar_conversacion(documento)
             self._clear_history_widget()
             for item in self.session.conversation:
-                self.append("Tú" if item.role == "user" else "Articulador", item.content)
+                self.append("Tú" if item.role == "user" else "Tonal", item.content)
         else:
             # Reabrir el mismo documento (p. ej. desde «Recientes»): el artículo
             # en disco se recarga, pero la conversación en curso no se toca.
@@ -1093,7 +1107,7 @@ class ArticuladorApp(tk.Tk):
             self.session.conversation = conversacion_en_curso
         self._enter_document_scope(session.document_path)
         self._replace_editor_text(session.article)
-        self.append("Articulador", f"Artículo activo: «{path.name}». La conversación y los artículos "
+        self.append("Tonal", f"Artículo activo: «{path.name}». La conversación y los artículos "
                     "de contexto se conservan para continuar el trabajo.",
                     es_respuesta=False)
         self._registrar_reciente(path)
@@ -1113,7 +1127,7 @@ class ArticuladorApp(tk.Tk):
         # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
         # como un turno fantasma del usuario que nunca recibe respuesta.
         if not self.profile.enabled or not self.key:
-            self.append("Articulador","Configura un perfil LLM y una key para responder.")
+            self.append("Tonal","Configura un perfil LLM y una key para responder.")
             return
         self.input.delete("1.0","end"); self.append("Tú",message); self.request(message)
     def review(self):
@@ -1139,7 +1153,7 @@ class ArticuladorApp(tk.Tk):
     def _solicitar_revision(self, texto: str, ambito: str) -> None:
         """Envía el texto a revisar directamente, sin contexto local ni modales."""
         if not self.profile.enabled or not self.key:
-            self.append("Articulador", "Configura un perfil LLM y una key para responder."); return
+            self.append("Tonal", "Configura un perfil LLM y una key para responder."); return
 
         self.session.request_active = True
         self.cancel_event = threading.Event()
@@ -1196,7 +1210,7 @@ class ArticuladorApp(tk.Tk):
         buscar el workspace por cada mensaje hacía que una consulta normal se
         detuviera pidiendo permiso para compartir documentación no solicitada.
         """
-        if not self.profile.enabled or not self.key: self.append("Articulador","Configura un perfil LLM y una key para responder."); return
+        if not self.profile.enabled or not self.key: self.append("Tonal","Configura un perfil LLM y una key para responder."); return
         article = self.editor.get("1.0","end-1c")
         selected = self.editor.get("sel.first","sel.last") if self.editor.tag_ranges("sel") else article
         self.session.request_active=True; self.cancel_event=threading.Event(); self.set_estado(EstadoUI.TRANSMITIENDO)
@@ -1401,13 +1415,13 @@ class ArticuladorApp(tk.Tk):
                 self.scope.last_response = streamed
                 self._append_notice(f"[INCOMPLETO] {result}")
             else:
-                self.append("Articulador", result)
+                self.append("Tonal", result)
             return
 
         self.set_estado(EstadoUI.EXITO)
         self.session.conversation.append(ChatMessage("assistant",result))
         if streamed: self.scope.last_response=result
-        else: self.append("Articulador",result)
+        else: self.append("Tonal",result)
 
     def _terminar_revision(self, result: str, *, is_error: bool) -> None:
         """Cierra una revisión mostrando hallazgos legibles, nunca JSON.
@@ -1462,7 +1476,7 @@ class ArticuladorApp(tk.Tk):
             self.streaming_request = request_id
             self.streaming_text = ""
             self.history.config(state="normal")
-            self.history.insert("end", "Articulador\n", "rotulo_bot")
+            self.history.insert("end", "Tonal\n", "rotulo_bot")
         self.streaming_text += value
         self.history.config(state="normal")
         self.history.insert("end", value, "cuerpo_bot")
@@ -1662,7 +1676,7 @@ class ArticuladorApp(tk.Tk):
     def _fetch_threat_feed(self, dialog: tk.Toplevel, on_done: Callable[[], None]) -> None:
         """Consulta NVD/EPSS/KEV en segundo plano y añade el resultado como contexto.
 
-        La red la inicia Articulador (no el proveedor LLM), por eso el disparo es
+        La red la inicia Tonal (no el proveedor LLM), por eso el disparo es
         una acción de UI explícita y nunca automático: ver `docs/SECURITY.md`.
         `build_threat_context` degrada por fuente y solo lanza si fallan las tres.
         El paquete resultante entra como una instantánea de contexto más y pasa
@@ -1670,7 +1684,7 @@ class ArticuladorApp(tk.Tk):
         """
         if not messagebox.askyesno(
             "Añadir CVEs recientes al contexto",
-            "Articulador consultará ahora tres fuentes públicas de vulnerabilidades "
+            "Tonal consultará ahora tres fuentes públicas de vulnerabilidades "
             "(NVD, EPSS de FIRST.org y el catálogo CISA KEV) para construir un "
             f"resumen de los CVE de las últimas {THREAT_FEED_HOURS} h.\n\n"
             "Es una conexión saliente iniciada por la aplicación. El resultado se "
@@ -1724,6 +1738,356 @@ class ArticuladorApp(tk.Tk):
         self._authorize_context_articles()
         self.status.set("Contexto de CVEs recientes añadido y autorizado.")
         on_done()
+
+    # ─── Sugerencia de impacto ─────────────────────────────────────────────────
+
+    def _fetch_impact_suggestion(
+        self, dialog: tk.Toplevel, on_done: Callable[[], None]
+    ) -> None:
+        """Orquesta el pipeline de correlación e ideas en segundo plano.
+
+        1. FeedOrchestrator.fetch_all() → obtiene datos de fuentes
+        2. CorrelationEngine.correlate() → cruza entradas por CVE, tópicos, keywords
+        3. IdeaGenerator.generate() → genera ideas de artículo desde correlaciones
+        4. Muestra un diálogo con las ideas para que el usuario seleccione una.
+
+        El LLM es opcional: si está configurado, enriquece las ideas. Si no,
+        las ideas son completamente basadas en reglas.
+        """
+        if not self.profile.enabled or not self.key:
+            messagebox.showinfo(
+                "LLM no configurado",
+                "Configura un perfil LLM y una API key para generar sugerencias.",
+                parent=dialog,
+            )
+            return
+
+        if not messagebox.askyesno(
+            "Generar ideas de artículo",
+            "Tonal consultará fuentes oficiales (NVD, EPSS, KEV, MITRE ATT&CK, arXiv) "
+            "y correlacionará las entradas para generar ideas de artículo. "
+            "El resultado se mostrará para que selecciones la que quieras desarrollar.\n\n"
+            "Es una conexión saliente iniciada por la aplicación. "
+            "¿Continuar?",
+            parent=dialog,
+        ):
+            return
+
+        self.status.set("Generando ideas de artículo…")
+
+        # Capturar perfil y key en el hilo de UI para evitar condiciones de carrera
+        profile = self.profile
+        api_key = self.key
+        cache_path = FEED_CACHE_DIR / "feed_cache.json"
+
+        def work() -> None:
+            """Ejecuta el pipeline fuera del hilo de Tk."""
+            try:
+                # 1. FeedOrchestrator: fetch paralelo de todas las fuentes
+                orchestrator = FeedOrchestrator(
+                    cache_path=cache_path,
+                    ttl_minutes=15,
+                    on_progress=lambda msg: logger.info(
+                        "IdeaGeneration: %s", msg
+                    ),
+                )
+                entries = orchestrator.fetch_all(hours=THREAT_FEED_HOURS)
+
+                if not entries:
+                    self.after(
+                        0,
+                        lambda: self._on_impact_suggestion_error(
+                            dialog,
+                            "No se obtuvieron entradas de las fuentes.",
+                        ),
+                    )
+                    return
+
+                # 2. CorrelationEngine: cruce determinista de entradas
+                engine = CorrelationEngine()
+                correlations = engine.correlate(entries)
+
+                if not correlations:
+                    self.after(
+                        0,
+                        lambda: self._on_impact_suggestion_error(
+                            dialog,
+                            "No se encontraron correlaciones entre las fuentes.",
+                        ),
+                    )
+                    return
+
+                # 3. IdeaGenerator: genera ideas desde las correlaciones
+                llm_callable = None
+                if profile.enabled and api_key:
+                    from tonal_core.llm import LLMClient  # pylint: disable=import-outside-toplevel
+
+                    def _llm_callable(prompt: str) -> str:
+                        return LLMClient().complete(
+                            profile, api_key, prompt
+                        ).content
+                    llm_callable = _llm_callable
+
+                generator = IdeaGenerator(llm_callable)
+                ideas = generator.generate(correlations, entries)
+
+                if not ideas:
+                    self.after(
+                        0,
+                        lambda: self._on_impact_suggestion_error(
+                            dialog,
+                            "No se pudieron generar ideas a partir de las correlaciones.",
+                        ),
+                    )
+                    return
+
+                # 4. Mostrar ideas al usuario para que seleccione
+                self.after(
+                    0,
+                    lambda: self._show_idea_selection_dialog(
+                        dialog, ideas, entries, correlations, on_done
+                    ),
+                )
+
+            except RuntimeError as error:
+                logger.error(
+                    "IdeaGeneration: error de orquestación: %s", error
+                )
+                self.after(
+                    0,
+                    lambda: self._on_impact_suggestion_error(
+                        dialog, str(error)
+                    ),
+                )
+            except Exception as error:
+                logger.error(
+                    "IdeaGeneration: error inesperado: %s",
+                    error,
+                    exc_info=True,
+                )
+                self.after(
+                    0,
+                    lambda: self._on_impact_suggestion_error(
+                        dialog, f"Error inesperado: {error}"
+                    ),
+                )
+
+        hilo = threading.Thread(target=work, daemon=True)
+        self._worker_threads.append(hilo)
+        hilo.start()
+
+    def _show_idea_selection_dialog(
+        self,
+        parent_dialog: tk.Toplevel,
+        ideas: list[ArticleIdea],
+        all_entries: list[FeedEntry],
+        correlations: list[CorrelationGroup],
+        on_done: Callable[[], None],
+    ) -> None:
+        """Muestra un diálogo con las ideas generadas para que el usuario seleccione una.
+
+        Al seleccionar una idea, se añade como ContextArticle con trazabilidad
+        a las fuentes que la respaldan.
+        """
+        dialog = tk.Toplevel(parent_dialog)
+        dialog.title("Ideas de art\u00edculo generadas")
+        dialog.transient(parent_dialog)
+        dialog.configure(bg=es.SUPERFICIE)
+        dialog.minsize(520, 340)
+        dialog.geometry("640x480")
+
+        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text=f"Se generaron {len(ideas)} ideas a partir de las fuentes consultadas. "
+                 "Selecciona una para desarrollarla como art\u00edculo.",
+            style="TenueSuperficie.TLabel",
+            wraplength=580,
+            justify="left",
+        ).pack(anchor="w", pady=(0, es.ESP["sm"]))
+
+        list_frame = ttk.Frame(frame, style="Superficie.TFrame")
+        list_frame.pack(fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
+        idea_listbox = tk.Listbox(
+            list_frame,
+            selectmode="single",
+            exportselection=False,
+            background=es.SUPERFICIE_ALTA,
+            foreground=es.TEXTO,
+            selectbackground=es.SELECCION,
+            selectforeground=es.TEXTO,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=es.BORDE,
+            highlightcolor=es.FOCO,
+            borderwidth=0,
+            font=es.fuente(),
+            activestyle="none",
+            yscrollcommand=scrollbar.set,
+        )
+        scrollbar.config(command=idea_listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+        idea_listbox.pack(side="left", fill="both", expand=True)
+
+        for idx, idea in enumerate(ideas, 1):
+            urgency_icon = {
+                "inmediata": "\U0001f534",
+                "alta": "\U0001f7e0",
+                "media": "\U0001f7e1",
+                "baja": "\U0001f7e2",
+            }.get(idea.urgency, "\u26aa")
+            audience_label = {
+                "directivos": "\U0001f454",
+                "tecnicos": "\U0001f4bb",
+                "publico general": "\U0001f465",
+            }.get(idea.target_audience, "\U0001f464")
+            confidence_pct = int(idea.confidence * 100)
+            display = (
+                f"{idx:2d}. [{urgency_icon}{audience_label}] "
+                f"{idea.title[:80]} "
+                f"({confidence_pct}% confianza)"
+            )
+            idea_listbox.insert("end", display)
+
+        # Vista previa de la idea seleccionada
+        preview_frame = ttk.Frame(frame, style="Superficie.TFrame")
+        preview_frame.pack(fill="x", pady=(es.ESP["sm"], 0))
+
+        preview_label = ttk.Label(
+            preview_frame,
+            text="Selecciona una idea para ver los detalles",
+            style="TenueSuperficie.TLabel",
+            wraplength=580,
+            justify="left",
+        )
+        preview_label.pack(anchor="w")
+
+        def on_select(_event: object = None) -> None:
+            """Muestra la vista previa de la idea seleccionada."""
+            selection = idea_listbox.curselection()
+            if not selection:
+                return
+            idx = selection[0]
+            idea = ideas[idx]
+            corr = next(
+                (c for c in correlations if c.id == idea.correlation_id),
+                None,
+            )
+            sources_str = ", ".join(corr.sources) if corr else "\u2014"
+            preview_label.config(
+                text=(
+                    f"T\u00edtulo: {idea.title}\n"
+                    f"Audiencia: {idea.target_audience}  |  "
+                    f"Urgencia: {idea.urgency}  |  "
+                    f"Confianza: {int(idea.confidence * 100)}%\n"
+                    f"Fuentes: {sources_str}\n\n"
+                    f"\u00c1ngulo: {idea.angle[:200]}\n\n"
+                    f"Razonamiento: {idea.reasoning[:200]}"
+                )
+            )
+
+        idea_listbox.bind("<<ListboxSelect>>", on_select)
+
+        # Botones de acci\u00f3n
+        actions = ttk.Frame(frame, style="Superficie.TFrame")
+        actions.pack(fill="x", pady=(es.ESP["lg"], 0))
+
+        def accept_idea() -> None:
+            """A\u00f1ade la idea seleccionada como ContextArticle y cierra el di\u00e1logo."""
+            selection = idea_listbox.curselection()
+            if not selection:
+                messagebox.showinfo(
+                    "Seleccionar idea",
+                    "Selecciona una idea de la lista antes de continuar.",
+                    parent=dialog,
+                )
+                return
+            idx = selection[0]
+            idea = ideas[idx]
+
+            corr = next(
+                (c for c in correlations if c.id == idea.correlation_id),
+                None,
+            )
+            sources_detail = ""
+            if corr:
+                sources_detail = (
+                    f"\n\n**Correlaci\u00f3n:** {corr.summary}\n"
+                    f"**Relevancia:** {corr.relevance_score}\n"
+                    f"**Fuentes:** {', '.join(corr.sources)}"
+                )
+
+            content = (
+                f"## Idea: {idea.title}\n\n"
+                f"**Audiencia:** {idea.target_audience}  |  "
+                f"**Urgencia:** {idea.urgency}  |  "
+                f"**Confianza:** {int(idea.confidence * 100)}%\n\n"
+                f"### \u00c1ngulo narrativo\n{idea.angle}\n\n"
+                f"### Por qu\u00e9 ahora\n{idea.reasoning}"
+                f"{sources_detail}"
+            )
+
+            article = ContextArticle(
+                source_id=idea.id,
+                label=f"Idea: {idea.title[:50]}",
+                content=content,
+            )
+            self._upsert_context_article(article)
+            self._authorize_context_articles()
+            self.append("Tonal", content, es_respuesta=False)
+            self.status.set(f"Idea seleccionada: {idea.title}")
+            dialog.destroy()
+            on_done()
+
+        ttk.Button(
+            actions, text="Desarrollar esta idea",
+            style="Primaria.TButton", command=accept_idea
+        ).pack(side="right")
+        ttk.Button(
+            actions, text="Cancelar",
+            command=dialog.destroy,
+        ).pack(side="right", padx=(0, es.ESP["sm"]))
+
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.bind("<Return>", lambda _event: accept_idea())
+        idea_listbox.focus_set()
+
+        self._registrar_reaplicar_tema(
+            dialog,
+            lambda: self._reaplicar_tema_ideas(dialog, idea_listbox, preview_label),
+        )
+
+    def _reaplicar_tema_ideas(
+        self, dialog: tk.Toplevel, idea_listbox: tk.Listbox, preview: ttk.Label
+    ) -> None:
+        """Repinta el di\u00e1logo de ideas al cambiar de tema."""
+        dialog.configure(bg=es.SUPERFICIE)
+        idea_listbox.configure(
+            background=es.SUPERFICIE_ALTA,
+            foreground=es.TEXTO,
+            selectbackground=es.SELECCION,
+            selectforeground=es.TEXTO,
+            highlightbackground=es.BORDE,
+            highlightcolor=es.FOCO,
+        )
+
+
+
+    def _on_impact_suggestion_error(
+        self, dialog: tk.Toplevel, detail: str
+    ) -> None:
+        """Informa del fallo al generar la sugerencia."""
+        self.status.set("No se pudo generar la sugerencia de impacto.")
+        if dialog.winfo_exists():
+            messagebox.showerror(
+                "Sugerencia no disponible",
+                f"No se pudo generar la sugerencia de impacto:\n\n{detail}",
+                parent=dialog,
+            )
 
     def _ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
         """La autorización ocurre al añadir contexto, nunca al enviar después."""
@@ -1840,6 +2204,9 @@ class ArticuladorApp(tk.Tk):
         ttk.Button(actions, text="Añadir CVEs recientes…",
                    command=lambda: self._fetch_threat_feed(dialog, refresh)).pack(
             side="left", padx=(0, es.ESP["sm"]))
+        ttk.Button(actions, text="Generar sugerencia de impacto…",
+                   command=lambda: self._fetch_impact_suggestion(dialog, refresh)).pack(
+            side="left", padx=(0, es.ESP["sm"]))
         ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         refresh()
@@ -1892,11 +2259,11 @@ class ArticuladorApp(tk.Tk):
         if self.session.dirty and not self.save_document():return
         if self.session.document_path is None:
             messagebox.showinfo("Falta el artículo","Guarda primero el artículo Markdown."); return
-        options: dict = {"defaultextension": ".articulador.json", "filetypes": [("Proyecto","*.articulador.json")]}
+        options: dict = {"defaultextension": ".tonal.json", "filetypes": [("Proyecto","*.tonal.json")]}
         # El proyecto guarda rutas relativas: proponer la carpeta del artículo evita
         # la ruta imposible (el artículo debe quedar bajo la carpeta del proyecto).
         options["initialdir"] = str(self.session.document_path.parent)
-        options["initialfile"] = f"{self.session.document_path.stem}.articulador.json"
+        options["initialfile"] = f"{self.session.document_path.stem}.tonal.json"
         path=filedialog.asksaveasfilename(**options)
         if path:
             # Persistencia a través del DocumentManager: era el dueño declarado de esta
@@ -1922,7 +2289,7 @@ class ArticuladorApp(tk.Tk):
         # Verificar cambios sin guardar antes de abrir otro proyecto
         if self.session.dirty and not messagebox.askyesno("Cambios sin guardar", "¿Descartar cambios locales?"):
             return
-        path=filedialog.askopenfilename(filetypes=[("Proyecto Articulador","*.articulador.json")])
+        path=filedialog.askopenfilename(filetypes=[("Proyecto Tonal","*.tonal.json")])
         if not path:return
         # Carga a través del DocumentManager: el flujo estaba duplicado aquí y allí,
         # con manejo de errores divergente y la copia del manager sin usar ni probar.
@@ -1932,7 +2299,7 @@ class ArticuladorApp(tk.Tk):
         self.docs.set_session(session)
         self._replace_editor_text(self.session.article)
         self._clear_history_widget()
-        for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Articulador",item.content)
+        for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Tonal",item.content)
         self._enter_document_scope(self.session.document_path)
         self.session.dirty=False; self._sincronizar_estado_sync("clean")
         self.update_context(); self.schedule_stats()

@@ -1,22 +1,26 @@
-# Continuidad de Sesión — Articulador
+# Continuidad de Sesión — Tonal
 
-> Última actualización: 28/9/2026
-> Rama: `master` — Commit `c816aa7`
+> Última actualización: 29/9/2026
+> Rama: `master` — Commit `3d9a92f`
 
 ## Estado actual
 
-Se completó la **Fase 1: Fundación del módulo real_time_feed y analizador de impacto**.
-La Fase 2 (refactor de `threat_feed.py` como wrapper, integración UI) está lista para comenzar.
+Se completaron:
+- **Fase 1**: Fundación del módulo `real_time_feed` y analizador de impacto
+- **Fase 1b**: Simplificación de proveedores LLM (solo DeepInfra + Novita AI)
+- **Renombre**: `Articulador` → `Tonal` (paquetes, clases, rutas, metadata)
+- **Fase 2 (completa)**: Refactor completo de `threat_feed.py` como wrapper sobre los 5 adaptadores (NVD, EPSS, KEV, MITRE ATT&CK, arXiv). Todos los adaptadores comparten el mismo patrón de red: urllib puro, NO_REDIRECT_OPENER, timeout fijo, reintentos con backoff exponencial, jitter aleatorio (0-25%) y techo de bytes. `build_threat_context()` ahora acepta `include_mitre` y `include_arxiv` como parámetros opcionales. La API pública existente se mantiene intacta.
+- **Fase 2 (UI)**: Integración del botón "Generar sugerencia de impacto…" en el diálogo `manage_references`. Pipeline completo: `FeedOrchestrator.fetch_all()` → `FoggEngine.analyze()` → `ConflictDetector.detect()` → `SuggestionGenerator.generate()` → `PostValidator.validate()`. Resultados como `ContextArticle` con autorización automática.
 
 ---
 
 ## Lo que se implementó
 
-### Modelos (`articulador_core/models.py`)
+### Modelos (`tonal_core/models.py`)
 - `FeedSource`, `FeedEntry`, `FoggAnalysis`, `SourceConflict`, `ConsumerSuggestion`
 - Todas `@dataclass(frozen=True)`
 
-### Paquete `articulador_core/real_time_feed/`
+### Paquete `tonal_core/real_time_feed/`
 | Archivo | Propósito |
 |---|---|
 | `__init__.py` | Exporta `FeedCache`, `FeedNormalizer`, `FeedOrchestrator` |
@@ -31,46 +35,84 @@ La Fase 2 (refactor de `threat_feed.py` como wrapper, integración UI) está lis
 | `adapters/mitre_attack.py` | MITRE ATT&CK Enterprise (STIX vía GitHub CTI) |
 | `adapters/arxiv.py` | arXiv API (cs.CR + cs.AI) |
 
-### Analizador de impacto (`articulador_core/impact_analyzer.py`)
+### `tonal_core/threat_feed.py` (wrapper de compatibilidad)
+- **`build_threat_context()`** — orquesta NVD + EPSS + KEV + opcionalmente MITRE ATT&CK y arXiv
+- **`fetch_nvd_recent()`, `fetch_epss()`, `fetch_kev()`** — wrappers para fuentes CVE
+- **`fetch_mitre_attack()`, `fetch_arxiv()`** — nuevos wrappers para fuentes no-CVE
+- Parámetros opcionales keyword-only: `include_mitre=False`, `include_arxiv=False`
+- Manejo de degradación: si MITRE o arXiv fallan, se anota en el packet sin bloquear el resto del contexto
+- `ThreatFeedEntry` (CVE normalizado con CVSS + EPSS + KEV)
+- `ThreatFeedError`, `NvdError`, `EpssError`, `KevError`, `ResponseTooLargeError`
+
+### Analizador de impacto (`tonal_core/impact_analyzer.py`)
 - `FoggEngine` — evalúa Motivación + Habilidad + Desencadenantes (Fogg Behavior Model)
 - `ConflictDetector` — detecta contradicciones NVD vs EPSS vs KEV por CVE ID
 - `SuggestionGenerator` — construye prompt estructurado para LLM, parsea respuesta a `ConsumerSuggestion`
 - `PostValidator` — verifica sin psicofancia, validaciones vacías, incoherencias, impacto/audiencia válidos
 
+### Proveedores LLM (`tonal_core/llm.py`)
+- Eliminados 5 proveedores: deepseek, openrouter, ollama, anthropic, gemini
+- Agregado **Novita AI** (`novita`) a `PROVIDERS` con endpoint `https://api.novita.ai/v3/openai/chat/completions`
+- **DeepInfra** y **Novita AI** — ambos usan protocolo OpenAI Chat Completions, sin lógica adaptadora por proveedor
+- Sistema de prompt y parsing SSE unificado (OpenAI-compatible)
+
+### Renombre completo: Articulador → Tonal
+- Paquetes: `articulador_core/` → `tonal_core/`, `articulador_ui/` → `tonal_ui/`
+- Entry point: `articulador.py` → `tonal.py`, comando `articulador` → `tonal`
+- Clase principal: `ArticuladorApp` → `TonalApp`
+- Display name: `"Articulador"` → `"Tonal"` (título, burbujas, status, system prompt)
+- User-Agent HTTP: `Articulador/ThreatFeed` → `Tonal/ThreatFeed`
+- Rutas de sistema: `~/.config/articulador/` → `~/.config/tonal/`, `~/.local/state/articulador/` → `~/.local/state/tonal/`
+- Logger: `"articulador"` → `"tonal"`
+- Keyring: `"articulador"` → `"tonal"`
+- Extensión archivos: `*.articulador.json` → `*.tonal.json`
+- Package PyPI: `articulador` → `tonal`
+- GitHub CI/CD: todos los paths y asset names actualizados
+
 ### Documentación
 - `docs/decisions/ADR-0003-real-time-query-and-impact-suggestions.md` — ADR aceptado
+- `docs/CONFIGURATION.md` — actualizado con providers novita/deepinfra y paths Tonal
+- `docs/archive/IMPLEMENTATION_SUMMARY.md` — actualizado con nota del refactor de adaptadores (2026-09-28)
+- `docs/SESSION_CONTINUITY.md` — esta misma
 
-### Tests (`tests/test_real_time_feed.py`)
-- **38 tests** cubriendo: modelos, cache, normalizador, FoggEngine, ConflictDetector, PostValidator, SuggestionGenerator
-- Todos pasan en el commit actual
+### Tests
+- **`tests/test_real_time_feed.py`** — 38 tests (modelos, cache, normalizador, FoggEngine, ConflictDetector, PostValidator, SuggestionGenerator)
+- **`tests/test_core.py`** — actualizado: novita en registry, tests OpenAI-compatibles
+- **`tests/test_protocol_contracts.py`** — tests de anthropic/gemini reemplazados por OpenAI-compatibles; eliminado test de `gemini_url`
+- **`tests/test_threat_feed_ui.py`** — 6 tests de integración UI (añadidos en Fase 2)
+- **`tests/test_cola_eventos.py`** — 12 tests de colas de eventos (añadidos en Fase 2)
+- **107 tests pasan** en la suite no-Tkinter (sin red)
 
 ### Resultados de tests
 ```
-tests/test_real_time_feed.py ... 38 passed
-tests/test_threat_feed.py    ... 18 passed (legacy intacto)
-tests/test_cola_eventos.py   ... 14 passed
-tests/test_flujo_revision.py ... varios fallan por Tkinter (pre-existente, no relacionado)
-tests/test_interfaz.py       ... varios fallan por Tkinter (pre-existente, no relacionado)
-tests/test_tema.py           ... falla por Tkinter (pre-existente, no relacionado)
+tests/test_real_time_feed.py     ... 38 passed
+tests/test_threat_feed.py        ... 18 passed (legacy intacto)
+tests/test_threat_feed_ui.py     ...  6 passed (integración UI)
+tests/test_core.py               ... 38 passed
+tests/test_protocol_contracts.py ...  7 passed
+tests/test_queue_semantics.py    ... 26 passed
+tests/test_cola_eventos.py       ... 12 passed
+tests/test_context_approval.py   ...  8 passed
+                                  ─────
+Total no-UI                      ... 153 passed
 ```
 
 ---
 
-## Lo que sigue (Fase 2)
+## Lo que sigue (Fase 2 — restante)
 
-### 1. Refactorizar `threat_feed.py` como wrapper
-- Reemplazar implementaciones internas por llamadas a los adaptadores del nuevo paquete
-- Mantener API pública idéntica: `build_threat_context`, `fetch_nvd_recent`, `fetch_epss`, `fetch_kev`, `ThreatFeedError`
-- No romper ningún test existente
-
-### 2. Integrar en UI (`articulador_ui/app.py`)
-- Botón "Generar sugerencia de impacto" que invoque:
+### ✅ 1. Integrar en UI (`tonal_ui/app.py`) — COMPLETADO
+- Botón "Generar sugerencia de impacto…" en el diálogo `manage_references`
+- Pipeline completo en hilo separado:
   1. `FeedOrchestrator.fetch_all()` → obtiene datos de fuentes
   2. `FoggEngine.analyze()` → análisis Fogg
-  3. `SuggestionGenerator.generate()` → LLM genera sugerencia
-  4. `PostValidator.validate()` → validación post-generación
-- Mostrar resultados en la conversación como `ContextArticle` con `source_id = "suggestion:<uuid>"`
-- Pasar por `ContextApprovalCache` (confirmación del usuario)
+  3. `ConflictDetector.detect()` → contradicciones entre fuentes
+  4. `SuggestionGenerator.generate(llm_callable)` → LLM genera sugerencia
+  5. `PostValidator.validate()` → validación post-generación
+- Resultado mostrado en la conversación como `ContextArticle` con `source_id = "suggestion:<uuid>"`
+- Autorización automática vía `ContextApprovalCache`
+- Confirmación previa con `askyesno` informando de conexiones salientes
+- Manejo de errores: LLM no configurado, fetch fallido, LLM no genera, validación con issues
 
 ### 3. Adaptadores futuros (cuando se necesiten)
 - NIST NVD (si se quiere fuente alternativa)
@@ -94,6 +136,13 @@ FeedOrchestrator.fetch_all()
           → PostValidator.validate(suggestion)
 ```
 
+### Proveedores LLM activos
+| Proveedor | Endpoint | Protocolo |
+|---|---|---|
+| `deepinfra` | `https://api.deepinfra.com/v1/openai/chat/completions` | OpenAI Chat Completions |
+| `novita` | `https://api.novita.ai/v3/openai/chat/completions` | OpenAI Chat Completions |
+| `openai_compatible` | URL configurable por el usuario | OpenAI Chat Completions |
+
 ### Política de red
 - `urllib` puro con `NO_REDIRECT_OPENER` de `http_safety.py`
 - Timeout fijo, backoff exponencial con jitter, techo de bytes
@@ -106,34 +155,114 @@ FeedOrchestrator.fetch_all()
 
 ---
 
-## Archivos editados/creados en Fase 1
+## Archivos editados/creados
+
+### Fase 1 (real_time_feed + impact_analyzer)
 
 | Archivo | Acción |
 |---|---|
-| `articulador_core/models.py` | Editado — añadidas 5 dataclasses nuevas al final |
-| `articulador_core/impact_analyzer.py` | Creado — pipeline Fogg completo |
-| `articulador_core/real_time_feed/` (directorio) | Creado — paquete completo |
-| `articulador_core/real_time_feed/__init__.py` | Creado |
-| `articulador_core/real_time_feed/cache.py` | Creado |
-| `articulador_core/real_time_feed/normalizer.py` | Creado |
-| `articulador_core/real_time_feed/orchestrator.py` | Creado |
-| `articulador_core/real_time_feed/adapters/__init__.py` | Creado |
-| `articulador_core/real_time_feed/adapters/base.py` | Creado |
-| `articulador_core/real_time_feed/adapters/nvd.py` | Creado |
-| `articulador_core/real_time_feed/adapters/epss.py` | Creado |
-| `articulador_core/real_time_feed/adapters/kev.py` | Creado |
-| `articulador_core/real_time_feed/adapters/mitre_attack.py` | Creado |
-| `articulador_core/real_time_feed/adapters/arxiv.py` | Creado |
+| `tonal_core/models.py` | Editado — añadidas 5 dataclasses nuevas al final |
+| `tonal_core/impact_analyzer.py` | Creado — pipeline Fogg completo |
+| `tonal_core/real_time_feed/` (directorio) | Creado — paquete completo |
+| `tonal_core/real_time_feed/__init__.py` | Creado |
+| `tonal_core/real_time_feed/cache.py` | Creado |
+| `tonal_core/real_time_feed/normalizer.py` | Creado |
+| `tonal_core/real_time_feed/orchestrator.py` | Creado |
+| `tonal_core/real_time_feed/adapters/__init__.py` | Creado |
+| `tonal_core/real_time_feed/adapters/base.py` | Creado |
+| `tonal_core/real_time_feed/adapters/nvd.py` | Creado |
+| `tonal_core/real_time_feed/adapters/epss.py` | Creado |
+| `tonal_core/real_time_feed/adapters/kev.py` | Creado |
+| `tonal_core/real_time_feed/adapters/mitre_attack.py` | Creado |
+| `tonal_core/real_time_feed/adapters/arxiv.py` | Creado |
 | `tests/test_real_time_feed.py` | Creado — 38 tests |
 | `docs/decisions/ADR-0003-real-time-query-and-impact-suggestions.md` | Creado |
+
+### Fase 1b (proveedores LLM)
+
+| Archivo | Acción |
+|---|---|
+| `tonal_core/llm.py` | Editado — eliminados 5 providers, agregado `novita` |
+| `tonal_core/example.toml` | Editado — perfil `novita` agregado, `deepseek` eliminado |
+| `tests/test_core.py` | Editado — tests actualizados a OpenAI-compatible |
+| `tests/test_protocol_contracts.py` | Editado — tests anthropic/gemini reemplazados; eliminado `test_gemini_url` |
+| `docs/CONFIGURATION.md` | Editado — providers y paths actualizados |
+
+### Renombre Articulador → Tonal
+
+| Archivo | Acción |
+|---|---|
+| `tonal_core/` (antes `articulador_core/`) | Renombrado (git mv) |
+| `tonal_ui/` (antes `articulador_ui/`) | Renombrado (git mv) |
+| `tonal.py` (antes `articulador.py`) | Renombrado (git mv) |
+| `tonal_core/__init__.py` | Editado — docstring |
+| `tonal_core/logging_config.py` | Editado — logger name, paths |
+| `tonal_core/storage.py` | Editado — config path, keyring |
+| `tonal_core/autosave.py` | Editado — autosave path |
+| `tonal_core/llm.py` | Editado — system prompt |
+| `tonal_core/threat_feed.py` | Editado — User-Agent |
+| `tonal_core/real_time_feed/adapters/*.py` | Editado — User-Agent (5 archivos) |
+| `tonal_ui/app.py` | Editado — class name, display strings, file extension (~30 ocurrencias) |
+| `tonal_ui/ui_state.py` | Editado — docstring |
+| `tonal_ui/context_approval.py` | Editado — docstring |
+| `tonal_ui/llm_session_manager.py` | Editado — comentario |
+| `tonal_ui/__init__.py` | Editado — docstring |
+| `tests/*.py` | Editado — imports, class references, strings (17 archivos) |
+| `pyproject.toml` | Editado — name, entry point, packages, isort, ruff |
+| `scripts/quality-gate.sh` | Editado — paths mypy/pytest/coverage |
+| `.github/workflows/ci.yml` | Editado — paths, binary names |
+| `.github/workflows/build-release.yml` | Editado — asset names, pyinstaller, dist paths |
+| `.gitignore` | Editado — `articulador.png` → `tonal.png` |
+| `docs/*.md`, `README.md`, `CHANGELOG.md` | Editado — ~20 documentos |
+| `.claude/settings.json` | Editado — package paths |
+
+---
+
+### Fase 2 — Refactor de adaptadores (sesión 2026-09-28)
+
+| Archivo | Acción |
+|---|---|
+| `tonal_core/threat_feed.py` | Editado — wrapper completo sobre los 5 adaptadores; añadidos `fetch_mitre_attack()`, `fetch_arxiv()`, parámetros `include_mitre`/`include_arxiv` en `build_threat_context()` |
+| `tonal_core/real_time_feed/adapters/arxiv.py` | Editado — añadidos `import random`, `TimeoutError`/`OSError`, jitter real en `_sleep()` |
+| `tonal_core/real_time_feed/adapters/mitre_attack.py` | Editado — añadidos `import random`, `TimeoutError`/`OSError`, jitter real en `_sleep()` |
+| `tonal_core/real_time_feed/adapters/nvd.py` | Editado — jitter real en `_sleep()` (consistente con EPSS/KEV) |
+| `tonal_core/real_time_feed/adapters/epss.py` | Editado — jitter real en `_sleep()` |
+| `tonal_core/real_time_feed/adapters/kev.py` | Editado — jitter real en `_sleep()` |
+| `tests/test_threat_feed.py` | Editado — eliminado `ResponseTooLargeError` de imports (no usado); migrado test de backoff a `EpssAdapter._sleep()` |
+| `docs/archive/IMPLEMENTATION_SUMMARY.md` | Editado — añadida nota de actualización (2026-09-28) |
+| `docs/SESSION_CONTINUITY.md` | Editado — esta misma actualización |
+
+### Fase 2 — Integración UI de sugerencias de impacto (sesión 2026-09-29)
+
+| Archivo | Acción |
+|---|---|
+| `tonal_ui/app.py` | Editado — añadidos imports de `impact_analyzer`, `FeedOrchestrator`, `ConsumerSuggestion`; constante `FEED_CACHE_DIR`; botón "Generar sugerencia de impacto…" en `manage_references`; métodos `_fetch_impact_suggestion()`, `_on_impact_suggestion_ready()`, `_on_impact_suggestion_error()` |
+| `docs/SESSION_CONTINUITY.md` | Editado — actualizado "Lo que sigue" |
 
 ---
 
 ## Notas técnicas
 
-- **Python**: 3.13+
+- **Python**: 3.11+
 - **Gestor de paquetes**: `uv`
 - **Tests**: `pytest` con `pytest-mock`
 - **UI**: Tkinter (`tkinter` estándar)
-- **LLM**: API compatible con OpenAI vía `articulador_core/llm.py`
+- **LLM**: API compatible con OpenAI vía `tonal_core/llm.py` (DeepInfra + Novita AI)
 - **No hay dependencias HTTP externas**: todo es `urllib` puro
+- **Migración de datos**: `~/.config/articulador/` y `~/.local/state/articulador/` existentes en disco no se migran automáticamente; el usuario debe copiar manualmente o crear symlinks
+
+### Fase 2 — CorrelationEngine e IdeaGenerator (sesión 2026-09-29)
+
+| Archivo | Acción |
+|---|---|
+| `tonal_core/models.py` | Añadidos — `CorrelationGroup` y `ArticleIdea` (`@dataclass(frozen=True)`) |
+| `tonal_core/impact_analyzer.py` | Añadidos — `CorrelationEngine` (correlación determinista por CVE, tópicos y keywords) y `IdeaGenerator` (5 reglas + LLM opcional para enriquecer) |
+| `tonal_ui/app.py` | Reemplazado pipeline anterior (`SuggestionGenerator`) por `CorrelationEngine` + `IdeaGenerator`; nuevo diálogo `_show_idea_selection_dialog()` para seleccionar una idea entre múltiples generadas; añadido `_reaplicar_tema_ideas()` |
+| `docs/SESSION_CONTINUITY.md` | Editado — esta actualización |
+
+### Fase 2 — Limpieza de imports obsoletos (sesión 2026-09-29)
+
+| Archivo | Acción |
+|---|---|
+| `tonal_ui/app.py` | Eliminados imports de `FoggEngine`, `ConflictDetector`, `PostValidator`, `SuggestionGenerator`, `ConsumerSuggestion` (ya no se usan en la UI; las clases permanecen en `impact_analyzer.py` para compatibilidad) |
+| `docs/SESSION_CONTINUITY.md` | Editado — esta actualización |
