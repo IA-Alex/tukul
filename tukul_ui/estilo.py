@@ -1,4 +1,4 @@
-"""Sistema visual de Articulator: precisión, estructura y foco.
+"""Sistema visual de Tukul: precisión, estructura y foco.
 
 Reglas del sistema, deliberadamente estrechas para que la interfaz se lea como
 una sola pieza:

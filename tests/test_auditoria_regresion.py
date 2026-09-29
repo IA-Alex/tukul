@@ -104,13 +104,13 @@ def _headless_app() -> TukulApp:
     app.streaming_text = ""
     app.scope = DocumentScope()
     app.estado_actual = EstadoUI.REPOSO
-    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
     app.estado_label = Mock()
     app.history = Mock()
-    app.activity = Mock()
+    app.activity_var = Mock()
     app.status = Mock()
-    app.cost_label = Mock()
+    app.cost_label_var = Mock()
     app.send_button = Mock()
     app.cancel_button = Mock()
     app.after = Mock()
@@ -407,12 +407,12 @@ class TestAprobacionDeContexto(unittest.TestCase):
         """
         limite = time.monotonic() + 1.0
         self.app.update()
-        while not self.app.barra_aprobacion.winfo_ismapped() and time.monotonic() < limite:
+        while not self.app.panel_asistente.barra_aprobacion.winfo_ismapped() and time.monotonic() < limite:
             time.sleep(0.01)
             self.app.update()
         pregunto = False
-        if self.app.barra_aprobacion.winfo_ismapped():
-            self.app.boton_aprobar.invoke()
+        if self.app.panel_asistente.barra_aprobacion.winfo_ismapped():
+            self.app.panel_asistente.boton_aprobar.invoke()
             self.app.update()
             pregunto = True
         _esperar_hilo_de_envio(self.app, self._envio_previo)
@@ -1230,7 +1230,7 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         desde = app.llm.stream_response.call_count
         app.confirm_and_send(rid, "hola", "art", "paquete nuevo", ["notas.md"], threading.Event())
         app.update()
-        app.boton_aprobar.invoke()   # confirmación en línea, no modal
+        app.panel_asistente.boton_aprobar.invoke()   # confirmación en línea, no modal
         app.update()
         _esperar_hilo_de_envio(app, desde)
 

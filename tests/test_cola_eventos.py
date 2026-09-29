@@ -56,8 +56,8 @@ def _app_sin_ventana() -> TukulApp:
     app.streaming_text = ""
     app.scope = DocumentScope()
     app.estado_actual = EstadoUI.REPOSO
-    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
     app.estado_label = Mock()
 
     def _pintar(request_id: int, texto: str) -> None:
@@ -72,7 +72,7 @@ def _app_sin_ventana() -> TukulApp:
         app.streaming_text += texto
 
     app.stream_chunk = Mock(side_effect=_pintar)
-    for nombre in ("history", "activity", "status", "cost_label", "send_button",
+    for nombre in ("history", "activity_var", "status", "cost_label_var", "send_button",
                    "cancel_button", "after"):
         setattr(app, nombre, Mock())
     app.docs = Mock()

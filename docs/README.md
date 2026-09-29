@@ -14,6 +14,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Tests y quality gate | [TESTING.md](TESTING.md) | desarrollo, CI | NORMATIVE / mantenedores |
 | Releases | [RELEASE.md](RELEASE.md) | release managers | NORMATIVE / mantenedores |
 | Contratos trazables | [TRACEABILITY.md](TRACEABILITY.md) | calidad, auditoría | SUPPORTING / mantenedores |
+| Auditoría de naming | [NAMING_AUDIT.md](NAMING_AUDIT.md) | calidad, arquitectura | SUPPORTING / mantenedores |
 | Canales y concurrencia | [QUEUE_POLICY.md](QUEUE_POLICY.md) | desarrollo | NORMATIVE / mantenedores |
 | Decisiones significativas | [decisions/](decisions/) | arquitectura | SUPPORTING / mantenedores |
 | Convenciones de docstrings | [DOCSTRING_GUIDE.md](DOCSTRING_GUIDE.md) | desarrollo | SUPPORTING / mantenedores |

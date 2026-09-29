@@ -869,12 +869,12 @@ class TukulApp(tk.Tk):
         rama del flujo escribía su propia cadena y no había estado consultable.
         """
         self.estado_actual = estado
-        self.activity.set(estado.etiqueta(detalle))
-        self.estado_ayuda.set(estado.ayuda)
+        self.activity_var.set(estado.etiqueta(detalle))
+        self.estado_ayuda_var.set(estado.ayuda)
         try:
             self.estado_label.config(foreground=estado.color)
             # El nombre accesible viaja aparte del color y del símbolo.
-            self.estado_label.config(text=self.activity.get())
+            self.estado_label.config(text=self.activity_var.get())
         except tk.TclError:
             pass
         activo = estado in ESTADOS_ACTIVOS
@@ -1301,7 +1301,7 @@ class TukulApp(tk.Tk):
         contexto_extra = " + ".join(files)
         detail=f"Contexto: artículo activo{(' + ' + contexto_extra) if contexto_extra else ''} · ~{input_tokens:,} tokens entrada"
         if cost: detail+=f" · coste máx. ~${cost:.4f}"
-        self.cost_label.set(detail)
+        self.cost_label_var.set(detail)
         # Lo que el usuario aprueba son los FRAGMENTOS locales: la huella cubre el
         # paquete de contexto, no el artículo ni la conversación. Con el prompt
         # completo el hash cambiaba en cada mensaje y el diálogo salía siempre.
@@ -1399,7 +1399,7 @@ class TukulApp(tk.Tk):
         self.streaming_text = ""
 
         self.status.set("Contexto usado: "+", ".join(files) if files else "Respuesta lista.")
-        if usage[0] is not None: self.cost_label.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
+        if usage[0] is not None: self.cost_label_var.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
 
         # El tipo viaja con la petición: no hay estado de revisión persistente.
         if request_type == "review":

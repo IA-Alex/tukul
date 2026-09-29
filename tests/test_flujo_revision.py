@@ -110,7 +110,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             self.app.review()
             _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
-        self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
+        self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                          "No hay contexto que aprobar: la barra no debe aparecer")
 
     # --- 2. el prompt técnico no llega al historial ---------------------
@@ -154,7 +154,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             self.app.review()
             _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
-        self.assertIn("revisando el artículo", self.app.activity.get())
+        self.assertIn("revisando el artículo", self.app.activity_var.get())
 
         self.app.session.request_active = False
         self.app.editor.tag_add("sel", "1.0", "1.16")
@@ -162,7 +162,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             self.app.review()
             _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
-        self.assertIn("revisando la selección", self.app.activity.get())
+        self.assertIn("revisando la selección", self.app.activity_var.get())
 
     # --- 5. resultado legible, sin JSON --------------------------------
     def test_una_revision_valida_abre_los_hallazgos_sin_pintar_json(self):
@@ -294,7 +294,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             _esperar_llamada(self.app, enviar)
             for _ in range(5):
                 self.app.update()
-        self.assertFalse(self.app.barra_aprobacion.winfo_ismapped())
+        self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped())
 
     def test_articulo_anterior_autorizado_se_envia_sin_segunda_confirmacion(self):
         anterior = self.raiz / "articulo-anterior.md"
@@ -311,7 +311,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.request("Compara ambos artículos")
             _esperar_llamada(self.app, enviar)
             self._asentar()
-            self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
+            self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                              "Aceptar al conservar no puede pedir permiso otra vez")
 
         # El activo y el previo viajan por campos distintos del prompt.
@@ -333,7 +333,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.request("Consulta")
             self._asentar()
 
-        self.assertTrue(self.app.barra_aprobacion.winfo_ismapped(),
+        self.assertTrue(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                         "Un modelo distinto es otro destino de autorización")
 
 

@@ -63,16 +63,16 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Mock de UI widgets
                     app.history = Mock()
-                    app.activity = Mock()
+                    app.activity_var = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
                     app.estado_actual = EstadoUI.REPOSO
-                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
                     app.estado_label = Mock()
                     app.status = Mock()
-                    app.cost_label = Mock()
+                    app.cost_label_var = Mock()
                     app.docs = Mock()
                     app.docs.session = Mock()
                     app.docs.conversation = []
@@ -121,16 +121,16 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Mock de UI
                     app.history = Mock()
-                    app.activity = Mock()
+                    app.activity_var = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
                     app.estado_actual = EstadoUI.REPOSO
-                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
                     app.estado_label = Mock()
                     app.status = Mock()
-                    app.cost_label = Mock()
+                    app.cost_label_var = Mock()
                     app.docs = Mock()
                     app.docs.session = Mock()
                     app.docs.conversation = []
@@ -178,16 +178,16 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Mock de UI
                     app.history = Mock()
-                    app.activity = Mock()
+                    app.activity_var = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
                     app.estado_actual = EstadoUI.REPOSO
-                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
                     app.estado_label = Mock()
                     app.status = Mock()
-                    app.cost_label = Mock()
+                    app.cost_label_var = Mock()
                     app.docs = Mock()
                     app.docs.session = Mock()
                     app.docs.conversation = []
