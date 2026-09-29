@@ -6,10 +6,10 @@ La suite est√° en `tests/`. Hay tests unitarios de core y utilidades, integraci√
 
 ```bash
 python -m ruff check .
-python -m mypy articulador_core articulador_ui articulador.py
-xvfb-run -a python -m pytest -q -rs --cov=articulador_core --cov=articulador_ui --cov-report=term-missing --cov-fail-under=70
+python -m mypy tukul_core tukul_ui tukul.py
+xvfb-run -a python -m pytest -q -rs --cov=tukul_core --cov=tukul_ui --cov-report=term-missing --cov-fail-under=70
 python -m pip_audit --local --skip-editable
-bandit -r articulador_core articulador_ui -lll -ii
+bandit -r tukul_core tukul_ui -lll -ii
 ./scripts/quality-gate.sh
 ```
 

@@ -4,7 +4,7 @@ STATUS: Accepted
 
 ## CONTEXT
 
-Articulador maneja artículos y estado local sin servidor propio. Un corte durante una escritura no debe dejar un archivo parcial.
+Tukul maneja artículos y estado local sin servidor propio. Un corte durante una escritura no debe dejar un archivo parcial.
 
 ## DECISION
 

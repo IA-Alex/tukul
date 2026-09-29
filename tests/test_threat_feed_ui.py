@@ -1,4 +1,4 @@
-"""Integración de `threat_feed` en la UI (`ArticuladorApp`).
+"""Integración de `threat_feed` en la UI (`TukulApp`).
 
 No se levanta ninguna ventana Tk: los métodos de integración se invocan
 enlazados a un `MagicMock` que hace de app, con `build_threat_context` mockeado
@@ -16,10 +16,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from articulador_ui.app import (
+from tukul_ui.app import (
     THREAT_FEED_HOURS,
     THREAT_FEED_SOURCE_ID,
-    ArticuladorApp,
+    TukulApp,
     ContextArticle,
 )
 
@@ -35,9 +35,9 @@ def _app() -> MagicMock:
     app._worker_threads = []
     app.context_articles = []
     # Los tres métodos reales que queremos ejercitar de verdad:
-    app._fetch_threat_feed = ArticuladorApp._fetch_threat_feed.__get__(app)
-    app._on_threat_feed_ready = ArticuladorApp._on_threat_feed_ready.__get__(app)
-    app._on_threat_feed_error = ArticuladorApp._on_threat_feed_error.__get__(app)
+    app._fetch_threat_feed = TukulApp._fetch_threat_feed.__get__(app)
+    app._on_threat_feed_ready = TukulApp._on_threat_feed_ready.__get__(app)
+    app._on_threat_feed_error = TukulApp._on_threat_feed_error.__get__(app)
     return app
 
 
@@ -51,8 +51,8 @@ def _run_thread_synchronously(app: MagicMock) -> None:
 def test_no_hay_fetch_si_el_usuario_no_confirma():
     app = _app()
     dialog = MagicMock()
-    with patch("articulador_ui.app.messagebox.askyesno", return_value=False), \
-         patch("articulador_ui.app.build_threat_context") as build:
+    with patch("tukul_ui.app.messagebox.askyesno", return_value=False), \
+         patch("tukul_ui.app.build_threat_context") as build:
         app._fetch_threat_feed(dialog, on_done=MagicMock())
     build.assert_not_called()
     assert app._worker_threads == []
@@ -62,9 +62,9 @@ def test_fetch_correcto_anade_contexto_y_lo_autoriza():
     app = _app()
     dialog = MagicMock()
     on_done = MagicMock()
-    with patch("articulador_ui.app.messagebox.askyesno", return_value=True), \
-         patch("articulador_ui.app.build_threat_context", return_value=(_PACKET, _FILES)) as build, \
-         patch("articulador_ui.app.threading.Thread") as thread_cls:
+    with patch("tukul_ui.app.messagebox.askyesno", return_value=True), \
+         patch("tukul_ui.app.build_threat_context", return_value=(_PACKET, _FILES)) as build, \
+         patch("tukul_ui.app.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         app._fetch_threat_feed(dialog, on_done)
         _run_thread_synchronously(app)
@@ -80,15 +80,15 @@ def test_fetch_correcto_anade_contexto_y_lo_autoriza():
 
 
 def test_threat_feed_error_se_reporta_y_no_anade_contexto():
-    from articulador_core.threat_feed import ThreatFeedError
+    from tukul_core.threat_feed import ThreatFeedError
 
     app = _app()
     dialog = MagicMock()
-    with patch("articulador_ui.app.messagebox.askyesno", return_value=True), \
-         patch("articulador_ui.app.messagebox.showerror") as showerror, \
-         patch("articulador_ui.app.build_threat_context",
+    with patch("tukul_ui.app.messagebox.askyesno", return_value=True), \
+         patch("tukul_ui.app.messagebox.showerror") as showerror, \
+         patch("tukul_ui.app.build_threat_context",
                side_effect=ThreatFeedError("Ninguna fuente respondió.")), \
-         patch("articulador_ui.app.threading.Thread") as thread_cls:
+         patch("tukul_ui.app.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         app._fetch_threat_feed(dialog, on_done=MagicMock())
         _run_thread_synchronously(app)
@@ -101,9 +101,9 @@ def test_threat_feed_error_se_reporta_y_no_anade_contexto():
 def test_no_toca_tcl_si_la_ventana_se_esta_cerrando():
     app = _app()
     app.after = MagicMock()  # si se llamara, fallaría la aserción de abajo
-    with patch("articulador_ui.app.messagebox.askyesno", return_value=True), \
-         patch("articulador_ui.app.build_threat_context", return_value=(_PACKET, _FILES)), \
-         patch("articulador_ui.app.threading.Thread") as thread_cls:
+    with patch("tukul_ui.app.messagebox.askyesno", return_value=True), \
+         patch("tukul_ui.app.build_threat_context", return_value=(_PACKET, _FILES)), \
+         patch("tukul_ui.app.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         app._fetch_threat_feed(MagicMock(), on_done=MagicMock())
         app.closing = True
@@ -115,7 +115,7 @@ def test_refetch_reemplaza_no_duplica_via_source_id():
     # _upsert_context_article real sobre una lista real: dos fetches -> una entrada.
     app = _app()
     app._update_references_button = MagicMock()
-    app._upsert_context_article = ArticuladorApp._upsert_context_article.__get__(app)
+    app._upsert_context_article = TukulApp._upsert_context_article.__get__(app)
     app._authorize_context_articles = MagicMock()
 
     for content in ("paquete v1", "paquete v2"):
@@ -127,18 +127,18 @@ def test_refetch_reemplaza_no_duplica_via_source_id():
 
 
 def test_el_paquete_de_amenazas_fluye_por_reference_packet():
-    from articulador_core.models import LlmProfile
+    from tukul_core.models import LlmProfile
 
     app = _app()
     app._update_references_button = MagicMock()
     app._authorize_context_articles = MagicMock()
-    app._upsert_context_article = ArticuladorApp._upsert_context_article.__get__(app)
+    app._upsert_context_article = TukulApp._upsert_context_article.__get__(app)
     app.profile = LlmProfile(
         name="t", provider="openai_compatible", endpoint="https://x", model="m",
         max_context_chars=100_000,
     )
     app._on_threat_feed_ready(_PACKET, _FILES, on_done=MagicMock())
 
-    packet, files = ArticuladorApp._reference_packet(app)
+    packet, files = TukulApp._reference_packet(app)
     assert "CVE-2026-10001" in packet
     assert any("CVEs recientes" in f for f in files)

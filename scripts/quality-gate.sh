@@ -19,7 +19,7 @@ if [[ -z "$PYTHON" || ! -x "$PYTHON" ]]; then
     exit 1
 fi
 FAILED=0
-TEST_REPORT="$(mktemp "${TMPDIR:-/tmp}/articulador-tests.XXXXXX.xml")"
+TEST_REPORT="$(mktemp "${TMPDIR:-/tmp}/tukul-tests.XXXXXX.xml")"
 trap 'rm -f "$TEST_REPORT"' EXIT
 
 paso() { echo ""; echo "== $1 =="; }
@@ -32,7 +32,7 @@ else
 fi
 
 paso "mypy"
-if "$PYTHON" -m mypy articulador_core articulador_ui articulador.py; then
+if "$PYTHON" -m mypy tukul_core tukul_ui tukul.py; then
     echo "   ✓ mypy"
 else
     FAILED=1
@@ -54,7 +54,7 @@ if ! "${RUNNER[@]}" "$PYTHON" -c \
     FAILED=1
 elif "${RUNNER[@]}" "$PYTHON" -m pytest -q -rs \
         --junitxml="$TEST_REPORT" \
-        --cov=articulador_core --cov=articulador_ui \
+        --cov=tukul_core --cov=tukul_ui \
         --cov-report=term-missing --cov-fail-under=70; then
     if "$PYTHON" - "$TEST_REPORT" <<'PY'
 import sys

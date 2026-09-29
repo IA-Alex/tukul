@@ -23,13 +23,13 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_core.llm import LLMClient, StreamChunk
-from articulador_core.models import ArticleSession, LlmProfile
-from articulador_ui.app import ArticuladorApp
-from articulador_ui.chunk_buffer import ChunkBuffer
-from articulador_ui.document_scope import DocumentScope
-from articulador_ui.estado import EstadoUI
-from articulador_ui.llm_session_manager import LLMSessionManager
+from tukul_core.llm import LLMClient, StreamChunk
+from tukul_core.models import ArticleSession, LlmProfile
+from tukul_ui.app import TukulApp
+from tukul_ui.chunk_buffer import ChunkBuffer
+from tukul_ui.document_scope import DocumentScope
+from tukul_ui.estado import EstadoUI
+from tukul_ui.llm_session_manager import LLMSessionManager
 
 
 class _Var:
@@ -45,9 +45,9 @@ class _Var:
         return self._valor
 
 
-def _app_sin_ventana() -> ArticuladorApp:
-    """ArticuladorApp con los canales reales y los widgets simulados."""
-    app = ArticuladorApp.__new__(ArticuladorApp)
+def _app_sin_ventana() -> TukulApp:
+    """TukulApp con los canales reales y los widgets simulados."""
+    app = TukulApp.__new__(TukulApp)
     app.closing = False
     app.control_queue = queue.Queue()
     app.chunks = ChunkBuffer()
@@ -285,7 +285,7 @@ class TestFlujoCompletoConProveedorEnRafaga(unittest.TestCase):
         )
 
     def test_un_error_a_mitad_de_rafaga_conserva_lo_recibido(self):
-        from articulador_core.llm import LlmError
+        from tukul_core.llm import LlmError
 
         app = _app_sin_ventana()
         request_id = 2

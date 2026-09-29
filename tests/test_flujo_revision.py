@@ -23,8 +23,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_ui.app import REVIEW_PROMPT, ArticuladorApp
-from articulador_ui.estado import EstadoUI
+from tukul_ui.app import REVIEW_PROMPT, TukulApp
+from tukul_ui.estado import EstadoUI
 
 RESPUESTA_VALIDA = json.dumps({"findings": [
     {"category": "gramática", "severity": "alta", "original": "floja",
@@ -34,7 +34,7 @@ RESPUESTA_VALIDA = json.dumps({"findings": [
 ]}, ensure_ascii=False)
 
 
-def _esperar_llamada(app: ArticuladorApp, mock_obj, timeout: float = 2.0) -> None:
+def _esperar_llamada(app: TukulApp, mock_obj, timeout: float = 2.0) -> None:
     """Espera a que el hilo en segundo plano invoque el mock parcheado.
 
     `review()`/`request()`/`send_message()`/`confirm_and_send()` lanzan un hilo
@@ -86,7 +86,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             encoding="utf-8")
         import os
         os.environ["CLAVE_PRUEBA_REVISION"] = "clave"
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         self.app.load_document(self.documento)
         self._asentar()
 
@@ -248,7 +248,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             encoding="utf-8")
         import os
         os.environ["CLAVE_PRUEBA_NORMAL"] = "clave"
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         for _ in range(5):
             self.app.update()
 

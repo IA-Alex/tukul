@@ -55,7 +55,7 @@ jobs:
         run: python -m ruff check .
 
       - name: Type check with mypy
-        run: python -m mypy articulador_core articulador_ui articulador.py
+        run: python -m mypy tukul_core tukul_ui tukul.py
 
       # Una sola ejecución de la suite. El paso siguiente audita ESTE resultado:
       # correrla dos veces duplicaba el tiempo y, peor, permitía que la comprobación
@@ -63,7 +63,7 @@ jobs:
       # La cobertura se mide aquí y se exige un mínimo para que la señal verde
       # no pueda degradarse sin que se note.
       - name: Run test suite
-        run: xvfb-run -a python -m pytest -q -rs --junitxml=informe-pruebas.xml --cov=articulador_core --cov=articulador_ui --cov-report=term-missing --cov-fail-under=70
+        run: xvfb-run -a python -m pytest -q -rs --junitxml=informe-pruebas.xml --cov=tukul_core --cov=tukul_ui --cov-report=term-missing --cov-fail-under=70
 
       # Ningún test debe omitirse en CI: una omisión significa que el entorno no
       # puede ejercitar la interfaz y la señal verde sería falsa. Se lee el
@@ -95,23 +95,23 @@ jobs:
       # Diagnóstico de la instalación. El paso anterior invocaba `--config`, que
       # exige un valor: fallaba siempre con exit 2.
       - name: Verify health check
-        run: python articulador.py --health
+        run: python tukul.py --health
 
       # `--health` debe diagnosticar el archivo que indica `--config`, no el de
       # por defecto. Se comprueba con un config de recuento conocido: el ejemplo
       # del repositorio declara dos perfiles utilizables.
       - name: Verify --config reaches the health check
         run: |
-          python articulador.py --config articulador.example.toml --health | tee salud.txt
-          grep -q "articulador.example.toml" salud.txt || {
+          python tukul.py --config tukul.example.toml --health | tee salud.txt
+          grep -q "tukul.example.toml" salud.txt || {
             echo "::error::El diagnóstico no informa del archivo inspeccionado."; exit 1; }
           grep -q "2 perfil(es) habilitado(s)" salud.txt || {
             echo "::error::--config no se está honrando: health leyó otro archivo."; exit 1; }
 
       - name: Verify CLI contract
         run: |
-          python articulador.py --help > /dev/null
-          python articulador.py --opcion-que-no-existe 2>/dev/null && exit 1 || echo "argumento desconocido rechazado correctamente"
+          python tukul.py --help > /dev/null
+          python tukul.py --opcion-que-no-existe 2>/dev/null && exit 1 || echo "argumento desconocido rechazado correctamente"
 
   security:
     runs-on: ubuntu-latest
@@ -131,7 +131,7 @@ jobs:
       # Informe completo (incluye falsos positivos de baja severidad): queda como
       # artefacto para revisión manual, nunca bloquea por sí solo.
       - name: Security check with bandit (full report)
-        run: bandit -r articulador_core articulador_ui -f json -o bandit-report.json || true
+        run: bandit -r tukul_core tukul_ui -f json -o bandit-report.json || true
 
       # Puerta real: solo severidad ALTA y confianza alta (-lll -ii). En severidad
       # MEDIA bandit solo reporta B310 (urlopen) en llm.py, un falso positivo ya
@@ -139,7 +139,7 @@ jobs:
       # `validate_endpoint()` antes de llegar a esa línea. Sin este paso, ningún
       # hallazgo de bandit podía bloquear jamás el pipeline.
       - name: Security gate (fail on high severity findings)
-        run: bandit -r articulador_core articulador_ui -lll -ii
+        run: bandit -r tukul_core tukul_ui -lll -ii
 
       - name: Upload bandit report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

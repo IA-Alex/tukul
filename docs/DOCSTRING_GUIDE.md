@@ -1,4 +1,4 @@
-# Guía de Docstrings — Estándar Articulador
+# Guía de Docstrings — Estándar Tukul
 
 **Estado:** SUPPORTING, no bloquea el quality gate. La guía conserva prioridad
 para APIs públicas y contratos de persistencia, seguridad y concurrencia; no
@@ -69,7 +69,7 @@ El código ha cambiado de nombres con el tiempo; usar estos (no los antiguos):
 ## Checklist por módulo
 
 ```
-articulador_core/
+tukul_core/
 ├── autosave.py           ✓ write_autosave / read_autosave / clear_autosave
 ├── config_validator.py   ✓ validate_startup_config
 ├── health.py             ✓ check_health / status_string
@@ -80,8 +80,8 @@ articulador_core/
 ├── review.py             ✓ parse_findings
 └── storage.py            ✓ atomic_write / load_profiles / save_profiles
 
-articulador_ui/
-├── app.py                ✓ ArticuladorApp (request, review, finish, cancel, autosave)
+tukul_ui/
+├── app.py                ✓ TukulApp (request, review, finish, cancel, autosave)
 ├── chunk_buffer.py       ✓ ChunkBuffer
 ├── dialogs.py            ✓ show_settings_dialog / show_review_dialog
 ├── document_manager.py   ✓ DocumentManager

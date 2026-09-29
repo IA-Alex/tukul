@@ -12,16 +12,15 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from articulador_core.llm import (
+from tukul_core.llm import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_MAX_SECONDS,
     LLMClient,
     LlmError,
-    gemini_url,
     validate_endpoint,
 )
-from articulador_core.models import LlmProfile
-from articulador_ui.llm_session_manager import LLMSessionManager
+from tukul_core.models import LlmProfile
+from tukul_ui.llm_session_manager import LLMSessionManager
 
 
 def profile(provider: str = "openai_compatible", **overrides: object) -> LlmProfile:
@@ -57,55 +56,42 @@ class TestEndpointAndProtocolContracts(unittest.TestCase):
         with self.assertRaises(LlmError):
             validate_endpoint("http://[2001:db8::1]/v1")
 
-    def test_gemini_url_removes_key_and_switches_stream_mode(self):
-        endpoint = (
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}"
-            ":streamGenerateContent?key=leaked&alt=json&client=articulador"
-        )
-        stream_url = gemini_url(endpoint, "gemini-test", stream=True)
-        complete_url = gemini_url(endpoint, "gemini-test", stream=False)
-
-        self.assertIn("models/gemini-test:streamGenerateContent", stream_url)
-        self.assertIn("alt=sse", stream_url)
-        self.assertIn("client=articulador", stream_url)
-        self.assertNotIn("key=", stream_url)
-        self.assertIn(":generateContent", complete_url)
-        self.assertNotIn("alt=", complete_url)
-
-    def test_complete_parses_anthropic_response_and_usage(self):
+    def test_complete_parses_openai_response_and_usage(self):
+        """Verifica que complete() parsea respuestas OpenAI-compatibles (deepinfra/novita)."""
         result = _Response(
             {
-                "content": [{"type": "text", "text": "Respuesta"}],
-                "usage": {"input_tokens": 12, "output_tokens": 4},
+                "choices": [{"message": {"content": "Respuesta"}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 4},
             }
         )
-        anthropic = profile(
-            "anthropic", endpoint="https://api.anthropic.com/v1/messages", model="claude-test"
+        perfil = profile(
+            "openai_compatible", endpoint="https://api.example.test/v1/chat/completions", model="test-model"
         )
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=result):
-            response = LLMClient().complete(anthropic, "test-secret", "Hola")
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=result):
+            response = LLMClient().complete(perfil, "test-secret", "Hola")
 
         self.assertEqual((response.content, response.input_tokens, response.output_tokens), ("Respuesta", 12, 4))
 
-    def test_complete_parses_gemini_response_and_usage(self):
+    def test_complete_parses_openai_streaming_style(self):
+        """Verifica que complete() también maneja respuestas con content nulo (streaming simulado)."""
         result = _Response(
             {
-                "candidates": [{"content": {"parts": [{"text": "Hola"}, {"text": " mundo"}]}}],
-                "usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 3},
+                "choices": [{"message": {"content": "Hola mundo"}}],
+                "usage": {"prompt_tokens": 9, "completion_tokens": 3},
             }
         )
-        gemini = profile(
-            "gemini",
-            endpoint="https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent",
+        perfil = profile(
+            "openai_compatible",
+            endpoint="https://api.example.test/v1/chat/completions",
         )
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=result):
-            response = LLMClient().complete(gemini, "test-secret", "Hola")
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=result):
+            response = LLMClient().complete(perfil, "test-secret", "Hola")
 
         self.assertEqual((response.content, response.input_tokens, response.output_tokens), ("Hola mundo", 9, 3))
 
     def test_invalid_provider_shape_becomes_safe_user_error(self):
         malformed = _Response({"choices": []})
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=malformed):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=malformed):
             with self.assertRaisesRegex(LlmError, "respuesta válida"):
                 LLMClient().complete(profile(), "test-secret", "Hola")
 
@@ -133,7 +119,7 @@ class TestResilienceContracts(unittest.TestCase):
             cancelled.set()
             raise urllib.error.URLError("offline")
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=open_fails):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=open_fails):
             self.assertIsNone(client._open_with_retry(object(), cancelled))
         self.assertEqual(attempts, 1)
 

@@ -18,7 +18,7 @@ process_ui_events()  →  _render_pending_chunks()  →  _dispatch_ui_event()
 
 ### `ChunkBuffer` (texto)
 
-- `articulador_ui/chunk_buffer.py`
+- `tukul_ui/chunk_buffer.py`
 - El productor solo toma un lock y añade a una lista: **nunca bloquea y nunca
   descarta**. El consumidor recoge de una vez todo lo pendiente desde su ciclo
   anterior, que es la coalescencia natural bajo congestión.
@@ -42,7 +42,7 @@ process_ui_events()  →  _render_pending_chunks()  →  _dispatch_ui_event()
 
 Tkinter es dueño de `control_queue`, `ChunkBuffer`, `streaming_request` y del
 estado visual. El worker solo ejecuta `LLMSessionManager` y publica callbacks;
-no toca widgets. `ArticuladorApp` usa `generation_counter` como request ID y
+no toca widgets. `TukulApp` usa `generation_counter` como request ID y
 `request_types[request_id]` para distinguir `normal` de `review`; no existe una
 clase `RequestState` independiente en la implementación actual. Cada request
 tiene además su propio `threading.Event` de cancelación.

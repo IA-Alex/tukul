@@ -4,7 +4,7 @@ STATUS: Accepted
 
 ## CONTEXT
 
-Articulador necesita agregar la capacidad de consultar fuentes oficiales de
+Tukul necesita agregar la capacidad de consultar fuentes oficiales de
 ciberseguridad e IA (NVD, MITRE, CISA, arXiv, NIST, ENISA, OWASP, NCSC) en
 tiempo real, bajo demanda explícita del usuario, y generar sugerencias de
 impacto para artículos de concientización usando principios de psicología del
@@ -17,7 +17,7 @@ pipeline de análisis cualitativo que no existía.
 
 ## DECISION
 
-### 1. Nuevo módulo `articulador_core/real_time_feed/`
+### 1. Nuevo módulo `tukul_core/real_time_feed/`
 
 Paquete con submodulos:
 
@@ -34,7 +34,7 @@ Paquete con submodulos:
 - **`normalizer.py`**: unifica formatos dispares a `FeedEntry`, deduplica
   por ID, filtra por relevancia y etiqueta por tema/tipo.
 
-### 2. Nuevo módulo `articulador_core/impact_analyzer.py`
+### 2. Nuevo módulo `tukul_core/impact_analyzer.py`
 
 - **`FoggEngine`**: aplica Fogg Behavior Model (Motivación + Habilidad +
   Desencadenante) sobre `FeedEntry[]`.

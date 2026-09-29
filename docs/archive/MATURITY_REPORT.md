@@ -1,4 +1,4 @@
-# Reporte de Madurez - Articulador v0.2
+# Reporte de Madurez - Tukul v0.2
 
 > **Nota (2026-08-15):** documento histórico de una fase anterior. Describe una
 > arquitectura que ya no existe (`chunk_queue`, `partial_output`, `_queue_event`,
@@ -40,7 +40,7 @@ Se elevó la herramienta de **"Proof of Concept"** a **"Production-Ready Mature"
 
 **Implementado:**
 - Docstrings completos en:
-  - `ArticuladorApp` (clase, 14 métodos críticos)
+  - `TukulApp` (clase, 14 métodos críticos)
   - `LLMSessionManager.stream_response`
   - `parse_findings`
   - Funciones de storage y logging
@@ -107,7 +107,7 @@ def send(self) -> None:
 
 ## FASE 4: Config Validation ✅
 
-**Nuevo módulo:** `articulador_core/config_validator.py`
+**Nuevo módulo:** `tukul_core/config_validator.py`
 
 ```python
 def validate_startup_config(profiles, active_profile) -> (bool, list[str]):
@@ -130,9 +130,9 @@ def validate_startup_config(profiles, active_profile) -> (bool, list[str]):
 
 ## FASE 5: Structured Logging ✅
 
-**Mejoras a `articulador_core/logging_config.py`:**
+**Mejoras a `tukul_core/logging_config.py`:**
 
-**Archivo** (~/.local/state/articulador/articulador.log):
+**Archivo** (~/.local/state/tukul/tukul.log):
 - Formato: JSON (máquina-legible)
 - Nivel: DEBUG+
 - Rotación: 512KB x 2 backups
@@ -143,7 +143,7 @@ Ejemplo:
 {
   "timestamp": "2026-08-11T14:30:45.123456",
   "level": "error",
-  "logger": "articulador",
+  "logger": "tonal",
   "message": "Error cargando documento: File not found",
   "module": "app",
   "function": "load_document_content",
@@ -184,7 +184,7 @@ def close(self) -> None:
 
 ## FASE 7: Health Checks ✅
 
-**Nuevo módulo:** `articulador_core/health.py`
+**Nuevo módulo:** `tukul_core/health.py`
 
 ```python
 def check_health() -> HealthStatus:
@@ -199,7 +199,7 @@ def check_health() -> HealthStatus:
 
 **Uso:**
 ```python
-from articulador_core.health import check_health, status_string
+from tukul_core.health import check_health, status_string
 
 status = check_health()
 print(status_string())
@@ -282,8 +282,8 @@ print(status_string())
 
 ## Archivos Nuevos Agregados
 
-- `articulador_core/config_validator.py` — Validación de configuración
-- `articulador_core/health.py` — Health checks y status
+- `tukul_core/config_validator.py` — Validación de configuración
+- `tukul_core/health.py` — Health checks y status
 - `docs/DOCSTRING_GUIDE.md` — Guía de cobertura de docstrings
 - `pyproject.toml` — Configuración centralizada
 - `scripts/lint.sh` — Automation de quality gates
@@ -293,8 +293,8 @@ print(status_string())
 
 ## Archivos Modificados
 
-- `articulador_ui/app.py` — Docstrings, error handling, graceful shutdown
-- `articulador_core/logging_config.py` — Structured logging
+- `tukul_ui/app.py` — Docstrings, error handling, graceful shutdown
+- `tukul_core/logging_config.py` — Structured logging
 - Todos compilan sin errores ✅
 
 ---

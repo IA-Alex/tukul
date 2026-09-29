@@ -2,8 +2,8 @@
 import unittest
 from pathlib import Path
 
-from articulador_core.models import ChatMessage
-from articulador_ui import ui_state
+from tukul_core.models import ChatMessage
+from tukul_ui import ui_state
 
 
 class TestRestaurarConversacion(unittest.TestCase):

@@ -1,14 +1,14 @@
 """Tests de ContextApprovalCache en aislamiento, sin levantar Tk.
 
-Extraída de ArticuladorApp (ver auditoría 2026-08-21): estos casos cubrían
+Extraída de TukulApp (ver auditoría 2026-08-21): estos casos cubrían
 antes el mismo comportamiento pero solo a través de TestAprobacionDeContexto
 y TestAprobacionesDesalojoFIFO en tests/test_auditoria_regresion.py, que
 necesitan una ventana real. Los que no dependen de Tk quedan acá.
 """
 import unittest
 
-from articulador_core.models import LlmProfile
-from articulador_ui.context_approval import ContextApprovalCache
+from tukul_core.models import LlmProfile
+from tukul_ui.context_approval import ContextApprovalCache
 
 
 def _profile(**overrides) -> LlmProfile:

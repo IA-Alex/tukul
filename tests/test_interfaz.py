@@ -17,9 +17,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_ui import estilo as es
-from articulador_ui.app import ArticuladorApp
-from articulador_ui.estado import ESTADOS_ACTIVOS, EstadoUI
+from tukul_ui import estilo as es
+from tukul_ui.app import TukulApp
+from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 
 
 def _hay_display() -> bool:
@@ -111,7 +111,7 @@ class TestVentanaReal(unittest.TestCase):
         self.raiz = Path(self.directorio.name)
         self.documento = self.raiz / "articulo.md"
         self.documento.write_text("# Título\n\nUn párrafo de prueba.\n", encoding="utf-8")
-        self.app = ArticuladorApp(self.raiz / "config.toml")
+        self.app = TukulApp(self.raiz / "config.toml")
         self.app.geometry("1100x700")
         self._asentar()
 
@@ -193,7 +193,7 @@ class TestVentanaReal(unittest.TestCase):
         self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
                          "La barra nace oculta")
         decidido = []
-        with patch.object(ArticuladorApp, "set_estado"):
+        with patch.object(TukulApp, "set_estado"):
             self.app._pedir_aprobacion(1, ["notas.md"], ("e", "p", "m", ("notas.md",), "h"),
                                        lambda: decidido.append("enviado"))
         self._asentar()

@@ -16,7 +16,7 @@ una declaración vigente de readiness.
 
 ### 1. Review Final con `/code-review ultra`
 ```bash
-cd /home/panda/Articulos/articulador
+cd /home/panda/Articulos/tonal
 # Desde Claude Code:
 /code-review ultra
 ```
@@ -44,7 +44,7 @@ git push origin v0.2-beta
 
 ```bash
 # Ejecutar type check
-python3 -m mypy articulador_ui articulador_core --strict
+python3 -m mypy tukul_ui tukul_core --strict
 
 # Agregar type hints a funciones con Any/Missing
 # Prioridad: métodos públicos, core functions
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
       - run: python3 -m unittest discover -s tests -q
-      - run: python3 -m mypy articulador_ui articulador_core --strict
+      - run: python3 -m mypy tukul_ui tukul_core --strict
 ```
 
 ### 6. E2E Tests - Tkinter Real Loop
@@ -177,8 +177,8 @@ AHORA          Week 1         Week 2         Week 3
 
 - **Code Review:** `/code-review ultra`
 - **Tests:** `python3 -m unittest discover -s tests -v`
-- **Health:** `from articulador_core.health import status_string; print(status_string())`
-- **Type Check:** `python3 -m mypy articulador_ui articulador_core --strict`
+- **Health:** `from tukul_core.health import status_string; print(status_string())`
+- **Type Check:** `python3 -m mypy tukul_ui tukul_core --strict`
 - **Docs:** `docs/` directory
 - **Config:** `pyproject.toml`
 

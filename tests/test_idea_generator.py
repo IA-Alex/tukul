@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from tonal_core.impact_analyzer import IdeaGenerator
-from tonal_core.models import ArticleIdea, CorrelationGroup, FeedEntry
+from tukul_core.impact_analyzer import IdeaGenerator
+from tukul_core.models import ArticleIdea, CorrelationGroup, FeedEntry
 
 
 def _entry(

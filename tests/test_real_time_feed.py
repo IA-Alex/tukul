@@ -1,4 +1,4 @@
-"""Tests para `articulador_core.real_time_feed` e `impact_analyzer`.
+"""Tests para `tukul_core.real_time_feed` e `impact_analyzer`.
 
 Cubre:
 - Dataclasses de modelos (FeedEntry, FoggAnalysis, SourceConflict,
@@ -20,20 +20,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from articulador_core.impact_analyzer import (
+from tukul_core.impact_analyzer import (
     ConflictDetector,
     FoggEngine,
     PostValidator,
     SuggestionGenerator,
 )
-from articulador_core.models import (
+from tukul_core.models import (
     ConsumerSuggestion,
     FeedEntry,
     FeedSource,
     FoggAnalysis,
     SourceConflict,
 )
-from articulador_core.real_time_feed import FeedCache, FeedNormalizer
+from tukul_core.real_time_feed import FeedCache, FeedNormalizer
 
 
 # ─── Tests de dataclasses ──────────────────────────────────────────────────

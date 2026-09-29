@@ -1,4 +1,4 @@
-# Documentación de Articulador
+# Documentación de Tukul
 
 Este índice define qué documentos describen el estado actual. La implementación, los tests, la configuración, los scripts de calidad y los workflows son las fuentes primarias; ningún documento de `docs/archive/` es normativa vigente.
 

@@ -19,10 +19,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from articulador_core import storage
-from articulador_ui import estilo as es
-from articulador_ui.app import ArticuladorApp
-from articulador_ui.estado import EstadoUI
+from tukul_core import storage
+from tukul_ui import estilo as es
+from tukul_ui.app import TukulApp
+from tukul_ui.estado import EstadoUI
 
 
 def _hay_display() -> bool:
@@ -55,14 +55,14 @@ class TestPaletasYTokens(unittest.TestCase):
     def test_el_tema_oscuro_es_el_predeterminado(self):
         self.assertEqual(es.TEMA_ACTIVO, "dark")
         self.assertEqual(es.TEMA_DEFECTO, "dark")
-        self.assertEqual(ArticuladorApp._tema_validado(None), "dark")
+        self.assertEqual(TukulApp._tema_validado(None), "dark")
 
     def test_el_tema_invalido_vuelve_al_oscuro(self):
         for basura in ("sepia", "", 7, ["dark"], {"theme": "light"}, True, object()):
             self.assertEqual(es.tema_validado(basura), "dark",
                              f"{basura!r} debe caer al tema oscuro")
-        self.assertEqual(ArticuladorApp._tema_validado("sepia"), "dark")
-        self.assertEqual(ArticuladorApp._tema_validado(["dark"]), "dark")
+        self.assertEqual(TukulApp._tema_validado("sepia"), "dark")
+        self.assertEqual(TukulApp._tema_validado(["dark"]), "dark")
 
     # --- activación -----------------------------------------------------
     def test_el_tema_claro_puede_activarse(self):
@@ -143,7 +143,7 @@ class TestTemaEnVentanaReal(unittest.TestCase):
         self.config = self.raiz / "config.toml"
         self.documento = self.raiz / "articulo.md"
         self.documento.write_text("# Título\n\nUn párrafo de prueba.\n", encoding="utf-8")
-        self.app = ArticuladorApp(self.config)
+        self.app = TukulApp(self.config)
         self._asentar()
 
     def tearDown(self):
@@ -197,14 +197,14 @@ class TestTemaEnVentanaReal(unittest.TestCase):
         self.app._cambiar_tema()
         self._asentar()
         self.app.destroy()
-        self.app = ArticuladorApp(self.config)
+        self.app = TukulApp(self.config)
         self._asentar()
         self.assertEqual(self.app.theme, "light")
         self.assertEqual(str(self.app.editor.cget("background")), es.PALETAS["light"]["superficie"])
 
     def test_un_fallo_de_escritura_no_revierte_el_cambio_visual(self):
         """Si `estado.json` no puede escribirse, la interfaz sigue funcionando."""
-        with patch("articulador_core.storage.save_ui_state",
+        with patch("tukul_core.storage.save_ui_state",
                    side_effect=OSError("disco lleno")):
             self.app._cambiar_tema()
             self._asentar()
@@ -233,14 +233,14 @@ class TestTemaEnVentanaReal(unittest.TestCase):
     def test_un_estado_corrupto_no_impide_iniciar(self):
         (self.raiz / "estado.json").write_text("{json roto", encoding="utf-8")
         self.app.destroy()
-        self.app = ArticuladorApp(self.config)
+        self.app = TukulApp(self.config)
         self._asentar()
         self.assertEqual(self.app.theme, "dark")
 
     def test_un_tema_invalido_persistido_vuelve_al_oscuro(self):
         storage.save_ui_state({"theme": "sepia"}, self.config)
         self.app.destroy()
-        self.app = ArticuladorApp(self.config)
+        self.app = TukulApp(self.config)
         self._asentar()
         self.assertEqual(self.app.theme, "dark")
 

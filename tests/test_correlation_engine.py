@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from tonal_core.impact_analyzer import CorrelationEngine
-from tonal_core.models import FeedEntry
+from tukul_core.impact_analyzer import CorrelationEngine
+from tukul_core.models import FeedEntry
 
 
 def _entry(

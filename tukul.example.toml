@@ -1,0 +1,23 @@
+[llm]
+active_profile = "deepinfra"
+
+# Puedes cambiar los valores o crear perfiles adicionales.
+[profiles.deepinfra]
+provider = "openai_compatible"
+endpoint = "https://api.deepinfra.com/v1/openai/chat/completions"
+model = "elige-un-modelo"
+api_key_env = "DEEPINFRA_API_KEY"
+max_output_tokens = 1000
+max_context_chars = 48000
+max_total_model_tokens = 128000
+temperature = 0.5
+
+[profiles.novita]
+provider = "openai_compatible"
+endpoint = "https://api.novita.ai/v3/openai/chat/completions"
+model = "elige-un-modelo"
+api_key_env = "NOVITA_API_KEY"
+max_output_tokens = 1000
+max_context_chars = 48000
+max_total_model_tokens = 128000
+temperature = 0.5

@@ -1,6 +1,6 @@
 # Contratos de Componentes UI
 
-Para asegurar un desarrollo coherente tras la modularización, los componentes UI en `articulador_ui/components/` siguen los siguientes contratos de comunicación con `ArticuladorApp` (el orquestador).
+Para asegurar un desarrollo coherente tras la modularización, los componentes UI en `tukul_ui/components/` siguen los siguientes contratos de comunicación con `TukulApp` (el orquestador).
 
 ## Patrón de Comunicación: Callbacks
 La comunicación es unidireccional:

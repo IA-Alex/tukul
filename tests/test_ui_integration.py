@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from articulador_core import storage
-from articulador_core.models import LlmProfile
+from tukul_core import storage
+from tukul_core.models import LlmProfile
 
 
 class UISettingsDialogTests(unittest.TestCase):
@@ -22,16 +22,16 @@ class UISettingsDialogTests(unittest.TestCase):
         app.COLORS = {"muted": "#999"}
         return app
 
-    @patch("articulador_ui.dialogs.storage.save_profiles")
-    @patch("articulador_ui.dialogs.storage.load_key")
-    @patch("articulador_ui.dialogs.tk.Toplevel")
-    @patch("articulador_ui.dialogs.ttk.Frame")
-    @patch("articulador_ui.dialogs.messagebox.showinfo")
+    @patch("tukul_ui.dialogs.storage.save_profiles")
+    @patch("tukul_ui.dialogs.storage.load_key")
+    @patch("tukul_ui.dialogs.tk.Toplevel")
+    @patch("tukul_ui.dialogs.ttk.Frame")
+    @patch("tukul_ui.dialogs.messagebox.showinfo")
     def test_dialog_edits_max_total_model_tokens_and_calls_save(
         self, mock_showinfo, mock_frame, mock_toplevel, mock_load_key, mock_save_profiles
     ):
         """Prueba: usuario edita max_total_model_tokens → Guardar → storage.save_profiles llamado con nuevo valor."""
-        from articulador_ui.dialogs import show_settings_dialog
+        from tukul_ui.dialogs import show_settings_dialog
 
         # Setup
         initial_profile = LlmProfile(
@@ -47,9 +47,9 @@ class UISettingsDialogTests(unittest.TestCase):
 
         # Mock del diálogo para capturar valores antes de save()
         # Simulamos que el usuario editó max_total_model_tokens a 8000
-        with patch("articulador_ui.dialogs.ttk.Entry") as mock_entry:
+        with patch("tukul_ui.dialogs.ttk.Entry") as mock_entry:
             # Crear StringVars que simulen los campos del diálogo
-            with patch("articulador_ui.dialogs.tk.StringVar") as mock_stringvar:
+            with patch("tukul_ui.dialogs.tk.StringVar") as mock_stringvar:
                 stringvars = {}
 
                 def stringvar_side_effect(value=""):
@@ -76,7 +76,7 @@ class UISettingsDialogTests(unittest.TestCase):
 
                 # Simular que el diálogo se abre y el usuario hace click en "Guardar"
                 # Esto ocurre dentro de show_settings_dialog, así que lo simulamos manualmente
-                with patch("articulador_ui.dialogs.tk.BooleanVar"):
+                with patch("tukul_ui.dialogs.tk.BooleanVar"):
                     provider_var = MagicMock(get=MagicMock(return_value="openai_compatible"))
 
                     # Extraer la lógica de save() del diálogo
@@ -107,16 +107,16 @@ class UISettingsDialogTests(unittest.TestCase):
         self.assertEqual(profiles_dict["test"].max_total_model_tokens, 8000,
                         "storage.save_profiles debe recibir el valor editado (8000)")
 
-    @patch("articulador_ui.dialogs.storage.save_profiles")
-    @patch("articulador_ui.dialogs.storage.load_key")
-    @patch("articulador_ui.dialogs.messagebox.showerror")
-    @patch("articulador_ui.dialogs.tk.Toplevel")
-    @patch("articulador_ui.dialogs.ttk.Frame")
+    @patch("tukul_ui.dialogs.storage.save_profiles")
+    @patch("tukul_ui.dialogs.storage.load_key")
+    @patch("tukul_ui.dialogs.messagebox.showerror")
+    @patch("tukul_ui.dialogs.tk.Toplevel")
+    @patch("tukul_ui.dialogs.ttk.Frame")
     def test_dialog_handles_save_profiles_failure(
         self, mock_frame, mock_toplevel, mock_showerror, mock_load_key, mock_save_profiles
     ):
         """Prueba: si storage.save_profiles() falla → se muestra error y app.profiles no cambia."""
-        from articulador_ui.dialogs import show_settings_dialog
+        from tukul_ui.dialogs import show_settings_dialog
 
         # Setup
         initial_profile = LlmProfile(
@@ -174,14 +174,14 @@ class UISettingsDialogTests(unittest.TestCase):
         self.assertEqual(app.profiles["test"].max_total_model_tokens, 8000,
                         "app.profiles debe mantener el valor original tras fallo de guardado")
 
-    @patch("articulador_ui.dialogs.messagebox.showerror")
-    @patch("articulador_ui.dialogs.tk.Toplevel")
-    @patch("articulador_ui.dialogs.ttk.Frame")
+    @patch("tukul_ui.dialogs.messagebox.showerror")
+    @patch("tukul_ui.dialogs.tk.Toplevel")
+    @patch("tukul_ui.dialogs.ttk.Frame")
     def test_dialog_rejects_invalid_max_total_model_tokens(
         self, mock_frame, mock_toplevel, mock_showerror
     ):
         """Prueba: usuario intenta guardar max_total < max_output → rechazado, diálogo permanece abierto."""
-        from articulador_ui.dialogs import show_settings_dialog
+        from tukul_ui.dialogs import show_settings_dialog
 
         # Setup
         initial_profile = LlmProfile(

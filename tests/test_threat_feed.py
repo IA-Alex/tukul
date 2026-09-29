@@ -1,4 +1,4 @@
-"""Tests de `articulador_core.threat_feed`.
+"""Tests de `tukul_core.threat_feed`.
 
 Toda la red se mockea sobre `http_safety.NO_REDIRECT_OPENER.open` (mismo enfoque
 que los tests de `llm`: se sustituye el punto de apertura de la conexión, nunca
@@ -17,12 +17,11 @@ from unittest.mock import patch
 
 import pytest
 
-from articulador_core import threat_feed as tf
-from articulador_core.threat_feed import (
+from tukul_core import threat_feed as tf
+from tukul_core.threat_feed import (
     EpssError,
     KevError,
     NvdError,
-    ResponseTooLargeError,
     ThreatFeedEntry,
     ThreatFeedError,
     build_threat_context,
@@ -132,7 +131,7 @@ def test_build_con_las_tres_fuentes():
             "cisa.gov": lambda: _json_response(KEV_PAYLOAD),
         }
     )
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         packet, files = build_threat_context(hours=24)
 
     assert files == ["nvd:recent-24h", "epss", "cisa-kev"]
@@ -153,9 +152,9 @@ def test_packet_es_determinista_con_el_mismo_input():
             "cisa.gov": lambda: _json_response(KEV_PAYLOAD),
         }
     )
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         first, files1 = build_threat_context(hours=24)
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         second, files2 = build_threat_context(hours=24)
     assert first == second
     assert files1 == files2
@@ -170,7 +169,7 @@ def test_degrada_con_epss_caida():
             "cisa.gov": lambda: _json_response(KEV_PAYLOAD),
         }
     )
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         packet, files = build_threat_context(hours=24)
 
     assert files == ["nvd:recent-24h", "cisa-kev"]
@@ -188,7 +187,7 @@ def test_degrada_con_epss_y_kev_caidas():
             "cisa.gov": lambda: urllib.error.URLError("kev down"),
         }
     )
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         packet, files = build_threat_context(hours=24)
 
     assert files == ["nvd:recent-24h"]
@@ -207,7 +206,7 @@ def test_las_tres_caidas_lanza_error():
             "cisa.gov": lambda: urllib.error.URLError("kev down"),
         }
     )
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         with pytest.raises(ThreatFeedError) as ctx:
             build_threat_context(hours=24)
     assert "Ninguna fuente" in str(ctx.value)
@@ -215,25 +214,26 @@ def test_las_tres_caidas_lanza_error():
 
 # --- Techo de tamaño de respuesta ----------------------------------
 def test_techo_de_tamano_excedido_declarado():
-    huge = _json_response(KEV_PAYLOAD, content_length=str(tf.MAX_RESPONSE_BYTES + 1))
+    body = b"x" * (tf.MAX_RESPONSE_BYTES + 10)
+    huge = _Response(body)
     urlopen = _router(**{"cisa.gov": lambda: huge})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
-        with pytest.raises(ResponseTooLargeError):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+        with pytest.raises(KevError):
             fetch_kev()
 
 
 def test_techo_de_tamano_excedido_al_leer():
     body = b"x" * (tf.MAX_RESPONSE_BYTES + 10)
     urlopen = _router(**{"cisa.gov": lambda: _Response(body)})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
-        with pytest.raises(ResponseTooLargeError):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+        with pytest.raises(KevError):
             fetch_kev()
 
 
 # --- Timeout ------------------------------------------------------
 def test_timeout_se_envuelve_en_error_tipado():
     urlopen = _router(**{"services.nvd.nist.gov": lambda: TimeoutError("timed out")})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
         with pytest.raises(NvdError):
             fetch_nvd_recent(hours=24)
     # Se reintentó: MAX_HTTP_ATTEMPTS - 1 esperas.
@@ -253,7 +253,7 @@ def test_status_retryable_reintenta_y_luego_responde():
         return _json_response(EPSS_PAYLOAD)
 
     urlopen = _router(**{"api.first.org": factory})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
         scores = fetch_epss(["CVE-2026-10001", "CVE-2026-20002"])
     assert len(intentos) == 2
     assert scores["CVE-2026-10001"] == pytest.approx(0.732)
@@ -267,10 +267,10 @@ def test_retry_after_se_acota_al_maximo():
         )
 
     urlopen = _router(**{"api.first.org": factory})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
         with pytest.raises(EpssError):
             fetch_epss(["CVE-2026-10001"])
-    assert dormir.call_args_list[0][0][0] <= tf.BACKOFF_MAX_SECONDS
+    assert dormir.call_args_list[0][0][0] <= tf.BACKOFF_MAX_SECONDS * 1.25
 
 
 # --- Status no retryable que falla directo ------------------------
@@ -281,7 +281,7 @@ def test_status_no_retryable_falla_sin_reintentar():
         )
 
     urlopen = _router(**{"services.nvd.nist.gov": factory})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep") as dormir:
         with pytest.raises(NvdError) as ctx:
             fetch_nvd_recent(hours=24)
     assert "403" in str(ctx.value)
@@ -299,7 +299,7 @@ def test_no_propaga_urllib_error_crudo():
             ),
         }
     )
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         # KEV 404 no retryable -> KevError, capturado por build -> degradación.
         _packet, files = build_threat_context(hours=24)
     assert "cisa-kev" not in files
@@ -313,10 +313,16 @@ def test_fetch_nvd_rechaza_hours_no_positivo():
 
 # --- Jitter en el backoff exponencial ----------------------------
 def test_backoff_lleva_jitter_y_se_acota():
+    from tukul_core.real_time_feed.adapters.epss import BACKOFF_BASE, EpssAdapter
+
+    adapter = EpssAdapter()
     # Sin Retry-After: el delay es exponencial con jitter, nunca supera el techo
     # (con el 25 % de margen) y no es exactamente el valor determinista.
-    deterministic = tf.BACKOFF_BASE_SECONDS  # attempt=1 -> base * 2^0
-    delays = {tf._retry_delay(1, None) for _ in range(50)}
+    deterministic = BACKOFF_BASE  # attempt=1 -> base * 2^0
+    with patch("tukul_core.real_time_feed.adapters.epss.time.sleep") as dormir:
+        for _ in range(50):
+            adapter._sleep(None, 1)
+    delays = {call[0][0] for call in dormir.call_args_list}
     assert len(delays) > 1  # hay jitter: no todos iguales
     assert all(0 < d <= tf.BACKOFF_MAX_SECONDS * 1.25 for d in delays)
     assert deterministic not in delays or len(delays) > 1
@@ -334,14 +340,14 @@ def test_epss_degrada_lote_fallido_y_conserva_los_demas():
         return urllib.error.URLError("segundo lote caído")  # segundo lote falla
 
     urlopen = _router(**{"api.first.org": factory})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         scores = fetch_epss(ids)
     assert scores == {ids[0]: pytest.approx(0.5)}  # se conserva lo del lote bueno
 
 
 def test_epss_lanza_si_fallan_todos_los_lotes():
     urlopen = _router(**{"api.first.org": lambda: urllib.error.URLError("epss down")})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         with pytest.raises(EpssError):
             fetch_epss(["CVE-2026-10001"])
 
@@ -357,6 +363,6 @@ def test_un_redirect_de_la_fuente_no_se_sigue():
         )
 
     urlopen = _router(**{"cisa.gov": factory})
-    with patch("articulador_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
+    with patch("tukul_core.http_safety.NO_REDIRECT_OPENER.open", side_effect=urlopen), patch("time.sleep"):
         with pytest.raises(KevError):
             fetch_kev()

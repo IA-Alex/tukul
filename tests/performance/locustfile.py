@@ -12,10 +12,10 @@ from uuid import uuid4
 from locust import HttpUser, between, task
 
 
-class ArticuladorLlmUser(HttpUser):
+class TonalLlmUser(HttpUser):
     """Mide latencia y tasa de error del contrato Chat Completions."""
 
-    host = os.environ.get("ARTICULADOR_LOAD_HOST", "http://127.0.0.1:8080")
+    host = os.environ.get("TUKUL_LOAD_HOST", "http://127.0.0.1:8080")
     wait_time = between(0.2, 1.0)
 
     @task

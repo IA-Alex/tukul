@@ -29,16 +29,16 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_core import storage
-from articulador_core.llm import LLMClient, LlmError, validate_endpoint
-from articulador_core.models import ArticleSession, LlmProfile
-from articulador_ui.app import ArticuladorApp
-from articulador_ui.chunk_buffer import ChunkBuffer
-from articulador_ui.document_scope import DocumentScope
-from articulador_ui.estado import EstadoUI
+from tukul_core import storage
+from tukul_core.llm import LLMClient, LlmError, validate_endpoint
+from tukul_core.models import ArticleSession, LlmProfile
+from tukul_ui.app import TukulApp
+from tukul_ui.chunk_buffer import ChunkBuffer
+from tukul_ui.document_scope import DocumentScope
+from tukul_ui.estado import EstadoUI
 
 
-def _esperar_hilo_de_envio(app: ArticuladorApp, desde: int = 0, timeout: float = 5.0) -> None:
+def _esperar_hilo_de_envio(app: TukulApp, desde: int = 0, timeout: float = 5.0) -> None:
     """Espera a que el hilo daemon de `confirm_and_send` invoque `app.llm.stream_response`.
 
     `confirm_and_send()` lanza un hilo real; mantener el parche activo hasta
@@ -93,9 +93,9 @@ def _display_available() -> bool:
 HAS_DISPLAY = _display_available()
 
 
-def _headless_app() -> ArticuladorApp:
+def _headless_app() -> TukulApp:
     """App con el estado mínimo de una petición, sin construir widgets reales."""
-    app = ArticuladorApp.__new__(ArticuladorApp)
+    app = TukulApp.__new__(TukulApp)
     app.closing = False
     app.control_queue = queue.Queue()
     app.chunks = ChunkBuffer()
@@ -185,7 +185,7 @@ class TestSalidaParcialEnError(unittest.TestCase):
 
         app.finish(8, "No pude responder: timeout", [], (None, None), "normal", is_error=True)
 
-        app.append.assert_called_once_with("Articulador", "No pude responder: timeout")
+        app.append.assert_called_once_with("Tukul", "No pude responder: timeout")
         self.assertEqual(list(app.docs.session.conversation), [])
 
     def test_exito_guarda_el_resultado_completo(self):
@@ -208,7 +208,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml")
+        self.app = TukulApp(self.root / "config.toml")
 
     def tearDown(self):
         self.app.destroy()
@@ -243,7 +243,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
 
     def test_cambiar_documento_cambia_a_la_conversacion_del_nuevo_articulo(self):
         """La conversación es por documento: cambiar de artículo no arrastra la anterior."""
-        from articulador_core.models import ChatMessage
+        from tukul_core.models import ChatMessage
 
         a = self.root / "a.md"
         a.write_text("TEXTO DE A", encoding="utf-8")
@@ -284,7 +284,7 @@ class TestDocumentoRecienAbierto(unittest.TestCase):
         self._settle()
         sesion_a = self.app.session
 
-        with patch.object(ArticuladorApp, "show_error"):
+        with patch.object(TukulApp, "show_error"):
             ok = self.app.load_document(self.root / "no-existe.md")
 
         self.assertFalse(ok)
@@ -336,7 +336,7 @@ class TestRutasDeProyecto(unittest.TestCase):
             session = ArticleSession(document_path=document, article="x")
 
             with self.assertRaises(ValueError) as ctx:
-                storage.save_project(session, root / "proyectos" / "p.articulador.json")
+                storage.save_project(session, root / "proyectos" / "p.tukul.json")
 
             self.assertIn("carpeta del artículo", str(ctx.exception))
             self.assertNotIn("subpath", str(ctx.exception))
@@ -358,7 +358,7 @@ class TestAprobacionDeContexto(unittest.TestCase):
             encoding="utf-8",
         )
         os.environ["TEST_KEY_AUDITORIA"] = "clave"
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         # confirm_and_send() lanza un hilo daemon real hacia self.app.llm.
         # Sin mock, cada _enviar() dispara una petición HTTP genuina contra un
         # endpoint que no resuelve en este entorno, con reintentos y backoff
@@ -477,7 +477,7 @@ class TestSeguridadDelEndpoint(unittest.TestCase):
 
 class TestLecturaSSEAcotada(unittest.TestCase):
     def test_readline_recibe_un_tope_de_bytes(self):
-        from articulador_core.llm import MAX_SSE_LINE_BYTES
+        from tukul_core.llm import MAX_SSE_LINE_BYTES
 
         recibidos = []
 
@@ -508,7 +508,7 @@ class TestNoRedireccionDeCredenciales(unittest.TestCase):
     """
 
     def test_el_handler_de_redireccion_jamas_devuelve_un_seguimiento(self):
-        from articulador_core.http_safety import _NoRedirectHandler
+        from tukul_core.http_safety import _NoRedirectHandler
 
         handler = _NoRedirectHandler()
         self.assertIsNone(
@@ -605,13 +605,13 @@ class TestRespuestaCompletaAcotada(unittest.TestCase):
             def read(self, *_args):
                 raise AssertionError("No debe leerse un cuerpo ya predeclarado como excesivo")
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(self._perfil(), "key", "mensaje")
         self.assertIn("mayor de lo esperado", str(ctx.exception))
 
     def test_la_lectura_incremental_aborta_al_superar_el_techo(self):
-        from articulador_core.llm import BYTES_PER_OUTPUT_TOKEN, MAX_BODY_OVERHEAD_BYTES
+        from tukul_core.llm import BYTES_PER_OUTPUT_TOKEN, MAX_BODY_OVERHEAD_BYTES
 
         max_bytes = MAX_BODY_OVERHEAD_BYTES + BYTES_PER_OUTPUT_TOKEN
         perfil = LlmProfile(
@@ -629,14 +629,14 @@ class TestRespuestaCompletaAcotada(unittest.TestCase):
             def read(self, amt: int = -1):
                 return self._buffer.read(amt)
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open",
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open",
                    return_value=Response(b"x" * (max_bytes + 4096))):
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(perfil, "key", "mensaje")
         self.assertIn("mayor de lo esperado", str(ctx.exception))
 
     def test_el_fallback_iterable_aborta_antes_de_acumular_el_cuerpo_entero(self):
-        from articulador_core.llm import BYTES_PER_OUTPUT_TOKEN, MAX_BODY_OVERHEAD_BYTES
+        from tukul_core.llm import BYTES_PER_OUTPUT_TOKEN, MAX_BODY_OVERHEAD_BYTES
 
         max_bytes = MAX_BODY_OVERHEAD_BYTES + BYTES_PER_OUTPUT_TOKEN
         perfil = LlmProfile(
@@ -656,7 +656,7 @@ class TestRespuestaCompletaAcotada(unittest.TestCase):
                 yield b"x"
                 raise AssertionError("No deben consumirse fragmentos tras exceder el techo")
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(perfil, "key", "mensaje")
         self.assertIn("mayor de lo esperado", str(ctx.exception))
@@ -676,7 +676,7 @@ class TestRespuestaCompletaAcotada(unittest.TestCase):
             def read(self, amt: int = -1):
                 return self._buffer.read(amt)
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             result = LLMClient().complete(perfil, "key", "mensaje")
         self.assertEqual(result.content, "ok")
 
@@ -696,7 +696,7 @@ class TestCredenciales(unittest.TestCase):
         try:
             storage.delete_key("perfil")
             storage.keyring.delete_password.assert_called_once_with(
-                "articulador", "perfil"
+                "tukul", "perfil"
             )
         finally:
             storage.keyring = original
@@ -741,7 +741,7 @@ class TestDeshacerRevisionEntreDocumentos(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml")
+        self.app = TukulApp(self.root / "config.toml")
 
     def tearDown(self):
         self.app.destroy()
@@ -793,7 +793,7 @@ class TestDialogoDeRevisionAnclado(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml")
+        self.app = TukulApp(self.root / "config.toml")
         self.hallazgo = {
             "category": "gramática", "severity": "alta", "original": "floja",
             "suggestion": "POCO SÓLIDA", "reason": "registro",
@@ -841,7 +841,7 @@ class TestDialogoDeRevisionAnclado(unittest.TestCase):
         contenido_b = self.app.editor.get("1.0", "end-1c")
 
         if dialogo.winfo_exists():
-            with patch("articulador_ui.dialogs.messagebox.showinfo"):
+            with patch("tukul_ui.dialogs.messagebox.showinfo"):
                 self._pulsar(dialogo, "Aplicar")
             self._settle()
 
@@ -869,7 +869,7 @@ class TestDialogoDeRevisionAnclado(unittest.TestCase):
 
         self.app.show_findings([dict(self.hallazgo)])
         self._settle()
-        with patch("articulador_ui.dialogs.messagebox.showinfo"):
+        with patch("tukul_ui.dialogs.messagebox.showinfo"):
             self._pulsar(self.app.review_dialogs[0], "Aplicar")
         self._settle()
 
@@ -889,7 +889,7 @@ class TestAmbitoDelDocumento(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        self.app = ArticuladorApp(self.root / "config.toml")
+        self.app = TukulApp(self.root / "config.toml")
 
     def tearDown(self):
         self.app.destroy()
@@ -964,7 +964,7 @@ class TestAmbitoDelDocumento(unittest.TestCase):
         self.app.snapshot_for_undo("TEXTO ORIGINAL")
         destino = self.root / "renombrado.md"
 
-        with patch("articulador_ui.app.filedialog.asksaveasfilename", return_value=str(destino)):
+        with patch("tukul_ui.app.filedialog.asksaveasfilename", return_value=str(destino)):
             self.assertTrue(self.app.save_document(save_as=True))
         self._settle()
 
@@ -979,7 +979,7 @@ class TestAmbitoDelDocumento(unittest.TestCase):
 
 class TestSaludDeLaInstalacion(unittest.TestCase):
     def test_instalacion_nueva_tiene_avisos_pero_no_errores(self):
-        from articulador_core import health
+        from tukul_core import health
 
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(storage, "CONFIG_PATH", Path(directory) / "nada" / "config.toml"):
@@ -989,7 +989,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
         self.assertFalse(status.has_errors, "…pero nada roto: --health debe salir con 0")
 
     def test_directorio_de_config_no_escribible_es_error(self):
-        from articulador_core.health import ComponentStatus, check_health
+        from tukul_core.health import ComponentStatus, check_health
 
         with tempfile.TemporaryDirectory() as directory:
             solo_lectura = Path(directory) / "cfg"
@@ -1004,7 +1004,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
                 os.chmod(solo_lectura, 0o700)
 
     def test_check_health_diagnostica_el_config_indicado_no_el_por_defecto(self):
-        from articulador_core.health import check_health
+        from tukul_core.health import check_health
 
         with tempfile.TemporaryDirectory() as directory:
             propio = Path(directory) / "propio.toml"
@@ -1021,7 +1021,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             self.assertIn("3 perfil(es) habilitado(s)", status.components["llm"][1])
 
     def test_status_string_declara_el_archivo_inspeccionado(self):
-        from articulador_core.health import check_health, status_string
+        from tukul_core.health import check_health, status_string
 
         with tempfile.TemporaryDirectory() as directory:
             propio = Path(directory) / "propio.toml"
@@ -1045,7 +1045,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             propio.write_text(f'[llm]\nactive_profile = "p0"\n\n{perfiles}\n', encoding="utf-8")
 
             proceso = subprocess.run(
-                [sys.executable, "articulador.py", "--config", str(propio), "--health"],
+                [sys.executable, "tukul.py", "--config", str(propio), "--health"],
                 cwd=raiz, capture_output=True, text=True, timeout=60,
             )
 
@@ -1054,7 +1054,7 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             self.assertIn("2 perfil(es) habilitado(s)", proceso.stdout)
 
     def test_check_health_lee_la_configuracion_una_sola_vez(self):
-        from articulador_core import health
+        from tukul_core import health
 
         with patch.object(storage, "load_profiles", wraps=storage.load_profiles) as leer:
             health.check_health()
@@ -1063,15 +1063,15 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
 
 class TestLogging(unittest.TestCase):
     def test_health_y_config_validator_usan_el_logger_de_la_app(self):
-        from articulador_core import config_validator, health
-        from articulador_core.logging_config import LOGGER_NAME
+        from tukul_core import config_validator, health
+        from tukul_core.logging_config import LOGGER_NAME
 
         self.assertEqual(health.logger.name, LOGGER_NAME)
         self.assertEqual(config_validator.logger.name, LOGGER_NAME)
         self.assertTrue(health.logger.handlers, "Sin handlers no llega al log JSON")
 
     def test_setup_logging_honra_una_ruta_explicita(self):
-        from articulador_core.logging_config import setup_logging
+        from tukul_core.logging_config import setup_logging
 
         with tempfile.TemporaryDirectory() as directory:
             deseada = Path(directory) / "sub" / "propio.log"
@@ -1101,7 +1101,7 @@ class TestLogging(unittest.TestCase):
             try:
                 entorno = {**os.environ, "HOME": str(hogar)}
                 proceso = subprocess.run(
-                    [sys.executable, "articulador.py", "--health"],
+                    [sys.executable, "tukul.py", "--health"],
                     cwd=raiz, capture_output=True, text=True, timeout=60, env=entorno,
                 )
             finally:
@@ -1115,7 +1115,7 @@ class TestLogging(unittest.TestCase):
             self.assertIn("solo consola", proceso.stdout)
 
     def test_file_logging_status_detecta_un_destino_que_deja_de_escribirse(self):
-        from articulador_core.logging_config import file_logging_status, setup_logging
+        from tukul_core.logging_config import file_logging_status, setup_logging
 
         with tempfile.TemporaryDirectory() as directory:
             destino = Path(directory) / "vivo.log"
@@ -1142,7 +1142,7 @@ class TestLogging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destino = Path(directory) / "r.log"
             handler = RotatingFileHandler(destino, maxBytes=512_000, backupCount=2, encoding="utf-8")
-            aislado = logging.getLogger("articulador.test.rotacion")
+            aislado = logging.getLogger("tukul.test.rotacion")
             aislado.propagate = False
             aislado.addHandler(handler)
             aislado.setLevel(logging.INFO)
@@ -1163,7 +1163,7 @@ class TestKeysDeSesion(unittest.TestCase):
     """Actualizar una key no debe desalojar la de otro perfil."""
 
     def _holder(self, maximo: int):
-        holder = ArticuladorApp.__new__(ArticuladorApp)
+        holder = TukulApp.__new__(TukulApp)
         holder.session_keys = {}
         holder._session_keys_max = maximo
         return holder
@@ -1207,7 +1207,7 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
         )
         os.environ["TEST_KEY_FIFO"] = "clave"
         self.addCleanup(lambda: os.environ.pop("TEST_KEY_FIFO", None))
-        app = ArticuladorApp(config)
+        app = TukulApp(config)
         # Igual que en TestAprobacionDeContexto: confirm_and_send() lanza un
         # hilo real hacia app.llm si no se mockea, con el mismo riesgo de
         # petición HTTP genuina y reintentos que sobreviven al test. Se
@@ -1245,7 +1245,7 @@ class TestAprobacionesDesalojoFIFO(unittest.TestCase):
 
 class TestParserFindingsNoIterable(unittest.TestCase):
     def test_findings_no_lista_se_descarta_sin_recorrerla(self):
-        from articulador_core.review import parse_findings
+        from tukul_core.review import parse_findings
 
         self.assertEqual(parse_findings('{"findings":"' + "x" * 100_000 + '"}'), [])
         self.assertEqual(parse_findings('{"findings":{"a":1}}'), [])
@@ -1256,7 +1256,7 @@ class TestDocumentManagerEsElDuenoDeLaPersistencia(unittest.TestCase):
     """Los métodos que la app duplicaba deben existir y comportarse."""
 
     def test_save_project_traduce_el_error_de_ruta(self):
-        from articulador_ui.document_manager import DocumentManager
+        from tukul_ui.document_manager import DocumentManager
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1266,7 +1266,7 @@ class TestDocumentManagerEsElDuenoDeLaPersistencia(unittest.TestCase):
 
             ok, error = DocumentManager().save_project(
                 ArticleSession(document_path=document, article="x"),
-                root / "sub" / "p.articulador.json",
+                root / "sub" / "p.tukul.json",
             )
 
             self.assertFalse(ok)
@@ -1275,11 +1275,11 @@ class TestDocumentManagerEsElDuenoDeLaPersistencia(unittest.TestCase):
     def test_open_project_devuelve_error_si_falta_el_articulo(self):
         import json
 
-        from articulador_ui.document_manager import DocumentManager
+        from tukul_ui.document_manager import DocumentManager
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            project = root / "p.articulador.json"
+            project = root / "p.tukul.json"
             project.write_text(
                 json.dumps({"version": 2, "document": "no-existe.md"}), encoding="utf-8"
             )
@@ -1310,7 +1310,7 @@ class TestGestionDePerfiles(unittest.TestCase):
         )
         os.environ["CLAVE_PERFILES"] = "clave"
         self.addCleanup(lambda: os.environ.pop("CLAVE_PERFILES", None))
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         self.addCleanup(self.app.destroy)
         self._settle()
 
@@ -1335,7 +1335,7 @@ class TestGestionDePerfiles(unittest.TestCase):
     def test_el_dialogo_lista_todos_los_perfiles(self):
         from tkinter import ttk
 
-        from articulador_ui.dialogs import show_settings_dialog
+        from tukul_ui.dialogs import show_settings_dialog
 
         show_settings_dialog(self.app)
         self._settle()
@@ -1349,18 +1349,18 @@ class TestGestionDePerfiles(unittest.TestCase):
     def test_borrar_un_perfil_lo_quita_y_guardar_actualiza_la_app(self):
         from tkinter import ttk
 
-        from articulador_ui.dialogs import show_settings_dialog
+        from tukul_ui.dialogs import show_settings_dialog
 
         show_settings_dialog(self.app)
         self._settle()
         _dialogo, widgets = self._widgets()
         buttons = {w.cget("text"): w for w in widgets if isinstance(w, ttk.Button)}
 
-        with patch("articulador_ui.dialogs.messagebox.askyesno", return_value=True):
+        with patch("tukul_ui.dialogs.messagebox.askyesno", return_value=True):
             buttons["Borrar"].invoke()  # borra el activo «p1»
         self._settle()
 
-        with patch("articulador_ui.dialogs.messagebox.showinfo"):
+        with patch("tukul_ui.dialogs.messagebox.showinfo"):
             buttons["Guardar"].invoke()
         self._settle()
 
@@ -1370,18 +1370,18 @@ class TestGestionDePerfiles(unittest.TestCase):
     def test_nuevo_perfil_se_crea_y_pasa_a_ser_activo(self):
         from tkinter import ttk
 
-        from articulador_ui.dialogs import show_settings_dialog
+        from tukul_ui.dialogs import show_settings_dialog
 
         show_settings_dialog(self.app)
         self._settle()
         _dialogo, widgets = self._widgets()
         buttons = {w.cget("text"): w for w in widgets if isinstance(w, ttk.Button)}
 
-        with patch("articulador_ui.dialogs.simpledialog.askstring", return_value="p3"):
+        with patch("tukul_ui.dialogs.simpledialog.askstring", return_value="p3"):
             buttons["Nuevo"].invoke()
         self._settle()
 
-        with patch("articulador_ui.dialogs.messagebox.showinfo"):
+        with patch("tukul_ui.dialogs.messagebox.showinfo"):
             buttons["Guardar"].invoke()
         self._settle()
 
