@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 
@@ -73,3 +74,100 @@ class ArticleSession:
     dirty: bool = False
     # request_active se mantiene solo como conveniencia, se sincroniza con RequestState
     request_active: bool = False
+
+
+# ─── Nuevos tipos: Feed de fuentes oficiales y sugerencias de impacto ────────
+
+@dataclass(frozen=True)
+class FeedSource:
+    """Identificador de una fuente oficial consultable.
+
+    Cada fuente tiene un ID corto, una etiqueta legible, un tipo (CVE,
+    TTP, paper, reporte, guía, alerta), la URL base, si requiere API key,
+    y el intervalo mínimo respetuoso entre consultas.
+    """
+
+    id: str
+    label: str
+    type: str  # "cve" | "ttp" | "paper" | "report" | "guideline" | "alert"
+    base_url: str
+    requires_api_key: bool
+    refresh_interval_minutes: int
+
+
+@dataclass(frozen=True)
+class FeedEntry:
+    """Entrada normalizada proveniente de cualquier fuente oficial.
+
+    Contiene el texto, metadatos de publicación, nivel de severidad
+    normalizado (0-10), nivel de confianza según la reputación de la
+    fuente, referencias originales y etiquetas computadas.
+    """
+
+    source_id: str  # "nvd:CVE-2026-12345"
+    source: str  # "nvd"
+    title: str
+    description: str
+    url: str
+    published: datetime
+    updated: datetime | None = None
+    topics: tuple[str, ...] = ()
+    severity: float | None = None  # CVSS 0-10 o normalizado
+    confidence: float = 1.0  # 0.0-1.0
+    raw_references: tuple[str, ...] = ()
+    tags: frozenset[str] = field(default_factory=frozenset)
+
+
+@dataclass(frozen=True)
+class FoggAnalysis:
+    """Análisis según Fogg Behavior Model aplicado a una sugerencia.
+
+    Modela tres ejes:
+    - motivation: factores que impulsan la acción (urgencia, relevancia).
+    - ability: qué tan factible es actuar (facilidad de implementación).
+    - triggers: desencadenantes concretos (parche disponible, alerta activa).
+    """
+
+    motivation: dict[str, float]
+    ability: dict[str, float]
+    triggers: tuple[str, ...]
+    summary: str = ""
+
+
+@dataclass(frozen=True)
+class SourceConflict:
+    """Contradicción o discrepancia detectada entre fuentes oficiales.
+
+    Se reporta al usuario para que decida cómo interpretarla, no se oculta.
+    """
+
+    sources: tuple[str, ...]  # ("nvd", "mitre-attack")
+    field: str  # "severity" | "remediation" | "impact"
+    description: str
+    severity: str = "warning"  # "info" | "warning" | "contradiction"
+
+
+@dataclass(frozen=True)
+class ConsumerSuggestion:
+    """Sugerencia de impacto generada a partir de entradas de fuentes oficiales.
+
+    Incluye la fundamentación (qué entradas la respaldan), el análisis Fogg,
+    el nivel de incertidumbre, las contradicciones detectadas y un disclaimer.
+    No contiene frases de validación vacía ("buena idea", "esto es correcto").
+    """
+
+    id: str
+    source_entries: tuple[str, ...]
+    title: str
+    rationale: str
+    fogg: FoggAnalysis
+    suggested_article_focus: str
+    target_audience: str  # "directivos" | "tecnicos" | "publico general"
+    impact_level: str  # "bajo" | "medio" | "alto"
+    uncertainty: str
+    conflicts: tuple[SourceConflict, ...] = ()
+    disclaimer: str = (
+        "Basado en fuentes oficiales. Revisa y contrasta antes de usar. "
+        "Esta sugerencia no constituye consejo profesional de seguridad."
+    )
+    generated_at: datetime = field(default_factory=lambda: datetime.now())

@@ -508,7 +508,7 @@ class TestNoRedireccionDeCredenciales(unittest.TestCase):
     """
 
     def test_el_handler_de_redireccion_jamas_devuelve_un_seguimiento(self):
-        from articulador_core.llm import _NoRedirectHandler
+        from articulador_core.http_safety import _NoRedirectHandler
 
         handler = _NoRedirectHandler()
         self.assertIsNone(

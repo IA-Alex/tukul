@@ -81,6 +81,20 @@ pip install -e ".[dev]"
 ./scripts/quality-gate.sh   # ruff + mypy + pytest con cobertura (mínimo 70 %)
 ```
 
+## Contexto de amenazas (CVE)
+
+Además de artículos de archivo, el contexto puede incluir un resumen de CVEs
+recientes: en el diálogo "Contexto de artículos", el botón **"Añadir CVEs
+recientes…"** consulta tres fuentes públicas (NVD, EPSS de FIRST.org y el
+catálogo CISA KEV) y añade el resumen como contexto autorizado. Es una conexión
+saliente iniciada por la aplicación —no por el proveedor LLM—, siempre tras una
+acción explícita y una confirmación; nunca automática ni periódica. El resultado
+se trata como dato no confiable y pasa por la aprobación de contexto como
+cualquier otro artículo. Detalle en
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#fuente-de-contexto-de-amenazas-cve)
+y el impacto de seguridad en
+[SECURITY.md](docs/SECURITY.md#superficie-fuente-de-amenazas-cve).
+
 ## Documentación
 
 Consulta el [índice documental](docs/README.md), que enlaza arquitectura,

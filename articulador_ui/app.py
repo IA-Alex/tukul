@@ -20,9 +20,13 @@ from articulador_core.logging_config import setup_logging
 from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
 from articulador_core.prompting import build_editor_prompt
 from articulador_core.review import parse_findings
+from articulador_core.threat_feed import ThreatFeedError, build_threat_context
 from articulador_ui import estilo as es
 from articulador_ui import ui_state
 from articulador_ui.chunk_buffer import ChunkBuffer
+from articulador_ui.components.top_bar import TopBar
+from articulador_ui.components.editor_panel import EditorPanel
+from articulador_ui.components.assistant_panel import AssistantPanel
 from articulador_ui.context_approval import ContextApprovalCache, ContextApprovalKey
 from articulador_ui.dialogs import show_review_dialog, show_settings_dialog
 from articulador_ui.document_manager import DocumentManager
@@ -36,7 +40,17 @@ from articulador_ui.tooltip import ToolTip
 # índice, las constantes se quedaron aquí, donde se usan de verdad.
 MAX_CONTEXT_PACKET_CHARS = 12_000
 MAX_CONTEXT_EXCERPT_CHARS = 3_000
+# El resumen de amenazas es un texto curado y determinista (no un archivo
+# arbitrario del usuario), así que se le da más margen dentro del mismo tope de
+# paquete. El límite global de tokens en `confirm_and_send` sigue siendo la
+# barrera fail-closed real.
+MAX_THREAT_FEED_EXCERPT_CHARS = 10_000
 MAX_INDEXED_FILE_BYTES = 50_000
+# Ventana temporal de la fuente de amenazas (CVE recientes). El fetch nunca es
+# automático: solo se dispara desde el diálogo de contexto, por acción del
+# usuario, igual que añadir un artículo de contexto.
+THREAT_FEED_HOURS = 24
+THREAT_FEED_SOURCE_ID = "threat-feed:cve-recientes"
 # Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
 AUTOSAVE_INTERVAL_MS = 5000
 
@@ -554,13 +568,16 @@ class ArticuladorApp(tk.Tk):
                 pass
 
     def _build_barra(self) -> None:
-        """Barra mínima: solo lo que se usa a diario. El resto, en el menú."""
-        # Tk no soporta desenfoque real; esta superficie elevada compacta da la
-        # misma separación visual sin efectos pesados ni recursos gráficos.
-        self.barra = ttk.Frame(self, style="Cabecera.TFrame",
-                               padding=(es.ESP["sm"], es.ESP["xs"], es.ESP["sm"], es.ESP["xs"]))
-        self.barra.pack(fill="x")
-
+        """Barra mínima: utiliza el componente TopBar."""
+        callbacks = {
+            "save": self.save_document,
+            "manage_references": self.manage_references,
+            "toggle_asistente": self.toggle_asistente,
+            "cambiar_tema": self._cambiar_tema,
+            "settings": self.settings
+        }
+        
+        # Necesitamos preparar el menú antes de crear TopBar
         menu_archivo = tk.Menu(self, tearoff=False, background=es.SUPERFICIE_ALTA,
                                foreground=es.TEXTO, activebackground=es.ACENTO,
                                activeforeground=es.ACENTO_TEXTO, font=es.fuente())
@@ -589,138 +606,72 @@ class ArticuladorApp(tk.Tk):
         menu_archivo.insert_cascade(3, label="Recientes", menu=self.menu_recientes)
         self.menu_archivo = menu_archivo
         self._refrescar_menu_recientes()
-
-        self.boton_menu = ttk.Menubutton(self.barra, text="☰  Menú", menu=menu_archivo)
-        self.boton_menu.pack(side="left")
-        self.boton_guardar = ttk.Button(self.barra, text="Guardar", style="Guardar.TButton",
-                                        command=self.save_document)
-        self.boton_guardar.pack(side="left", padx=(es.ESP["sm"], 0))
-        self.references_button = ttk.Button(self.barra, text="Contexto: 0 artículos",
-                                            style="Plana.TButton",
-                                            command=self.manage_references)
-        self.references_button.pack(side="left", padx=(es.ESP["sm"], 0))
-
-        # Estado de sincronía del documento: símbolo + texto, nunca solo color.
-        # Grupo de estado, separado del grupo de acciones por espacio, no por reglas.
-        self.sync_label = ttk.Label(self.barra, text="○  Sin cambios", style="Cabecera.TLabel")
-        self.sync_label.pack(side="left", padx=(es.ESP["lg"], 0))
-
-        self.boton_panel = ttk.Button(self.barra, text="◧  Ocultar panel IA  (F6)",
-                                      command=self.toggle_asistente)
-        self.boton_panel.pack(side="right")
-        # Acción secundaria de tema: visible en la barra, operable con teclado y
-        # con tooltip. La etiqueta anuncia la acción (y de paso el tema vigente).
-        self.boton_tema = ttk.Button(self.barra, style="Plana.TButton",
-                                     command=self._cambiar_tema)
-        self.boton_tema.pack(side="right", padx=(0, es.ESP["sm"]))
-        self.profile_chip = ttk.Button(
-            self.barra, text=f"Modelo: {self.profile.model or 'sin configurar'}",
-            style="Plana.TButton", command=self.settings)
-        self.profile_chip.pack(side="right", padx=(0, es.ESP["sm"]))
-        self._actualizar_boton_tema()
-
-        ToolTip(self.boton_menu, "Archivo: abrir, guardar y proyectos")
-        ToolTip(self.boton_guardar, "Guardar el artículo (Ctrl+S)")
-        ToolTip(self.references_button, "Gestionar los artículos de contexto")
-        ToolTip(self.boton_panel, "Mostrar u ocultar el panel IA (F6)")
-        self.tooltip_tema = ToolTip(self.boton_tema, "Cambiar de tema claro/oscuro")
-        self._actualizar_boton_tema()
-        ToolTip(self.profile_chip, "Cambiar el modelo y sus ajustes")
+        
+        self.barra = TopBar(self, callbacks, menu_archivo, self, self.theme)
+        self.barra.pack(fill="x")
+        
+        # Referencias para métodos que aún esperan estos atributos en app
+        self.boton_menu = self.barra.boton_menu
+        self.boton_guardar = self.barra.boton_guardar
+        self.references_button = self.barra.references_button
+        self.sync_label = self.barra.sync_label
+        self.boton_panel = self.barra.boton_panel
+        self.boton_tema = self.barra.boton_tema
+        self.profile_chip = self.barra.profile_chip
+        self.tooltip_tema = self.barra.tooltip_tema
 
     def _build_editor(self, panes) -> None:
-        editor = ttk.Labelframe(panes, text="TU ARTÍCULO", padding=es.ESP["md"])
-        panes.add(editor, weight=68)
-        self.panel_editor = editor
-        self.editor = self._text(editor, undo=True, wrap="word", font=es.fuente(es.TIPO_LG),
-                                 background=es.SUPERFICIE, padx=es.ESP["lg"], pady=es.ESP["lg"],
-                                 spacing1=2, spacing2=3, spacing3=8)
-        self.editor.pack(fill="both", expand=True)
-        self.editor.bind("<<Modified>>", self.modified)
-        self.editor.bind("<ButtonRelease-1>", lambda e: self.update_context())
-        # <<Selection>> cubre también la selección con teclado (Shift+flechas), que
-        # <ButtonRelease-1> no veía: sin esto la etiqueta del botón se desincroniza.
-        self.editor.bind("<<Selection>>", lambda e: self.update_context())
-        self.editor.bind("<KeyRelease>", lambda e: self.schedule_stats())
-        self.editor.bind("<Button-3>", self.text_menu)
+        callbacks = {
+            "modified": self.modified,
+            "update_context": self.update_context,
+            "schedule_stats": self.schedule_stats,
+            "text_menu": self.text_menu
+        }
+        self.panel_editor = EditorPanel(panes, callbacks)
+        panes.add(self.panel_editor, weight=68)
+        self.editor = self.panel_editor.editor
 
     def _build_asistente(self, panes) -> None:
-        chat = ttk.Labelframe(panes, text="ASISTENTE", padding=es.ESP["md"])
-        panes.add(chat, weight=32)
-        self.panel_asistente = chat
+        callbacks = {
+            "send_message": self.send_message,
+            "cancel_request": self.cancel_request,
+            "review": self.review,
+            "create_input": lambda parent: self._text(parent, height=3, wrap="word",
+                                                     padx=es.ESP["sm"], pady=es.ESP["xs"],
+                                                     highlightbackground=es.SUPERFICIE_ALTA),
+            "create_history": lambda parent: self._text(parent, wrap="word", state="disabled",
+                                                        padx=es.ESP["md"], pady=es.ESP["sm"],
+                                                        background=es.SUPERFICIE_ALTA)
+        }
+        self.panel_asistente = AssistantPanel(panes, callbacks)
+        panes.add(self.panel_asistente, weight=32)
+        
+        self.input = self.panel_asistente.input
+        self.history = self.panel_asistente.history
+        self.send_button = self.panel_asistente.send_button
+        self.cancel_button = self.panel_asistente.cancel_button
+        self.review_button = self.panel_asistente.review_button
+        self.estado_label = self.panel_asistente.estado_label
+        self.estado_ayuda = self.panel_asistente.estado_ayuda
+        self.cost_label = self.panel_asistente.cost_label
 
-        # Los controles se anclan abajo ANTES que el historial. Con pack, lo que
-        # se coloca después es lo que se recorta al faltar espacio: al reservar
-        # primero el compositor, las acciones primarias nunca desaparecen aunque
-        # el panel se estreche.
-        self.cost_label = tk.StringVar(value="Se enviará el artículo activo; el contexto adicional se confirma antes de enviar.")
-        ttk.Label(chat, textvariable=self.cost_label, style="TenueSuperficie.TLabel",
-                  wraplength=300, justify="left").pack(side="bottom", fill="x",
-                                                       pady=(es.ESP["xs"], 0))
-
-        fila = ttk.Frame(chat, style="Superficie.TFrame")
-        fila.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
-        self.cancel_button = ttk.Button(fila, text="Cancelar", command=self.cancel_request,
-                                        state="disabled")
-        self.cancel_button.pack(side="right", padx=(0, es.ESP["sm"]))
-        self.review_button = ttk.Button(fila, text="Revisar artículo", command=self.review)
-        self.review_button.pack(side="left")
-
-        # Compositor compacto: en Tk no hay radio nativo de 8px, pero el campo y
-        # la acción comparten una superficie continua y ahorran altura.
-        compositor = ttk.Frame(chat, style="Alta.TFrame", padding=es.ESP["xs"])
-        compositor.pack(side="bottom", fill="x")
-        self.send_button = ttk.Button(compositor, text="Enviar", style="Primaria.TButton",
-                                      command=self.send_message)
-        self.send_button.pack(side="right", fill="y")
-        self.input = self._text(compositor, height=3, wrap="word",
-                                padx=es.ESP["sm"], pady=es.ESP["xs"],
-                                highlightbackground=es.SUPERFICIE_ALTA)
-        self.input.pack(side="left", fill="both", expand=True, padx=(0, es.ESP["xs"]))
+        # Configuraciones adicionales que requieren referencias directas
         self.input.bind("<Return>", lambda e: self.send_message() or "break")
         self.input.bind("<Control-Return>", lambda e: self.input.insert("insert", "\n") or "break")
         self.input.bind("<Button-3>", self.text_menu)
-
-        # Indicador de estado: símbolo + texto + color, y nombre accesible propio.
-        self.estado_ayuda = tk.StringVar(value=EstadoUI.REPOSO.ayuda)
-        ttk.Label(chat, textvariable=self.estado_ayuda, style="TenueSuperficie.TLabel",
-                  wraplength=300, justify="left").pack(side="bottom", fill="x",
-                                                       pady=(2, es.ESP["sm"]))
-        self.activity = tk.StringVar(value=EstadoUI.REPOSO.etiqueta())
-        self.estado_actual = EstadoUI.REPOSO
-        self.estado_label = ttk.Label(chat, textvariable=self.activity,
-                                      style="Superficie.TLabel",
-                                      foreground=EstadoUI.REPOSO.color)
-        self.estado_label.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
-
-        # Confirmación de contexto en línea. Se crea oculta y solo aparece cuando
-        # hay algo que decidir; sustituye al modal que salía antes de cada envío.
-        self.barra_aprobacion = ttk.Frame(chat, style="Alta.TFrame",
-                                          padding=(es.ESP["sm"], es.ESP["sm"]))
-        self.aprobacion_texto = tk.StringVar(value="")
-        self.aprobacion_label = ttk.Label(self.barra_aprobacion,
-                                          textvariable=self.aprobacion_texto,
-                                          background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                                          font=es.fuente(es.TIPO_SM), wraplength=300,
-                                          justify="left")
-        self.aprobacion_label.pack(fill="x")
-        acciones = ttk.Frame(self.barra_aprobacion, style="Alta.TFrame")
-        acciones.pack(fill="x", pady=(es.ESP["sm"], 0))
-        self.boton_aprobar = ttk.Button(acciones, text="Enviar artículos",
-                                        style="Primaria.TButton")
-        self.boton_aprobar.pack(side="right")
-        self.boton_rechazar = ttk.Button(acciones, text="No enviar")
-        self.boton_rechazar.pack(side="right", padx=(0, es.ESP["sm"]))
-
-        self.history = self._text(chat, wrap="word", state="disabled",
-                                  padx=es.ESP["md"], pady=es.ESP["sm"],
-                                  background=es.SUPERFICIE_ALTA)
-        self.history.pack(fill="both", expand=True)
         self.history.bind("<Button-3>", self.history_menu)
         self.history.bind("<Control-c>", lambda e: self.history.event_generate("<<Copy>>") or "break")
-        # Bloques de conversación. Tk no tiene cajas con borde dentro de un Text,
-        # así que la separación se expresa con fondo, sangría y margen: el turno
-        # se distingue por forma y posición, no solo por el color del rótulo.
-        # El método también lo reaplica al cambiar de tema/zoom.
+
+        # Variables de estado que se vincularán dinámicamente
+        self.estado_ayuda_var = tk.StringVar(value=EstadoUI.REPOSO.ayuda)
+        self.estado_ayuda.config(textvariable=self.estado_ayuda_var)
+        self.activity_var = tk.StringVar(value=EstadoUI.REPOSO.etiqueta())
+        self.estado_label.config(textvariable=self.activity_var)
+        self.cost_label_var = tk.StringVar(value="Se enviará el artículo activo; el contexto adicional se confirma antes de enviar.")
+        self.cost_label.config(textvariable=self.cost_label_var)
+        
+        # Confirmación de contexto (gestionada por AssistantPanel)
+        self.estado_actual = EstadoUI.REPOSO
         self._configurar_tags_historial()
 
     def _build_pie(self) -> None:
@@ -1272,7 +1223,10 @@ class ArticuladorApp(tk.Tk):
         for article in self.context_articles:
             if remaining <= 0:
                 break
-            excerpt = article.content[:min(MAX_CONTEXT_EXCERPT_CHARS, remaining)]
+            ceiling = (MAX_THREAT_FEED_EXCERPT_CHARS
+                       if article.source_id == THREAT_FEED_SOURCE_ID
+                       else MAX_CONTEXT_EXCERPT_CHARS)
+            excerpt = article.content[:min(ceiling, remaining)]
             if not excerpt:
                 continue
             parts.append(f"ARTÍCULO DE CONTEXTO: {article.label}\n---\n{excerpt}")
@@ -1382,7 +1336,7 @@ class ArticuladorApp(tk.Tk):
     def _pedir_aprobacion(self, request_id: int, files: list[str],
                           key: ContextApprovalKey, al_aceptar) -> None:
         """Muestra la confirmación de contexto dentro del panel del asistente."""
-        self.aprobacion_texto.set(
+        text = (
             "Se enviará el artículo activo de la izquierda y "
             f"{len(files)} artículo(s) de contexto al proveedor: "
             + ", ".join(files)
@@ -1391,7 +1345,7 @@ class ArticuladorApp(tk.Tk):
 
         def aceptar() -> None:
             """Acepta la autorización del contexto y lanza el envío."""
-            self._ocultar_aprobacion()
+            self.panel_asistente.hide_approval()
             # Desalojar la aprobación más antigua, no las 128: vaciar el conjunto
             # entero obligaba a reconfirmar todo de golpe.
             self.approved_contexts.remember(key)
@@ -1399,19 +1353,11 @@ class ArticuladorApp(tk.Tk):
 
         def rechazar() -> None:
             """Rechaza la autorización y aborta la petición."""
-            self._ocultar_aprobacion()
+            self.panel_asistente.hide_approval()
             self._abort_request(request_id)
             self.set_estado(EstadoUI.CANCELADO, "no se envió nada")
 
-        self.boton_aprobar.config(command=aceptar)
-        self.boton_rechazar.config(command=rechazar)
-        self.barra_aprobacion.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0),
-                                   before=self.estado_label)
-        self.boton_aprobar.focus_set()
-
-    def _ocultar_aprobacion(self) -> None:
-        if self.barra_aprobacion.winfo_ismapped():
-            self.barra_aprobacion.pack_forget()
+        self.panel_asistente.show_approval(text, aceptar, rechazar)
 
     def _abort_request(self, request_id: int) -> None:
         """Descarta una petición antes de enviarla y libera la UI por completo.
@@ -1713,6 +1659,72 @@ class ArticuladorApp(tk.Tk):
         packet, files = self._reference_packet()
         self.approved_contexts.remember_for(self.profile, packet, files)
 
+    def _fetch_threat_feed(self, dialog: tk.Toplevel, on_done: Callable[[], None]) -> None:
+        """Consulta NVD/EPSS/KEV en segundo plano y añade el resultado como contexto.
+
+        La red la inicia Articulador (no el proveedor LLM), por eso el disparo es
+        una acción de UI explícita y nunca automático: ver `docs/SECURITY.md`.
+        `build_threat_context` degrada por fuente y solo lanza si fallan las tres.
+        El paquete resultante entra como una instantánea de contexto más y pasa
+        por `ContextApprovalCache` antes de llegar a cualquier prompt.
+        """
+        if not messagebox.askyesno(
+            "Añadir CVEs recientes al contexto",
+            "Articulador consultará ahora tres fuentes públicas de vulnerabilidades "
+            "(NVD, EPSS de FIRST.org y el catálogo CISA KEV) para construir un "
+            f"resumen de los CVE de las últimas {THREAT_FEED_HOURS} h.\n\n"
+            "Es una conexión saliente iniciada por la aplicación. El resultado se "
+            "trata como contexto no confiable y se autoriza como cualquier otro "
+            "artículo de contexto.\n\n¿Continuar?",
+            parent=dialog,
+        ):
+            return
+        self.status.set("Consultando fuentes de amenazas (CVE)…")
+
+        def work() -> None:
+            """Ejecuta el fetch HTTP fuera del hilo de Tk y devuelve el control por `after`."""
+            detail: str | None = None
+            try:
+                packet, files = build_threat_context(hours=THREAT_FEED_HOURS)
+            except ThreatFeedError as error:
+                detail = str(error)
+            except Exception as error:
+                # El hilo daemon no debe morir en silencio: se registra y se
+                # reporta como fallo del fetch, igual que un ThreatFeedError.
+                logger.error("Fallo inesperado en la fuente de amenazas: %s", error, exc_info=True)
+                detail = str(error)
+            if self.closing:
+                return  # La ventana ya se está destruyendo: no tocar Tcl.
+            if detail is not None:
+                message = detail
+                self.after(0, lambda: self._on_threat_feed_error(dialog, message))
+                return
+            self.after(0, lambda: self._on_threat_feed_ready(packet, files, on_done))
+
+        hilo = threading.Thread(target=work, daemon=True)
+        self._worker_threads.append(hilo)
+        hilo.start()
+
+    def _on_threat_feed_error(self, dialog: tk.Toplevel, detail: str) -> None:
+        """Informa del fallo del fetch sin tumbar el diálogo de contexto."""
+        self.status.set("No se pudo obtener el contexto de amenazas.")
+        if dialog.winfo_exists():
+            messagebox.showerror(
+                "Fuente de amenazas no disponible",
+                f"No se pudo construir el contexto de CVE:\n\n{detail}",
+                parent=dialog,
+            )
+
+    def _on_threat_feed_ready(
+        self, packet: str, files: list[str], on_done: Callable[[], None]
+    ) -> None:
+        """Añade el paquete de amenazas como instantánea de contexto ya autorizada."""
+        label = f"CVEs recientes ({', '.join(files)})" if files else "CVEs recientes"
+        self._upsert_context_article(ContextArticle(THREAT_FEED_SOURCE_ID, label, packet))
+        self._authorize_context_articles()
+        self.status.set("Contexto de CVEs recientes añadido y autorizado.")
+        on_done()
+
     def _ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
         """La autorización ocurre al añadir contexto, nunca al enviar después."""
         if not labels:
@@ -1755,8 +1767,9 @@ class ArticuladorApp(tk.Tk):
         frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Artículos de contexto", style="Titulo.TLabel").pack(anchor="w")
-        ttk.Label(frame, text=("El artículo de la izquierda es el activo. Añade aquí artículos previos (.md o .txt): "
-                               "se conservan al abrir otro artículo y se autorizan al añadirlos."),
+        ttk.Label(frame, text=("El artículo de la izquierda es el activo. Añade aquí artículos previos (.md o .txt) "
+                               "o un resumen de CVEs recientes: se conservan al abrir otro artículo y se autorizan al añadirlos. "
+                               "«Añadir CVEs recientes» abre una conexión saliente a NVD/EPSS/CISA KEV."),
                   style="TenueSuperficie.TLabel", wraplength=520, justify="left").pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
         # La fila de acciones se reserva ANTES de la lista expansible: con pack,
         # lo colocado después es lo que se recorta al estrechar la ventana.
@@ -1823,6 +1836,9 @@ class ArticuladorApp(tk.Tk):
         ttk.Button(actions, text="Quitar seleccionadas", command=remove).pack(
             side="right", padx=(0, es.ESP["sm"]))
         ttk.Button(actions, text="Añadir artículo activo", command=add_current).pack(
+            side="left", padx=(0, es.ESP["sm"]))
+        ttk.Button(actions, text="Añadir CVEs recientes…",
+                   command=lambda: self._fetch_threat_feed(dialog, refresh)).pack(
             side="left", padx=(0, es.ESP["sm"]))
         ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
