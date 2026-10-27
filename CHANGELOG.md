@@ -12,6 +12,13 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   binario `articulador-macos-arm64` también del Release `v0.3.2` ya
   publicado. Solo Linux y Windows.
 
+### Seguridad y mantenimiento
+
+- Se regeneró `requirements-dev.lock` con versiones actualizadas y hashes para
+  eliminar vulnerabilidades conocidas detectadas por `pip-audit`.
+- El prototipo aislado `ThreatFeed` queda documentado como no integrado y fuera
+  del contrato funcional de esta versión.
+
 ## [0.3.2] - 2026-08-17
 
 ### Corregido

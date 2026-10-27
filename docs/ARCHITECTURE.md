@@ -49,6 +49,18 @@ Los endpoints aceptan HTTPS y HTTP únicamente para `localhost`, `127.0.0.1` o `
 
 Los errores de configuración se degradan a perfiles defensivos/default; los errores de red y parsing llegan a la UI como error de la petición. `--health` separa warnings de errores y devuelve código 1 solo si existe un componente roto.
 
+## Evolución planeada: fuente de contexto de amenazas (CVE)
+
+Estado: **prototipo aislado, no integrado ni comprometido en la UI.** El módulo
+`articulador_core/threat_feed.py` y sus pruebas existen para validar límites y
+normalización, pero ninguna ruta de la aplicación lo invoca. Esta sección no
+describe una capacidad disponible en la versión actual.
+
+El prototipo consulta NVD, EPSS y CISA KEV, normaliza el resultado y aplica
+límites de transporte. Antes de integrarlo se requiere una acción explícita de
+UI, aprobación del contexto, revisión de seguridad y validación de integración
+real. El módulo no forma parte del flujo funcional actual.
+
 ## Shutdown y calidad
 
 `destroy()` cancela/espera con tope los hilos de `review()` y `request()` antes de destruir la ventana. Los workers son daemon, pero el cierre normal intenta terminarlos. La calidad se define por [TESTING.md](TESTING.md), y el workflow de CI y build-release son la autoridad de ejecución y targets.

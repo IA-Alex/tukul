@@ -31,6 +31,19 @@ La prioridad de la key es variable de entorno del perfil, luego key de sesión y
 
 Enviar artículo, selección, contexto aprobado y conversación al proveedor es una acción explícita de la consulta. El proveedor puede conservar o procesar esos datos según su propia política, que Articulador no controla. Un proveedor malicioso puede devolver instrucciones, datos falsos o respuestas excesivas; la app no los convierte en comandos ni modifica archivos automáticamente.
 
+## Superficie planeada: fuente de amenazas (CVE)
+
+Estado: **prototipo aislado, no integrado ni invocado por la aplicación.** El
+módulo experimental tiene pruebas de transporte y límites, pero no debe
+considerarse una integración disponible ni una garantía de seguridad de la
+capacidad futura.
+
+La futura integración deberá tratar las respuestas de NVD, EPSS y CISA KEV como
+datos no confiables, solicitar aprobación antes de enviarlas al LLM y mantener
+timeouts, reintentos acotados y límites de tamaño. Esta tabla se promoverá a
+los controles actuales solo cuando exista una ruta de usuario integrada, tests
+de integración y una revisión de seguridad específica.
+
 ## Actualizaciones y reporte
 
 Las dependencias de desarrollo se fijan en `requirements-dev.lock`; CI ejecuta `pip-audit`. Las GitHub Actions del workflow están fijadas por SHA. No hay un proceso externo de disclosure configurado en el repositorio; reporta vulnerabilidades al mantenedor del repositorio antes de divulgarlas públicamente.

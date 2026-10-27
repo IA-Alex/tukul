@@ -81,6 +81,23 @@ pip install -e ".[dev]"
 ./scripts/quality-gate.sh   # ruff + mypy + pytest con cobertura (mínimo 70 %)
 ```
 
+## Roadmap (prototipo aislado, no integrado)
+
+Articulador es hoy un editor de artículos; el contexto que usa proviene siempre
+de archivos que el usuario elige explícitamente. Existe un prototipo aislado
+de una fuente de contexto de amenazas, pero no está expuesto por la UI ni
+forma parte del flujo funcional de esta versión. La evolución prevista hacia
+generación de contenido de concientización en ciberseguridad (CVEs recientes
+y su contexto) introduce una superficie nueva: red saliente iniciada por
+Articulador mismo, no solo por acción directa del usuario hacia el proveedor
+LLM. Detalle de diseño en
+[ARCHITECTURE.md § Evolución planeada](docs/ARCHITECTURE.md#evolución-planeada-fuente-de-contexto-de-amenazas-cve)
+y el impacto de seguridad en
+[SECURITY.md § Superficie planeada](docs/SECURITY.md#superficie-planeada-fuente-de-amenazas-cve).
+El prototipo y sus pruebas no constituyen una capacidad comprometida ni una
+garantía de integración; se mantienen aislados hasta completar la revisión de
+seguridad, UI y aceptación correspondiente.
+
 ## Documentación
 
 Consulta el [índice documental](docs/README.md), que enlaza arquitectura,
