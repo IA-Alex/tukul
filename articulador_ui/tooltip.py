@@ -27,6 +27,11 @@ class ToolTip:
         self._ventana: tk.Toplevel | None = None
         widget.bind("<Enter>", self._programar, add="+")
         widget.bind("<Leave>", self._ocultar, add="+")
+        # Las pistas no deben depender exclusivamente del puntero: también
+        # aparecen al llegar al control con Tab, útil para teclado y ayudas
+        # tecnológicas que exponen el foco del widget.
+        widget.bind("<FocusIn>", self._programar, add="+")
+        widget.bind("<FocusOut>", self._ocultar, add="+")
         widget.bind("<ButtonPress>", self._ocultar, add="+")
 
     def _programar(self, _evento: tk.Event | None = None) -> None:

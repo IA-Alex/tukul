@@ -652,7 +652,10 @@ class ArticuladorApp(tk.Tk):
         # se coloca después es lo que se recorta al faltar espacio: al reservar
         # primero el compositor, las acciones primarias nunca desaparecen aunque
         # el panel se estreche.
-        self.cost_label = tk.StringVar(value="Se enviará el artículo activo; el contexto adicional se confirma antes de enviar.")
+        self.cost_label = tk.StringVar(value=(
+            "Se enviará el artículo activo; el contexto adicional se confirma antes de enviar. "
+            "Enter envía · Ctrl+Enter agrega una línea."
+        ))
         ttk.Label(chat, textvariable=self.cost_label, style="TenueSuperficie.TLabel",
                   wraplength=300, justify="left").pack(side="bottom", fill="x",
                                                        pady=(es.ESP["xs"], 0))
@@ -1090,12 +1093,24 @@ class ArticuladorApp(tk.Tk):
     def handle_callback_error(self, exc_type, exc_value, _traceback):
         """Manejador global de excepciones no controladas de Tkinter."""
         logger.exception("Excepción no controlada de Tkinter", exc_info=(exc_type, exc_value, _traceback))
+        # El detalle técnico queda en el log; no se expone como copy principal
+        # porque suele ser ilegible y puede incluir rutas o datos internos.
         self.status.set("Ocurrió un error interno. Puedes continuar o reiniciar Articulador.")
-        messagebox.showerror("Error interno",str(exc_value),parent=self)
+        messagebox.showerror(
+            "Error interno",
+            "No pudimos completar esa acción. Puedes continuar o reiniciar Articulador.",
+            parent=self,
+        )
     def show_error(self, title: str, detail: str) -> None:
         """Muestra un error en la barra de estado y en un diálogo modal."""
         self.status.set(title)
-        messagebox.showerror(title, detail, parent=self)
+        logger.error("Error visible en UI: %s — %s", title, detail)
+        messagebox.showerror(
+            title,
+            "No pudimos completar la acción. Vuelve a intentarlo. "
+            "Los detalles técnicos quedaron registrados para diagnóstico.",
+            parent=self,
+        )
     def load_document(self, path: Path) -> bool:
         """Sustituye el artículo activo y su conversación, cada una por documento."""
         success, error, session = self.docs.open_document(path)

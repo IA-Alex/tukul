@@ -61,6 +61,12 @@ def _abrir_dialogo(app, titulo: str, *, modal: bool = True) -> tuple[tk.Toplevel
     return dialogo, cuerpo
 
 
+def _configurar_scroll(canvas: tk.Canvas, cuerpo: ttk.Frame, ventana: int) -> None:
+    """Mantiene un formulario desplazable y adapta su ancho al diálogo."""
+    canvas.configure(scrollregion=canvas.bbox("all"))
+    canvas.itemconfigure(ventana, width=canvas.winfo_width())
+
+
 def _barra_acciones(cuerpo: ttk.Frame) -> ttk.Frame:
     """Fila inferior de acciones. Una sola primaria, a la derecha.
 
@@ -127,6 +133,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     # No modal: hay que poder leer el artículo mientras se decide sobre él.
     dialog, cuerpo = _abrir_dialogo(app, "Revisión del artículo", modal=False)
     dialog.geometry("760x520")
+    dialog.minsize(620, 380)
 
     ttk.Label(cuerpo, text="Elige un hallazgo y decide: aplicar la sugerencia o ignorarla.",
               style="Tenue.TLabel").pack(anchor="w", pady=(0, es.ESP["md"]))
@@ -145,7 +152,10 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
                        borderwidth=0, font=es.fuente(), activestyle="none")
     items.pack(fill="both", expand=True, padx=(0, es.ESP["sm"]))
     for item in findings:
-        items.insert("end", f"{item['category'].title()} · {item['severity']}")
+        extract = " ".join(item["original"].split())
+        if len(extract) > 44:
+            extract = f"{extract[:41]}…"
+        items.insert("end", f"{item['category'].title()} · {item['severity']} — «{extract}»")
     box = app._text(right, wrap="word", padx=es.ESP["md"], pady=es.ESP["sm"],
                     state="disabled")
     box.pack(fill="both", expand=True)
@@ -172,6 +182,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
 
     items.bind("<<ListboxSelect>>", show)
     items.select_set(0)
+    items.focus_set()
     show()
 
     def decide(apply: bool) -> None:
@@ -268,6 +279,8 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
 def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gestión de perfiles)
     """Abre el diálogo de configuración de perfiles LLM (selector + gestión)."""
     dialog, frame = _abrir_dialogo(app, "Configurar modelo")
+    dialog.geometry("700x620")
+    dialog.minsize(560, 400)
     # Todo el cuerpo usa estilos ttk (se repintan solos); solo el fondo del
     # Toplevel es un color directo que hay que reaplicar al cambiar de tema.
     app._registrar_reaplicar_tema(dialog, lambda: dialog.configure(bg=es.FONDO))
@@ -289,9 +302,24 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     ttk.Button(barra_perfil, text="Borrar", command=lambda: _borrar()).pack(
         side="left", padx=(es.ESP["xs"], 0))
 
-    cuerpo = ttk.Frame(frame)
-    cuerpo.pack(fill="both", expand=True)
+    # El formulario tiene más campos que caben en una pantalla pequeña. El
+    # canvas conserva todas las acciones alcanzables sin imponer una ventana
+    # mínima enorme.
+    host = ttk.Frame(frame)
+    host.pack(fill="both", expand=True)
+    canvas = tk.Canvas(host, background=es.FONDO, highlightthickness=0, borderwidth=0)
+    scrollbar = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    cuerpo = ttk.Frame(canvas)
     cuerpo.columnconfigure(1, weight=1)
+    ventana = canvas.create_window((0, 0), window=cuerpo, anchor="nw")
+    cuerpo.bind("<Configure>", lambda _event: _configurar_scroll(canvas, cuerpo, ventana))
+    canvas.bind("<Configure>", lambda _event: _configurar_scroll(canvas, cuerpo, ventana))
+    canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
+    canvas.bind("<Button-4>", lambda _event: canvas.yview_scroll(-1, "units"))
+    canvas.bind("<Button-5>", lambda _event: canvas.yview_scroll(1, "units"))
 
     fields = (
         "endpoint",
@@ -441,3 +469,8 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
                command=save).pack(side="right")
     ttk.Button(acciones, text="Cancelar", command=dialog.destroy).pack(
         side="right", padx=(0, es.ESP["sm"]))
+    selector_perfil.focus_set()
+    app._registrar_reaplicar_tema(
+        dialog,
+        lambda: canvas.configure(background=es.FONDO),
+    )
