@@ -38,10 +38,16 @@ jobs:
       - name: Install project
         run: |
           python -m pip install --upgrade pip
+          # setuptools viene preinstalado en el runner (79.0.1 en 3.11) con
+          # vulnerabilidades conocidas. No es dependencia del proyecto, pero
+          # `pip_audit --local` lo analiza, así que se fuerza una versión parcheada.
+          python -m pip install --upgrade "setuptools>=84.1.0"
           pip install --require-hashes -r requirements-dev.lock
           pip install -e . --no-deps
 
       - name: Audit Python dependencies
+        # setuptools no es dependencia del proyecto, pero el runner de 3.11 trae
+        # 79.0.1 y `--local` lo audita: se actualiza antes (ver paso anterior).
         run: python -m pip_audit --local --skip-editable
 
       # Instalación real en un venv ajeno al checkout. El paso anterior usa
