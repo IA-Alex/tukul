@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from articulador_core import storage
-from articulador_ui.app import KEYRING_TIMEOUT_SECONDS, ArticuladorApp
+from tukul_core import storage
+from tukul_ui.app import KEYRING_TIMEOUT_SECONDS, TukulApp
 
 CLAVE = "CLAVE_PRUEBA_KEYRING"
 
@@ -52,7 +52,7 @@ class TestKeyringFueraDelHiloTk(unittest.TestCase):
             encoding="utf-8")
         # Sin variable de entorno: obliga a usar el llavero.
         os.environ.pop(CLAVE, None)
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         self.app.load_document(self.documento)
         self.app.update()
 

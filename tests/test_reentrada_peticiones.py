@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from articulador_ui.app import ArticuladorApp
+from tukul_ui.app import TukulApp
 
 CLAVE = "CLAVE_PRUEBA_REENTRADA"
 
@@ -49,7 +49,7 @@ class TestReentradaDePeticiones(unittest.TestCase):
             'model = "m"\napi_key_env = "' + CLAVE + '"\n',
             encoding="utf-8")
         os.environ[CLAVE] = "clave"
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         self.app.load_document(self.documento)
         self._asentar()
 

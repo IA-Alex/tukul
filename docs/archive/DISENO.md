@@ -1,11 +1,11 @@
-# Sistema visual de Articulador
+# Sistema visual de Tukul
 
 > **Nota (2026-08-15):** documento histórico de una fase anterior. Describe una
 > arquitectura que ya no existe (`chunk_queue`, `partial_output`, `_queue_event`,
 > índice BM25) y cifras de tests desactualizadas. La referencia vigente son el
 > código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
 
-La interfaz usa un tema oscuro de bajo contraste para escritura prolongada. Los valores globales de color y tipografía se definen en `COLORS` y `FONT` dentro de `articulador_ui/app.py`.
+La interfaz usa un tema oscuro de bajo contraste para escritura prolongada. Los valores globales de color y tipografía se definen en `COLORS` y `FONT` dentro de `tukul_ui/app.py`.
 
 | Rol | Valor | Uso |
 | --- | --- | --- |

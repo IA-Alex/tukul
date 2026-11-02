@@ -1,5 +1,5 @@
 [project]
-name = "articulador"
+name = "tukul"
 version = "0.3.2"
 description = "Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional"
 readme = "README.md"
@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-    {name = "Israel Alexis H", email = "israelalexish@gmail.com"}
+    {name = "Israel Alexis H", email = "lab@alexhernandez.tech"}
 ]
 classifiers = [
     "Environment :: X11 Applications",
@@ -24,8 +24,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/IA-Alex/articulador"
-Changelog = "https://github.com/IA-Alex/articulador/blob/master/CHANGELOG.md"
+Repository = "https://github.com/IA-Alex/tukul"
+Changelog = "https://github.com/IA-Alex/tukul/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 keyring = ["keyring>=24.0.0"]  # For secure credential storage
@@ -39,9 +39,9 @@ dev = [
 ]
 
 # Sin esto, `pip install -e .` instalaba el paquete pero no dejaba un comando
-# `articulador`: había que seguir invocando `python articulador.py`.
+# `tukul`: había que seguir invocando `python tukul.py`.
 [project.scripts]
-articulador = "articulador:main"
+tukul = "tukul:main"
 
 [tool.ruff]
 line-length = 100
@@ -77,7 +77,7 @@ ignore = [
     "E501",   # Line too long
     "E203",   # Whitespace before ':'
     # El proyecto usa deliberadamente un estilo denso de una línea en la capa de
-    # UI (ver articulador_ui/app.py). Reformatearlo sepultaría el historial sin
+    # UI (ver tukul_ui/app.py). Reformatearlo sepultaría el historial sin
     # ganar nada, así que la regla se desactiva en vez de dejar 108 avisos
     # permanentes que vuelven inútil la señal del linter.
     "E701",   # Multiple statements on one line (colon)
@@ -89,14 +89,13 @@ ignore = [
 "__init__.py" = ["F401"]  # Unused imports OK en __init__
 "tests/*" = ["F401", "F841"]  # Unused variables OK en tests
 # El mapa de emoji de consola usa caracteres "ambiguos" a propósito. El patrón
-# se ancla a la raíz (`/` inicial) para que siga valiendo si el módulo cambia de
-# sitio: la versión anterior dependía de la ruta literal y una reubicación
-# reabría el aviso aunque la razón seguía siendo válida.
-"/articulador_core/logging_config.py" = ["RUF001"]
-"/**/articulador_core/logging_config.py" = ["RUF001"]
+# se ancla con `/**/` para que siga valiendo si el módulo cambia de sitio: la
+# versión literal dependía de la ruta exacta y una reubicación lo reabría aunque
+# la razón siguiera siendo válida.
+"/**/tukul_core/logging_config.py" = ["RUF001"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["articulador_core", "articulador_ui"]
+known-first-party = ["tukul_core", "tukul_ui"]
 
 [tool.black]
 line-length = 100
@@ -142,6 +141,14 @@ build-backend = "setuptools.build_meta"
 # "Multiple top-level packages discovered in a flat-layout" y `pip install -e .`
 # falla. Las ejecuciones locales no lo notaban porque conftest.py pone la raíz
 # en sys.path; solo se vio al reproducir el pipeline en un contenedor limpio.
+#
+# `find` en vez de una lista manual: la lista literal se quedó corta al añadir
+# `tukul_core.real_time_feed`, y la rueda salía sin ese subpaquete (el comando
+# instalado fallaba con ModuleNotFoundError). El autodescubrimiento no puede
+# volver a desincronizarse de la estructura real.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tukul_core*", "tukul_ui*"]
+
 [tool.setuptools]
-packages = ["articulador_core", "articulador_ui"]
-py-modules = ["articulador"]
+py-modules = ["tukul"]

@@ -1,1 +1,0 @@
-"""Interfaz Tkinter de Articulador."""

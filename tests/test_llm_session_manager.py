@@ -9,9 +9,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from articulador_core.llm import LLMClient, LlmError, StreamChunk
-from articulador_core.models import LlmProfile
-from articulador_ui.llm_session_manager import LLMSessionManager
+from tukul_core.llm import LLMClient, LlmError, StreamChunk
+from tukul_core.models import LlmProfile
+from tukul_ui.llm_session_manager import LLMSessionManager
 
 
 def _profile(**overrides) -> LlmProfile:
@@ -55,7 +55,7 @@ class StreamResponseTests(unittest.TestCase):
 
     def test_prompt_invalido_reporta_error_sin_tocar_la_red(self):
         with patch(
-            "articulador_ui.llm_session_manager.build_editor_prompt",
+            "tukul_ui.llm_session_manager.build_editor_prompt",
             side_effect=ValueError("artículo demasiado grande"),
         ):
             self._run()

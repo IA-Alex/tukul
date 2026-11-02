@@ -8,9 +8,9 @@ import tkinter as tk
 import unittest
 from pathlib import Path
 
-from articulador_core import storage
-from articulador_ui import estilo as es
-from articulador_ui.app import ArticuladorApp
+from tukul_core import storage
+from tukul_ui import estilo as es
+from tukul_ui.app import TukulApp
 
 
 def _hay_display() -> bool:
@@ -78,13 +78,13 @@ class TestEscalaZoom(unittest.TestCase):
         self.assertEqual(es.fuente(es.TIPO_MD), (es.FAMILIA, round(es.TIPO_MD * 1.5)))
 
     def test_zoom_validado_acota_y_rechaza_basura(self):
-        self.assertEqual(ArticuladorApp._zoom_validado("abc"), 1.0)
-        self.assertEqual(ArticuladorApp._zoom_validado(99), es.ZOOM_MAX)
-        self.assertEqual(ArticuladorApp._zoom_validado(0), es.ZOOM_MIN)
+        self.assertEqual(TukulApp._zoom_validado("abc"), 1.0)
+        self.assertEqual(TukulApp._zoom_validado(99), es.ZOOM_MAX)
+        self.assertEqual(TukulApp._zoom_validado(0), es.ZOOM_MIN)
 
     def test_recientes_validados_filtra_y_acota(self):
-        self.assertEqual(ArticuladorApp._recientes_validados(None), [])
-        self.assertEqual(ArticuladorApp._recientes_validados(["a", 3, "", "b"]), ["a", "b"])
+        self.assertEqual(TukulApp._recientes_validados(None), [])
+        self.assertEqual(TukulApp._recientes_validados(["a", 3, "", "b"]), ["a", "b"])
 
 
 @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
@@ -99,7 +99,7 @@ class TestUxVentanaReal(unittest.TestCase):
         self.config = self.raiz / "config.toml"
         self.documento = self.raiz / "articulo.md"
         self.documento.write_text("# Título\n\nUn párrafo de prueba.\n", encoding="utf-8")
-        self.app = ArticuladorApp(self.config)
+        self.app = TukulApp(self.config)
         self._asentar()
 
     def tearDown(self):
@@ -193,7 +193,7 @@ class TestUxVentanaReal(unittest.TestCase):
 
     def test_conversacion_es_por_documento_no_de_sesion(self):
         """Cambiar de artículo cambia de hebra: cada documento tiene la suya."""
-        from articulador_core.models import ChatMessage
+        from tukul_core.models import ChatMessage
 
         otro = self.raiz / "otro.md"
         otro.write_text("# Otro\n", encoding="utf-8")

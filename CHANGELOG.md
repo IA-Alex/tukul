@@ -44,7 +44,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 ### Eliminado
 
 - macOS de `build-release.yml`: no es un objetivo soportado. Se retira el
-  binario `articulador-macos-arm64` también del Release `v0.3.2` ya
+  binario `tonal-macos-arm64` también del Release `v0.3.2` ya
   publicado. Solo Linux y Windows.
 
 ### Seguridad y mantenimiento
@@ -82,7 +82,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   acento que `--health` imprimía (o que el logger de consola registraba)
   tronaba con `UnicodeEncodeError` y tumbaba la app antes de mostrar nada.
   No era un problema del empaquetado: pasaba igual corriendo
-  `python articulador.py` nativo en Windows. `sys.stdout`/`sys.stderr` se
+  `python tukul.py` nativo en Windows. `sys.stdout`/`sys.stderr` se
   reconfiguran a UTF-8 al arrancar `main()`.
 
 ## [0.3.0] - 2026-08-17
@@ -91,7 +91,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 - Estado de interfaz persistente: geometría de ventana, nivel de zoom,
   documentos recientes y conversación se guardan en `estado.json` (junto a
-  `config.toml`) y se recuperan al reabrir Articulador. Persistencia atómica,
+  `config.toml`) y se recuperan al reabrir Tukul. Persistencia atómica,
   igual que el resto del proyecto; nunca falla la carga (JSON corrupto o
   ausente equivale a estado vacío).
 - Conversación por documento: cada artículo conserva su propia hebra entre
@@ -103,7 +103,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 - Zoom del cuerpo tipográfico (`Ctrl` `+`/`-`/`0`), acotado entre 80 % y 150 %.
 - Documentos recientes: submenú en el menú Archivo, con tope de 10 entradas y
   opción de vaciar la lista.
-- Tooltips (`articulador_ui/tooltip.py`) en los controles de la barra
+- Tooltips (`tukul_ui/tooltip.py`) en los controles de la barra
   superior, sin dependencias externas.
 - Copiar un mensaje individual del historial de conversación desde su menú
   contextual.
@@ -128,7 +128,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   5xx) y fallos de conexión, respetando la cabecera `Retry-After`. Se reintenta
   solo la apertura de la conexión, nunca a mitad de un stream.
 - Autosave y recuperación ante cierres abruptos: el artículo sin guardar se
-  respalda en `~/.local/state/articulador/autosave/` y se ofrece restaurarlo al
+  respalda en `~/.local/state/tukul/autosave/` y se ofrece restaurarlo al
   reabrir el documento.
 - Tope de tamaño en la apertura de artículos (5 MB) para no agotar la RAM.
 - Cobertura medida y exigida en el pipeline (mínimo 70 %).
@@ -136,7 +136,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 ### Eliminado
 
 - El índice BM25 y el orquestador de contexto automático
-  (`articulador_core/context.py`, `articulador_ui/context_orchestrator.py`),
+  (`tukul_core/context.py`, `tukul_ui/context_orchestrator.py`),
   que quedaron sin uso al pasar a contexto explícito de artículos.
 - La bandera `--workspace` de la CLI, sin efecto desde aquel cambio.
 - `scripts/lint.sh`, absorbido por `scripts/quality-gate.sh`.

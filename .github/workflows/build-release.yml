@@ -20,9 +20,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset_name: articulador-linux-x86_64
+            asset_name: tukul-linux-x86_64
           - os: windows-latest
-            asset_name: articulador-windows-x86_64.exe
+            asset_name: tukul-windows-x86_64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -47,7 +47,7 @@ jobs:
           pip install pyinstaller
 
       - name: Build standalone executable
-        run: pyinstaller --onefile --name articulador --noconfirm articulador.py
+        run: pyinstaller --onefile --name tukul --noconfirm tukul.py
 
       # Humo mínimo: el binario debe arrancar y correr el diagnóstico sin
       # ventana. No prueba la GUI (no hay Xvfb en Windows), pero confirma que
@@ -56,18 +56,18 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            ./dist/articulador.exe --health
+            ./dist/tukul.exe --health
           else
-            ./dist/articulador --health
+            ./dist/tukul --health
           fi
 
       - name: Rename artifact
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            mv dist/articulador.exe "dist/${{ matrix.asset_name }}"
+            mv dist/tukul.exe "dist/${{ matrix.asset_name }}"
           else
-            mv dist/articulador "dist/${{ matrix.asset_name }}"
+            mv dist/tukul "dist/${{ matrix.asset_name }}"
           fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

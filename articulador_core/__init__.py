@@ -1,1 +1,0 @@
-"""Núcleo independiente de Articulador."""

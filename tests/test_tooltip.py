@@ -2,7 +2,7 @@
 import tkinter as tk
 import unittest
 
-from articulador_ui.tooltip import ToolTip
+from tukul_ui.tooltip import ToolTip
 
 
 def _display_available() -> bool:

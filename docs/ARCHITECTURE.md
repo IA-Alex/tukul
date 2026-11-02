@@ -2,11 +2,11 @@
 
 ## Propósito y contexto
 
-Articulador es un editor local de artículos Markdown con una interfaz Tkinter y una integración opcional con modelos de lenguaje remotos. El artículo, la conversación por documento, la configuración y los logs se gestionan localmente; solo el prompt enviado por una acción del usuario cruza el límite del proveedor configurado.
+Tukul es un editor local de artículos Markdown con una interfaz Tkinter y una integración opcional con modelos de lenguaje remotos. El artículo, la conversación por documento, la configuración y los logs se gestionan localmente; solo el prompt enviado por una acción del usuario cruza el límite del proveedor configurado.
 
 ```mermaid
 flowchart LR
-  U[Usuario] --> UI[ArticuladorApp / Tkinter]
+  U[Usuario] --> UI[TukulApp / Tkinter]
   UI --> DM[DocumentManager]
   UI --> LS[LLMSessionManager]
   DM --> FS[(Archivos locales)]
@@ -15,13 +15,13 @@ flowchart LR
   HTTP --> P[Proveedor HTTPS<br/>u Ollama loopback]
 ```
 
-Actores: usuario local, proveedor LLM configurado y sistema operativo/servicios de credenciales. El boundary del producto es el proceso Articulador y sus archivos de estado; el proveedor, el keyring y la red son externos. No hay servidor propio ni base de datos.
+Actores: usuario local, proveedor LLM configurado y sistema operativo/servicios de credenciales. El boundary del producto es el proceso Tukul y sus archivos de estado; el proveedor, el keyring y la red son externos. No hay servidor propio ni base de datos.
 
 ## Componentes y contratos
 
 | Componente | Responsibility | Inputs / outputs | State ownership | Dependencies | Failure modes |
 |---|---|---|---|---|---|
-| `ArticuladorApp` | Coordina UI, documento, conversación, requests y cierre | eventos Tk; cambios visuales y mensajes | sesión UI, `RequestState`, ámbito del documento | Tkinter, managers, storage | error de UI, request cancelada, config inválida |
+| `TukulApp` | Coordina UI, documento, conversación, requests y cierre | eventos Tk; cambios visuales y mensajes | sesión UI, `RequestState`, ámbito del documento | Tkinter, managers, storage | error de UI, request cancelada, config inválida |
 | `DocumentManager` | Abre/guarda Markdown y proyectos recuperables | rutas y `ArticleSession`; archivos | sesión del artículo | `storage.atomic_write` | ruta ilegible, tamaño excedido, proyecto inválido |
 | `LLMSessionManager` | Orquesta prompt, streaming, callbacks y cancelación | perfil, key, contexto; chunks/control | request en curso | `LLMClient`, prompting | límite de respuesta, error del proveedor |
 | `LLMClient` | HTTP, adaptadores y parsing de respuestas | `LlmProfile`, prompt; `LlmResponse`/chunks | conexiones activas por request ID | `urllib`, proveedor | timeout, HTTP, JSON/SSE malformado |
@@ -49,17 +49,53 @@ Los endpoints aceptan HTTPS y HTTP únicamente para `localhost`, `127.0.0.1` o `
 
 Los errores de configuración se degradan a perfiles defensivos/default; los errores de red y parsing llegan a la UI como error de la petición. `--health` separa warnings de errores y devuelve código 1 solo si existe un componente roto.
 
-## Evolución planeada: fuente de contexto de amenazas (CVE)
+## Fuente de contexto de amenazas (CVE)
 
-Estado: **prototipo aislado, no integrado ni comprometido en la UI.** El módulo
-`articulador_core/threat_feed.py` y sus pruebas existen para validar límites y
-normalización, pero ninguna ruta de la aplicación lo invoca. Esta sección no
-describe una capacidad disponible en la versión actual.
+Estado: **implementado.** `tukul_core/threat_feed.py` construye el
+contexto; `TukulApp` lo expone en el diálogo "Contexto de artículos" con
+el botón **"Añadir CVEs recientes…"**. `tests/test_threat_feed.py` cubre el core
+y `tests/test_threat_feed_ui.py` la integración. La fila correspondiente sigue en
+la sección "superficie" de `SECURITY.md` hasta que haya cobertura end-to-end con
+la ventana real montada; los controles descritos ahí ya están en el código.
 
-El prototipo consulta NVD, EPSS y CISA KEV, normaliza el resultado y aplica
-límites de transporte. Antes de integrarlo se requiere una acción explícita de
-UI, aprobación del contexto, revisión de seguridad y validación de integración
-real. El módulo no forma parte del flujo funcional actual.
+Objetivo: generar contenido de concientización en ciberseguridad (artículos
+sobre CVEs recientes) reutilizando el editor y el flujo de LLM existentes, sin
+rediseñar el core.
+
+```mermaid
+flowchart LR
+  UI[Botón "Añadir CVEs recientes…"<br/>diálogo de contexto] -->|acción explícita| TF[threat_feed<br/>hilo daemon]
+  TF -->|fetch NVD/EPSS/KEV| NET[Red saliente<br/>iniciada por la app]
+  TF -->|normaliza a texto| CTX[Instantánea de contexto]
+  CTX --> CA[ContextApprovalCache<br/>existente]
+  CA -->|aprobado| LS[LLMSessionManager<br/>existente]
+```
+
+Decisiones de diseño:
+
+- **Reutiliza `ContextApprovalCache` tal cual.** El resultado de `threat_feed`
+  entra como un `ContextArticle` más (`source_id` fijo
+  `threat-feed:cve-recientes`, así un re-fetch reemplaza en vez de duplicar) y
+  se aprueba por huella antes de llegar al prompt — mismo mecanismo que los
+  artículos de contexto manuales, sin cambios de API. `build_threat_context`
+  devuelve `(packet, files)` con esa forma.
+- **No reutiliza el supuesto de red actual.** El resto de la red saliente
+  ocurre por una acción del usuario hacia el proveedor LLM. `threat_feed`
+  consulta NVD/EPSS/CISA KEV por iniciativa de Tukul, pero solo desde el
+  botón del diálogo (acción explícita, con confirmación previa) y en un hilo
+  daemon; nunca automático ni periódico. Es una superficie nueva; ver
+  `SECURITY.md`.
+- **Nuevo módulo de core, sin cambios a `storage`/`llm`/`review`.** Vive
+  aislado en `tukul_core/threat_feed.py` con sus propios tests.
+  `LLMSessionManager` y `prompting.py` se reutilizan sin tocar. El transporte
+  HTTP comparte el guard anti-redirect de `llm.py` vía
+  `tukul_core.http_safety`.
+- **Fuentes:** NVD API v2 (`services.nvd.nist.gov`, sin key para uso básico),
+  EPSS (FIRST.org, sin key), CISA KEV (catálogo público). Las tres son
+  gratuitas; la NVD API tiene reportes de inestabilidad en la comunidad, por lo
+  que `ThreatFeed` lleva reintentos/timeout explícitos con jitter desde el
+  diseño inicial. Ninguna fuente es indispensable: si una falla, el contexto se
+  degrada; solo si fallan las tres se propaga `ThreatFeedError`.
 
 ## Shutdown y calidad
 

@@ -23,8 +23,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_ui.app import REVIEW_PROMPT, ArticuladorApp
-from articulador_ui.estado import EstadoUI
+from tukul_ui.app import REVIEW_PROMPT, TukulApp
+from tukul_ui.estado import EstadoUI
 
 RESPUESTA_VALIDA = json.dumps({"findings": [
     {"category": "gramática", "severity": "alta", "original": "floja",
@@ -34,7 +34,7 @@ RESPUESTA_VALIDA = json.dumps({"findings": [
 ]}, ensure_ascii=False)
 
 
-def _esperar_llamada(app: ArticuladorApp, mock_obj, timeout: float = 2.0) -> None:
+def _esperar_llamada(app: TukulApp, mock_obj, timeout: float = 2.0) -> None:
     """Espera a que el hilo en segundo plano invoque el mock parcheado.
 
     `review()`/`request()`/`send_message()`/`confirm_and_send()` lanzan un hilo
@@ -86,7 +86,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             encoding="utf-8")
         import os
         os.environ["CLAVE_PRUEBA_REVISION"] = "clave"
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         self.app.load_document(self.documento)
         self._asentar()
 
@@ -110,7 +110,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             self.app.review()
             _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
-        self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
+        self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                          "No hay contexto que aprobar: la barra no debe aparecer")
 
     # --- 2. el prompt técnico no llega al historial ---------------------
@@ -154,7 +154,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             self.app.review()
             _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
-        self.assertIn("revisando el artículo", self.app.activity.get())
+        self.assertIn("revisando el artículo", self.app.activity_var.get())
 
         self.app.session.request_active = False
         self.app.editor.tag_add("sel", "1.0", "1.16")
@@ -162,7 +162,7 @@ class TestFlujoDeRevision(unittest.TestCase):
             self.app.review()
             _esperar_llamada(self.app, self.app.llm.stream_response)
             self._asentar()
-        self.assertIn("revisando la selección", self.app.activity.get())
+        self.assertIn("revisando la selección", self.app.activity_var.get())
 
     # --- 5. resultado legible, sin JSON --------------------------------
     def test_una_revision_valida_abre_los_hallazgos_sin_pintar_json(self):
@@ -248,7 +248,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             encoding="utf-8")
         import os
         os.environ["CLAVE_PRUEBA_NORMAL"] = "clave"
-        self.app = ArticuladorApp(config)
+        self.app = TukulApp(config)
         for _ in range(5):
             self.app.update()
 
@@ -277,6 +277,10 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
         self.assertEqual(enviar.call_args[0][3], "", "No envía archivos locales")
 
     def test_un_mensaje_normal_si_aparece_en_el_historial(self):
+        # Con el placeholder activo el input ignora el envío: hay que escribir
+        # como lo haría la persona (el primer foco lo retira).
+        self.app._placeholder_activo = False
+        self.app.input.delete("1.0", "end")
         self.app.input.insert("1.0", "¿Cómo mejoro la tesis?")
         with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
             self.app.send_message()
@@ -294,7 +298,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             _esperar_llamada(self.app, enviar)
             for _ in range(5):
                 self.app.update()
-        self.assertFalse(self.app.barra_aprobacion.winfo_ismapped())
+        self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped())
 
     def test_articulo_anterior_autorizado_se_envia_sin_segunda_confirmacion(self):
         anterior = self.raiz / "articulo-anterior.md"
@@ -311,7 +315,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.request("Compara ambos artículos")
             _esperar_llamada(self.app, enviar)
             self._asentar()
-            self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
+            self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                              "Aceptar al conservar no puede pedir permiso otra vez")
 
         # El activo y el previo viajan por campos distintos del prompt.
@@ -333,7 +337,7 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
             self.app.request("Consulta")
             self._asentar()
 
-        self.assertTrue(self.app.barra_aprobacion.winfo_ismapped(),
+        self.assertTrue(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                         "Un modelo distinto es otro destino de autorización")
 
 

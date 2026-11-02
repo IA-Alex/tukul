@@ -1,6 +1,6 @@
 
 
-# Informe de Auditoría — Articulador v0.1.0
+# Informe de Auditoría — Tukul v0.1.0
 
 > **Nota (2026-08-15):** documento histórico de una fase anterior. Describe una
 > arquitectura que ya no existe (`chunk_queue`, `partial_output`, `_queue_event`,
@@ -9,7 +9,7 @@
 
 > **Fecha**: 2026-08-07  
 > **Alcance**: Revisión completa de arquitectura, seguridad, concurrencia, robustez y mantenibilidad.  
-> **Archivos auditados**: `articulador.py`, `articulador_core/` (8 módulos), `articulador_ui/` (2 módulos), `tests/test_core.py`
+> **Archivos auditados**: `tukul.py`, `tukul_core/` (8 módulos), `tukul_ui/` (2 módulos), `tests/test_core.py`
 
 ---
 
@@ -57,7 +57,7 @@ Las siguientes secciones del informe anterior se conservan como trazabilidad. Lo
 <details>
 <summary>✅ 4. BUG: Excepciones al abrir documento por CLI — RESUELTO</summary>
 
-`articulador.py` usa `open_initial_document()` con try/except para `OSError` y `UnicodeError`.
+`tukul.py` usa `open_initial_document()` con try/except para `OSError` y `UnicodeError`.
 </details>
 
 <details>
@@ -97,7 +97,7 @@ Corregido: el worker ahora verifica `cancel_event.is_set()` antes de abrir el st
 </details>
 
 <details>
-<summary>⚠️ 11. `ArticuladorApp` como God Class — PARCIAL</summary>
+<summary>⚠️ 11. `TukulApp` como God Class — PARCIAL</summary>
 
 Se extrajeron diálogos a `dialogs.py`, `parse_findings` a `review.py`. `app.py` bajó de ~400 a 276 líneas. La orquestación LLM, manejo de archivos y ciclo de vida siguen en una sola clase. Clasificado como deuda técnica baja (N09).
 </details>
@@ -129,7 +129,7 @@ Constantes documentadas como `MAX_*`, `BM25_*`, `HTTP_TIMEOUT_SECONDS` al inicio
 <details>
 <summary>✅ 16. Dependencia de Tkinter en tests — RESUELTO</summary>
 
-`tests/test_core.py` no importa `ArticuladorApp`. `parse_findings` está en `review.py`.
+`tests/test_core.py` no importa `TukulApp`. `parse_findings` está en `review.py`.
 </details>
 
 <details>
@@ -150,7 +150,7 @@ El código problemático ya no existe.
 
 > **Estado: DESCARTADO** — Riesgo sobredimensionado. `storage.load_key()` captura excepciones internamente (`except Exception: return ""`), no propaga tracebacks con la key. El riesgo de volcado de memoria aplica a toda aplicación que maneje secretos y no es específico de este código.
 
-**Ubicación original del análisis**: `articulador_ui/app.py:55`
+**Ubicación original del análisis**: `tukul_ui/app.py:55`
 
 ```python
 @property
@@ -166,13 +166,13 @@ def key(self) -> str:
 
 > **Estado: CORREGIDO** — El código actual verifica `is_file()` antes de leer.
 
-**Ubicación**: `articulador_ui/app.py:259-267`
+**Ubicación**: `tukul_ui/app.py:259-267`
 
 **Código actual** (corregido):
 
 ```python
 def open_project(self):
-    path = filedialog.askopenfilename(filetypes=[("Proyecto Articulador", "*.articulador.json")])
+    path = filedialog.askopenfilename(filetypes=[("Proyecto Tukul", "*.tonal.json")])
     if not path:
         return
     try:
@@ -193,7 +193,7 @@ def open_project(self):
         self.history.delete("1.0", "end")
         self.history.config(state="disabled")
         for item in self.session.conversation:
-            self.append("Tú" if item.role == "user" else "Articulador", item.content)
+            self.append("Tú" if item.role == "user" else "Tukul", item.content)
         self.status.set("Proyecto abierto.")
     except (OSError, ValueError) as error:
         messagebox.showerror("Proyecto no válido", str(error))
@@ -207,7 +207,7 @@ def open_project(self):
 
 > **Estado: DESCARTADO** — La sanitización regex propuesta es destructiva para contenido editorial. Un artículo sobre seguridad en IA vería su texto reemplazado por marcadores `[BLOQUEADO]`. La defensa actual (JSON estructural + `SYSTEM_PROMPT`) es la estrategia correcta para un editor de texto.
 
-**Ubicación original del análisis**: `articulador_core/prompting.py:9-18`
+**Ubicación original del análisis**: `tukul_core/prompting.py:9-18`
 
 **Por qué se descartó**: En un editor Markdown, el contenido del usuario ES el texto que se quiere preservar. Reemplazar fragmentos como "ignora las instrucciones anteriores" con `[instrucción bloqueada por seguridad]` corrompería artículos legítimos sobre prompt engineering, seguridad de LLMs, o incluso textos literarios. La defensa en profundidad adecuada es la combinación de:
 1. Serialización JSON que escapa estructuralmente (implementada en `build_editor_prompt`)
@@ -220,7 +220,7 @@ def open_project(self):
 
 > **Estado: CORREGIDO** — El worker ahora tiene guardia temprana.
 
-**Ubicación**: `articulador_ui/app.py:190-208`
+**Ubicación**: `tukul_ui/app.py:190-208`
 
 **Código actual** (corregido):
 
@@ -279,7 +279,7 @@ while time.monotonic() < deadline:
 
 ## 🟡 N07. `os.path.relpath` puede producir path traversal en `save_project`
 
-> **Estado: DESCARTADO** — Los proyectos `.articulador.json` los genera la propia aplicación, no un atacante externo. `relpath` con `..` produce una ruta relativa válida que `resolve()` normaliza correctamente en `load_project()`. Restringir artificialmente las rutas rompería el caso de uso legítimo de workspaces con documentos en ubicaciones relativas.
+> **Estado: DESCARTADO** — Los proyectos `.tonal.json` los genera la propia aplicación, no un atacante externo. `relpath` con `..` produce una ruta relativa válida que `resolve()` normaliza correctamente en `load_project()`. Restringir artificialmente las rutas rompería el caso de uso legítimo de workspaces con documentos en ubicaciones relativas.
 
 **Por qué se descartó**: El "path traversal" requiere que un atacante controle el contenido del archivo de proyecto. Pero los proyectos los crea `save_project()` desde la UI de la aplicación. La ruta `../../etc/passwd` en un proyecto generado por la app solo podría ocurrir si el usuario eligió explícitamente ese documento, en cuyo caso es su decisión. `Path.resolve()` en `load_project()` ya normaliza la ruta correctamente.
 
@@ -289,7 +289,7 @@ while time.monotonic() < deadline:
 
 > **Estado: CORREGIDO** — Ambos métodos usan ahora `http_error_message()` unificado.
 
-**Ubicación**: `articulador_core/llm.py:159,182`
+**Ubicación**: `tukul_core/llm.py:159,182`
 
 **Código actual** (corregido):
 
@@ -321,11 +321,11 @@ except urllib.error.HTTPError as error:
 
 ---
 
-## 🟢 N09. `ArticuladorApp` aún concentra 4 responsabilidades
+## 🟢 N09. `TukulApp` aún concentra 4 responsabilidades
 
 > **Estado: DEUDA TÉCNICA** — Mejora futura, no bloqueante para uso local. La clase gestiona: ciclo de vida Tkinter, orquestación LLM, gestión de archivos, y estado de sesión.
 
-**Ubicación**: `articulador_ui/app.py` (276 líneas)
+**Ubicación**: `tukul_ui/app.py` (276 líneas)
 
 **Impacto real**: Bajo para una herramienta local de un solo usuario. La extracción de diálogos ya redujo la clase significativamente. Separar la orquestación LLM en un `LlmController` requeriría tests de integración Tkinter que hoy no existen, con alto riesgo de regresión para beneficio marginal.
 
@@ -335,7 +335,7 @@ except urllib.error.HTTPError as error:
 
 > **Estado: CORREGIDO** — Ahora usa `json.JSONDecoder().raw_decode()`.
 
-**Ubicación**: `articulador_core/review.py:14-21`
+**Ubicación**: `tukul_core/review.py:14-21`
 
 **Código actual** (corregido):
 
@@ -369,7 +369,7 @@ def parse_findings(result: str) -> list[dict[str, str]]:
 
 > **Estado: CORREGIDO** — URL normalizada con helper `gemini_url()`, API key en header `x-goog-api-key`.
 
-**Ubicación**: `articulador_core/llm.py:102-106`
+**Ubicación**: `tukul_core/llm.py:102-106`
 
 **Código actual** (corregido):
 
@@ -403,7 +403,7 @@ El test correspondiente (`test_core.py:162-164`) verifica: `self.assertNotIn("ke
 
 > **Estado: CORREGIDO** — Ahora usa `os.walk()` con poda de directorios excluidos.
 
-**Ubicación**: `articulador_core/context.py:43-61`
+**Ubicación**: `tukul_core/context.py:43-61`
 
 **Código actual** (corregido):
 
@@ -439,7 +439,7 @@ def _signature(self) -> tuple[tuple[str, int, int], ...]:
 
 > **Estado: DESCARTADO** — La heurística `chars // 4` es adecuada para una estimación de coste pre-envío. `tiktoken` añadiría una dependencia pesada (∼2 MB de datos de encoding) solo para una estimación que el proveedor confirma con `usage` real en el último chunk del stream.
 
-**Ubicación**: `articulador_ui/app.py:174`
+**Ubicación**: `tukul_ui/app.py:174`
 
 ```python
 input_tokens = max(1, (len(message) + len(selected) + len(packet)) // 4)
@@ -453,7 +453,7 @@ input_tokens = max(1, (len(message) + len(selected) + len(packet)) // 4)
 
 > **Estado: CORREGIDO** — `__post_init__` agregado con validación de rangos.
 
-**Ubicación**: `articulador_core/models.py:20-28`
+**Ubicación**: `tukul_core/models.py:20-28`
 
 **Código actual** (corregido):
 
@@ -498,7 +498,7 @@ def test_profile_validates_limits_and_http_messages_are_shared(self):
 
 > **Estado: DEUDA TÉCNICA** — Baja prioridad. En una app Tkinter, stderr normalmente no es visible, pero el escenario de fallo (sin permisos en `~/.local/state/`) es extremadamente raro en uso normal.
 
-**Ubicación**: `articulador_core/logging_config.py:22-23`
+**Ubicación**: `tukul_core/logging_config.py:22-23`
 
 ---
 
@@ -556,7 +556,7 @@ $ python3 -m unittest discover -s tests -v
 24 tests. Todos OK en 0.004s.
 
 ```bash
-$ python3 -m py_compile articulador.py articulador_core/*.py articulador_ui/*.py
+$ python3 -m py_compile tukul.py tukul_core/*.py tukul_ui/*.py
 ```
 
 Sin errores.
@@ -577,7 +577,7 @@ Esta tabla consolida el estado de cada hallazgo tras la segunda pasada de valida
 | N06 | `close()` no espera hilos | **Descartado** | Esperar con `self.update()` causaría reentrancia en Tkinter. Daemon threads es el enfoque correcto. |
 | N07 | Path traversal con `os.path.relpath` | **Descartado** | Proyectos generados por la app, no por atacantes. `resolve()` normaliza correctamente. |
 | N08 | Mensajes HTTP no unificados stream/complete | **Corregido** | `http_error_message()` compartido entre ambos métodos. |
-| N09 | God Class residual en `ArticuladorApp` | **Deuda técnica** | Refactorización de alto riesgo para beneficio marginal en herramienta local. |
+| N09 | God Class residual en `TukulApp` | **Deuda técnica** | Refactorización de alto riesgo para beneficio marginal en herramienta local. |
 | N10 | `parse_findings` frágil con JSON | **Corregido** | Migrado a `json.JSONDecoder().raw_decode()`. |
 | N11 | URL Gemini con `key=` en query string | **Corregido** | `gemini_url()` helper; API key en header `x-goog-api-key`. |
 | N12 | `rglob` recorre `node_modules` | **Corregido** | `os.walk(topdown=True)` con poda de directorios excluidos. |

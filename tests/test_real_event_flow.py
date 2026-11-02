@@ -1,16 +1,16 @@
 """Tests REALES de flujo de eventos - ejecuta código de producción sin ventana Tkinter.
 
 NO simula lógica de producción. Injerta eventos en colas reales
-y ejecuta métodos reales de ArticuladorApp.
+y ejecuta métodos reales de TukulApp.
 """
 import queue
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from articulador_ui.chunk_buffer import ChunkBuffer
-from articulador_ui.document_scope import DocumentScope
-from articulador_ui.estado import EstadoUI
+from tukul_ui.chunk_buffer import ChunkBuffer
+from tukul_ui.document_scope import DocumentScope
+from tukul_ui.estado import EstadoUI
 
 # No import de tkinter - vamos a mockear solo lo mínimo
 
@@ -36,9 +36,9 @@ class TestRealEventFlow(unittest.TestCase):
         # Mock del entorno Tkinter
         with patch("tkinter.Tk.__init__", return_value=None):
             with patch("tkinter.Tk.after"):
-                from articulador_ui.app import ArticuladorApp
+                from tukul_ui.app import TukulApp
 
-                self.ArticuladorApp = ArticuladorApp
+                self.TukulApp = TukulApp
 
     def test_chunks_and_error_preserves_partial_output(self):
         """REAL: chunk("A") + chunk("B") + error(...) → partial conservado.
@@ -51,8 +51,8 @@ class TestRealEventFlow(unittest.TestCase):
         """
         with patch("tkinter.Tk.__init__", return_value=None):
             with patch("tkinter.Tk.after"):
-                with patch("articulador_core.storage.load_profiles", return_value=({}, "")):
-                    app = self.ArticuladorApp.__new__(self.ArticuladorApp)
+                with patch("tukul_core.storage.load_profiles", return_value=({}, "")):
+                    app = self.TukulApp.__new__(self.TukulApp)
 
                     # Inicializar ESTADO REAL
                     app.closing = False
@@ -63,16 +63,16 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Mock de UI widgets
                     app.history = Mock()
-                    app.activity = Mock()
+                    app.activity_var = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
                     app.estado_actual = EstadoUI.REPOSO
-                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
                     app.estado_label = Mock()
                     app.status = Mock()
-                    app.cost_label = Mock()
+                    app.cost_label_var = Mock()
                     app.docs = Mock()
                     app.docs.session = Mock()
                     app.docs.conversation = []
@@ -109,8 +109,8 @@ class TestRealEventFlow(unittest.TestCase):
         """
         with patch("tkinter.Tk.__init__", return_value=None):
             with patch("tkinter.Tk.after"):
-                with patch("articulador_core.storage.load_profiles", return_value=({}, "")):
-                    app = self.ArticuladorApp.__new__(self.ArticuladorApp)
+                with patch("tukul_core.storage.load_profiles", return_value=({}, "")):
+                    app = self.TukulApp.__new__(self.TukulApp)
 
                     # Setup real
                     app.closing = False
@@ -121,16 +121,16 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Mock de UI
                     app.history = Mock()
-                    app.activity = Mock()
+                    app.activity_var = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
                     app.estado_actual = EstadoUI.REPOSO
-                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
                     app.estado_label = Mock()
                     app.status = Mock()
-                    app.cost_label = Mock()
+                    app.cost_label_var = Mock()
                     app.docs = Mock()
                     app.docs.session = Mock()
                     app.docs.conversation = []
@@ -167,8 +167,8 @@ class TestRealEventFlow(unittest.TestCase):
         """
         with patch("tkinter.Tk.__init__", return_value=None):
             with patch("tkinter.Tk.after"):
-                with patch("articulador_core.storage.load_profiles", return_value=({}, "")):
-                    app = self.ArticuladorApp.__new__(self.ArticuladorApp)
+                with patch("tukul_core.storage.load_profiles", return_value=({}, "")):
+                    app = self.TukulApp.__new__(self.TukulApp)
 
                     app.closing = False
                     app.control_queue = queue.Queue()
@@ -178,16 +178,16 @@ class TestRealEventFlow(unittest.TestCase):
 
                     # Mock de UI
                     app.history = Mock()
-                    app.activity = Mock()
+                    app.activity_var = Mock()
                     app.send_button = Mock()
                     app.cancel_button = Mock()
                     app.scope = DocumentScope()
                     app.estado_actual = EstadoUI.REPOSO
-                    app.activity = _Var(EstadoUI.REPOSO.etiqueta())
-                    app.estado_ayuda = _Var(EstadoUI.REPOSO.ayuda)
+                    app.activity_var = _Var(EstadoUI.REPOSO.etiqueta())
+                    app.estado_ayuda_var = _Var(EstadoUI.REPOSO.ayuda)
                     app.estado_label = Mock()
                     app.status = Mock()
-                    app.cost_label = Mock()
+                    app.cost_label_var = Mock()
                     app.docs = Mock()
                     app.docs.session = Mock()
                     app.docs.conversation = []
@@ -231,8 +231,8 @@ class TestHealthCheckReal(unittest.TestCase):
         import tempfile
         from unittest.mock import patch
 
-        from articulador_core import storage as storage_module
-        from articulador_core.health import check_health
+        from tukul_core import storage as storage_module
+        from tukul_core.health import check_health
 
         # Usar directorio temporal para aislar del home del ejecutor
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -249,7 +249,7 @@ class TestHealthCheckReal(unittest.TestCase):
                 self.assertIn("logging", status.components)
 
                 # Storage debe poder ser accedido (en temp dir debe funcionar)
-                from articulador_core.health import ComponentStatus
+                from tukul_core.health import ComponentStatus
                 storage_status, _ = status.components["storage"]
                 self.assertEqual(storage_status, ComponentStatus.HEALTHY)
 
@@ -263,7 +263,7 @@ class TestLoggingStructured(unittest.TestCase):
         import logging
         from io import StringIO
 
-        from articulador_core.logging_config import StructuredFormatter
+        from tukul_core.logging_config import StructuredFormatter
 
         # Setup logger que escribe a string
         logger = logging.getLogger("test")

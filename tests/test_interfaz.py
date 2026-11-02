@@ -17,9 +17,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_ui import estilo as es
-from articulador_ui.app import ArticuladorApp
-from articulador_ui.estado import ESTADOS_ACTIVOS, EstadoUI
+from tukul_ui import estilo as es
+from tukul_ui.app import TukulApp
+from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 
 
 def _hay_display() -> bool:
@@ -111,7 +111,7 @@ class TestVentanaReal(unittest.TestCase):
         self.raiz = Path(self.directorio.name)
         self.documento = self.raiz / "articulo.md"
         self.documento.write_text("# Título\n\nUn párrafo de prueba.\n", encoding="utf-8")
-        self.app = ArticuladorApp(self.raiz / "config.toml")
+        self.app = TukulApp(self.raiz / "config.toml")
         self.app.geometry("1100x700")
         self._asentar()
 
@@ -129,11 +129,11 @@ class TestVentanaReal(unittest.TestCase):
         for estado in EstadoUI:
             self.app.set_estado(estado)
             self._asentar()
-            etiqueta = self.app.activity.get()
+            etiqueta = self.app.activity_var.get()
             self.assertIn(estado.simbolo, etiqueta, f"{estado.name} sin símbolo")
             self.assertIn(estado.titulo, etiqueta, f"{estado.name} sin texto")
             self.assertEqual(str(self.app.estado_label.cget("foreground")), estado.color)
-            self.assertEqual(self.app.estado_ayuda.get(), estado.ayuda)
+            self.assertEqual(self.app.estado_ayuda_var.get(), estado.ayuda)
 
             activo = estado in ESTADOS_ACTIVOS
             enviar_desactivado = "disabled" in self.app.send_button.state()
@@ -146,8 +146,8 @@ class TestVentanaReal(unittest.TestCase):
     def test_el_detalle_se_anade_sin_perder_el_estado(self):
         self.app.set_estado(EstadoUI.ERROR, "tiempo agotado")
         self._asentar()
-        self.assertIn("tiempo agotado", self.app.activity.get())
-        self.assertIn("No se pudo completar", self.app.activity.get())
+        self.assertIn("tiempo agotado", self.app.activity_var.get())
+        self.assertIn("No se pudo completar", self.app.activity_var.get())
         self.assertIs(self.app.estado_actual, EstadoUI.ERROR)
 
     def test_la_descripcion_accesible_sigue_al_estado(self):
@@ -190,31 +190,31 @@ class TestVentanaReal(unittest.TestCase):
 
     # --- confirmación no invasiva ---------------------------------------
     def test_la_confirmacion_de_contexto_no_es_un_modal(self):
-        self.assertFalse(self.app.barra_aprobacion.winfo_ismapped(),
+        self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                          "La barra nace oculta")
         decidido = []
-        with patch.object(ArticuladorApp, "set_estado"):
+        with patch.object(TukulApp, "set_estado"):
             self.app._pedir_aprobacion(1, ["notas.md"], ("e", "p", "m", ("notas.md",), "h"),
                                        lambda: decidido.append("enviado"))
         self._asentar()
 
-        self.assertTrue(self.app.barra_aprobacion.winfo_ismapped(),
+        self.assertTrue(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                         "La confirmación aparece en el panel, no en una ventana")
-        self.assertIn("notas.md", self.app.aprobacion_texto.get())
+        self.assertIn("notas.md", self.app.panel_asistente.aprobacion_texto.get())
         # La ventana principal sigue operativa: no hay grab modal.
         self.assertEqual(self.app.grab_current(), None)
 
-        self.app.boton_aprobar.invoke()
+        self.app.panel_asistente.boton_aprobar.invoke()
         self._asentar()
         self.assertEqual(decidido, ["enviado"])
-        self.assertFalse(self.app.barra_aprobacion.winfo_ismapped())
+        self.assertFalse(self.app.panel_asistente.barra_aprobacion.winfo_ismapped())
 
     def test_rechazar_el_contexto_cancela_sin_enviar(self):
         self.app.request_types[7] = "normal"
         self.app._pedir_aprobacion(7, ["notas.md"], ("e", "p", "m", ("notas.md",), "h"),
                                    lambda: self.fail("No debía enviarse"))
         self._asentar()
-        self.app.boton_rechazar.invoke()
+        self.app.panel_asistente.boton_rechazar.invoke()
         self._asentar()
 
         self.assertIs(self.app.estado_actual, EstadoUI.CANCELADO)

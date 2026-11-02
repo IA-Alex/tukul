@@ -4,9 +4,9 @@
 
 **INSTALL:** con Python 3.11+ disponible: `pip install -e .`; para guardar keys en el llavero: `pip install -e '.[keyring]'`. Los ejecutables standalone se publican para Linux x86_64 y Windows x86_64 cuando el workflow de release se ejecuta.
 
-**START:** `python3 articulador.py [ARTICULO.md]` o `articulador [ARTICULO.md]`. Diagnóstico: `python3 articulador.py --health`; código 1 significa error, no solo warning.
+**START:** `python3 tukul.py [ARTICULO.md]` o `tukul [ARTICULO.md]`. Diagnóstico: `python3 tukul.py --health`; código 1 significa error, no solo warning.
 
-**LOCATIONS:** config `~/.config/articulador/config.toml`; estado `estado.json` junto al config; log `~/.local/state/articulador/articulador.log`; autosave `~/.local/state/articulador/autosave/`.
+**LOCATIONS:** config `~/.config/tukul/config.toml`; estado `estado.json` junto al config; log `~/.local/state/tukul/tukul.log`; autosave `~/.local/state/tukul/autosave/`.
 
 **HEALTH_CHECK:** ejecuta `--health`, comprueba storage, perfiles LLM y logging, y confirma la ruta realmente inspeccionada. Un perfil deshabilitado puede ser warning utilizable; carpeta de config inexistente se crea al guardar.
 

@@ -7,8 +7,8 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
-import articulador_core.storage as storage
-from articulador_core.llm import (
+import tukul_core.storage as storage
+from tukul_core.llm import (
     PROVIDERS,
     SYSTEM_PROMPT,
     LLMClient,
@@ -17,9 +17,9 @@ from articulador_core.llm import (
     http_error_message,
     provider_spec,
 )
-from articulador_core.models import ArticleSession, ChatMessage, LlmProfile
-from articulador_core.prompting import build_editor_prompt
-from articulador_core.review import parse_findings
+from tukul_core.models import ArticleSession, ChatMessage, LlmProfile
+from tukul_core.prompting import build_editor_prompt
+from tukul_core.review import parse_findings
 
 
 class CoreTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class CoreTests(unittest.TestCase):
             root = Path(directory)
             document = root / "draft.md"
             document.write_text("# Texto", encoding="utf-8")
-            project = root / "draft.articulador.json"
+            project = root / "draft.tukul.json"
             session = ArticleSession(document_path=document, article="# Texto", conversation=[ChatMessage("user", "Revisa esto")])
             storage.save_project(session, project)
             saved = project.read_text(encoding="utf-8")
@@ -64,7 +64,6 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("<conversation>", prompt)
 
     def test_system_prompt_treats_prior_conversation_as_untrusted(self):
-        from articulador_core.llm import SYSTEM_PROMPT
         self.assertIn("respuestas previas", SYSTEM_PROMPT)
         self.assertIn("activen herramientas", SYSTEM_PROMPT)
 
@@ -80,7 +79,7 @@ class CoreTests(unittest.TestCase):
                 ))
 
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             chunks = list(LLMClient().stream(profile, "key", "mensaje"))
         self.assertTrue(all(isinstance(chunk, StreamChunk) for chunk in chunks))
         self.assertEqual("".join(chunk.content for chunk in chunks), "Hola mundo")
@@ -95,29 +94,35 @@ class CoreTests(unittest.TestCase):
 
     def test_provider_registry_has_compatible_defaults(self):
         self.assertIn("deepinfra", PROVIDERS)
-        self.assertIn("deepseek", PROVIDERS)
+        self.assertIn("novita", PROVIDERS)
         self.assertEqual(provider_spec("unknown").identifier, "openai_compatible")
 
-    def test_native_provider_requests_use_their_own_protocol(self):
+    def test_openai_compatible_request_format(self):
+        """Verifica que deepinfra y novita generen requests OpenAI-compatibles."""
         client = LLMClient()
-        anthropic = LlmProfile(provider="anthropic", endpoint="https://api.anthropic.com/v1/messages", model="claude-test")
-        request = client._request(anthropic, "secret", "hola", stream=True)
-        self.assertEqual(request.get_header("X-api-key"), "secret")
-        self.assertEqual(json.loads(request.data)["system"], SYSTEM_PROMPT)
-        gemini = LlmProfile(provider="gemini", endpoint=provider_spec("gemini").endpoint_hint, model="gemini-test")
-        request = client._request(gemini, "secret", "hola", stream=True)
-        self.assertIn("models/gemini-test:streamGenerateContent", request.full_url)
-        self.assertNotIn("key=secret", request.full_url)
-        self.assertEqual(request.get_header("X-goog-api-key"), "secret")
+        for provider_id in ("deepinfra", "novita"):
+            profile = LlmProfile(provider=provider_id, endpoint=provider_spec(provider_id).endpoint_hint, model="test-model")
+            request = client._request(profile, "secret-key", "hola", stream=True)
+            # urllib.Request normaliza las cabeceras a lowercase
+            headers = {k.lower(): v for k, v in request.header_items()}
+            self.assertEqual(headers.get("authorization"), "Bearer secret-key")
+            self.assertEqual(headers.get("content-type"), "application/json")
+            body = json.loads(request.data)
+            self.assertEqual(body["model"], "test-model")
+            self.assertEqual(body["messages"][0]["role"], "system")
+            self.assertEqual(body["messages"][1]["role"], "user")
+            self.assertEqual(body["messages"][1]["content"], "hola")
+            self.assertTrue(body["stream"])
 
-    def test_native_stream_events_and_usage_are_parsed(self):
+    def test_openai_stream_events_are_parsed(self):
+        """Verifica que los eventos SSE estilo OpenAI se parseen correctamente."""
         client = LLMClient()
-        anthropic = LlmProfile(provider="anthropic", endpoint="https://example.invalid", model="test")
-        chunk = client._stream_event(anthropic, {"type": "content_block_delta", "delta": {"text": "Hola"}, "usage": {"input_tokens": 4, "output_tokens": 2}})
-        self.assertEqual((chunk.content, chunk.input_tokens, chunk.output_tokens), ("Hola", 4, 2))
-        gemini = LlmProfile(provider="gemini", endpoint="https://example.invalid", model="test")
-        chunk = client._stream_event(gemini, {"candidates": [{"content": {"parts": [{"text": "Hola Gemini"}]}}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 2}})
-        self.assertEqual((chunk.content, chunk.input_tokens, chunk.output_tokens), ("Hola Gemini", 3, 2))
+        profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
+        event = {"choices": [{"delta": {"content": "Hola mundo"}}], "usage": {"prompt_tokens": 5, "completion_tokens": 2}}
+        chunk = client._stream_event(profile, event)
+        self.assertEqual(chunk.content, "Hola mundo")
+        self.assertEqual(chunk.input_tokens, 5)
+        self.assertEqual(chunk.output_tokens, 2)
 
     def test_cancel_closes_active_stream(self):
         class Response:
@@ -157,7 +162,7 @@ class CoreTests(unittest.TestCase):
                 ))
 
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", return_value=Response()):
             chunks = list(LLMClient().stream(profile, "key", "mensaje"))
         content = "".join(c.content for c in chunks)
         self.assertEqual(content, "OK bien")
@@ -167,7 +172,7 @@ class CoreTests(unittest.TestCase):
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
         fp = io.BytesIO(b'{"error":"unauthorized"}')
         http_err = urllib.error.HTTPError("https://example.invalid", 401, "Unauthorized", {}, fp)
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=http_err):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=http_err):
             with self.assertRaises(LlmError) as ctx:
                 list(LLMClient().stream(profile, "key", "mensaje"))
         self.assertIn("rechazada", str(ctx.exception))
@@ -190,7 +195,7 @@ class CoreTests(unittest.TestCase):
                 raise urllib.error.HTTPError("https://example.invalid", 503, "Overloaded", {}, fp)
             return Response()
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep"):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep"):
             result = LLMClient().complete(profile, "key", "mensaje")
         self.assertEqual(len(intentos), 2, "Un 503 transitorio se reintenta una vez")
         self.assertEqual(result.content, "ok")
@@ -204,7 +209,7 @@ class CoreTests(unittest.TestCase):
             fp = io.BytesIO(b'{"error":"unauthorized"}')
             raise urllib.error.HTTPError("https://example.invalid", 401, "Unauthorized", {}, fp)
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep") as dormir:
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep") as dormir:
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(profile, "key", "mensaje")
         self.assertIn("rechazada", str(ctx.exception))
@@ -212,7 +217,7 @@ class CoreTests(unittest.TestCase):
         dormir.assert_not_called()
 
     def test_reintento_respeta_retry_after_acotado(self):
-        from articulador_core.llm import BACKOFF_MAX_SECONDS
+        from tukul_core.llm import BACKOFF_MAX_SECONDS
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
 
         def urlopen(*_args, **_kwargs):
@@ -220,7 +225,7 @@ class CoreTests(unittest.TestCase):
             raise urllib.error.HTTPError(
                 "https://example.invalid", 429, "Slow down", {"Retry-After": "7"}, fp)
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep") as dormir:
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep") as dormir:
             with self.assertRaises(LlmError):
                 LLMClient().complete(profile, "key", "mensaje")
         dormir.assert_called()
@@ -228,7 +233,7 @@ class CoreTests(unittest.TestCase):
                              "Retry-After se acota al máximo de backoff")
 
     def test_agotados_los_reintentos_se_relanza_el_error(self):
-        from articulador_core.llm import MAX_HTTP_ATTEMPTS
+        from tukul_core.llm import MAX_HTTP_ATTEMPTS
         profile = LlmProfile(provider="openai_compatible", endpoint="https://example.invalid", model="test")
         intentos = []
 
@@ -237,7 +242,7 @@ class CoreTests(unittest.TestCase):
             fp = io.BytesIO(b'{"error":"overloaded"}')
             raise urllib.error.HTTPError("https://example.invalid", 503, "Overloaded", {}, fp)
 
-        with patch("articulador_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep"):
+        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=urlopen), patch("time.sleep"):
             with self.assertRaises(LlmError) as ctx:
                 LLMClient().complete(profile, "key", "mensaje")
         self.assertEqual(len(intentos), MAX_HTTP_ATTEMPTS, "Se intenta el máximo de veces")
@@ -247,7 +252,7 @@ class CoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             doc = root / "draft.md"; doc.write_text("# Hola", encoding="utf-8")
-            project = root / "proj.articulador.json"
+            project = root / "proj.tukul.json"
             # conversation con ítems inválidos
             data = {
                 "version": 2,
@@ -267,7 +272,7 @@ class CoreTests(unittest.TestCase):
 
     def test_load_project_rejects_missing_document_key(self):
         with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory) / "bad.articulador.json"
+            project = Path(directory) / "bad.tukul.json"
             project.write_text('{"version": 2, "conversation": []}', encoding="utf-8")
             with self.assertRaises(ValueError):
                 storage.load_project(project)
@@ -275,7 +280,7 @@ class CoreTests(unittest.TestCase):
     def test_load_project_rejects_non_string_document(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            project = root / "bad.articulador.json"
+            project = root / "bad.tukul.json"
             data = {"version": 2, "document": ["not", "a", "string"]}
             project.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaises(ValueError):
@@ -284,7 +289,7 @@ class CoreTests(unittest.TestCase):
     def test_load_project_rejects_oversized_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            project = root / "bad.articulador.json"
+            project = root / "bad.tukul.json"
             # JSON válido de por sí; lo que debe rechazarse es el tamaño, antes
             # de intentar parsearlo.
             data = {"version": 2, "document": "draft.md", "conversation": []}
@@ -334,7 +339,7 @@ model = "test-model"
             self.assertEqual(active, "test")
 
     def test_autosave_escribe_lee_y_borra(self):
-        from articulador_core import autosave
+        from tukul_core import autosave
 
         with tempfile.TemporaryDirectory() as directory:
             raiz = Path(directory)
@@ -350,7 +355,7 @@ model = "test-model"
                 self.assertIsNone(autosave.read_autosave(documento))
 
     def test_autosave_es_unico_por_documento_y_estable(self):
-        from articulador_core import autosave
+        from tukul_core import autosave
 
         with tempfile.TemporaryDirectory() as directory:
             raiz = Path(directory)
@@ -361,8 +366,8 @@ model = "test-model"
                 self.assertNotEqual(autosave._autosave_path(a), autosave._autosave_path(b))
 
     def test_guardar_documento_borra_el_autosave(self):
-        from articulador_core import autosave
-        from articulador_ui.document_manager import DocumentManager
+        from tukul_core import autosave
+        from tukul_ui.document_manager import DocumentManager
 
         with tempfile.TemporaryDirectory() as directory:
             raiz = Path(directory)
@@ -419,7 +424,7 @@ model = "test-model"
 
     def test_document_manager_handles_save_errors(self):
         """Verificar que DocumentManager captura OSError en guardado."""
-        from articulador_ui.document_manager import DocumentManager
+        from tukul_ui.document_manager import DocumentManager
         manager = DocumentManager()
         session = ArticleSession(
             document_path=Path("/invalid/nonexistent/path/file.md"),
@@ -431,7 +436,7 @@ model = "test-model"
 
     def test_open_document_rechaza_archivos_que_superan_el_limite(self):
         """Abrir un artículo inmenso no debe cargar el archivo entero en memoria."""
-        from articulador_ui.document_manager import MAX_ARTICLE_BYTES, DocumentManager
+        from tukul_ui.document_manager import MAX_ARTICLE_BYTES, DocumentManager
         manager = DocumentManager()
         with tempfile.TemporaryDirectory() as directory:
             huge = Path(directory) / "gigante.md"
@@ -444,7 +449,7 @@ model = "test-model"
             self.assertIn("supera el límite", error)
 
     def test_open_document_acepta_un_articulo_dentro_del_limite(self):
-        from articulador_ui.document_manager import DocumentManager
+        from tukul_ui.document_manager import DocumentManager
         manager = DocumentManager()
         with tempfile.TemporaryDirectory() as directory:
             normal = Path(directory) / "normal.md"
@@ -455,8 +460,8 @@ model = "test-model"
 
     def test_estimate_prompt_tokens_counts_complete_prompt(self):
         """Verificar que estimate_prompt_tokens cuenta SYSTEM + payload JSON (sin doble conteo)."""
-        from articulador_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
-        from articulador_core.prompting import build_editor_prompt
+        from tukul_core.llm import estimate_prompt_tokens
+        from tukul_core.prompting import build_editor_prompt
 
         message = "¿Cómo mejoro el texto?"
         article = "Artículo de ejemplo"
@@ -483,7 +488,7 @@ model = "test-model"
             root = Path(directory)
             doc = root / "draft.md"
             doc.write_text("# Test", encoding="utf-8")
-            project = root / "proj.articulador.json"
+            project = root / "proj.tukul.json"
 
             data = {
                 "version": 2,
@@ -504,7 +509,7 @@ model = "test-model"
 
     def test_current_message_included_in_prompt(self):
         """Verificar que el mensaje actual del usuario aparece en el prompt construido."""
-        from articulador_core.prompting import build_editor_prompt
+        from tukul_core.prompting import build_editor_prompt
 
         current_message = "¿Cómo mejoro esta sección?"
         previous_conversation = [

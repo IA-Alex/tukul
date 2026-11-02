@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from articulador_core.models import ChatMessage, LlmProfile
-from articulador_core.review import (
+from tukul_core.models import ChatMessage, LlmProfile
+from tukul_core.review import (
     ALLOWED_CATEGORIES,
     ALLOWED_SEVERITIES,
     MAX_FIELD_LENGTH,

@@ -4,6 +4,15 @@
 > arquitectura que ya no existe (`chunk_queue`, `partial_output`, `_queue_event`,
 > índice BM25) y cifras de tests desactualizadas. La referencia vigente son el
 > código, `CHANGELOG.md` y `docs/`. No lo uses como fuente de verdad del estado actual.
+>
+> **Actualización (2026-09-28):** Se completó la refactorización completa de
+> `threat_feed.py` como wrapper sobre los 5 adaptadores del paquete
+> `real_time_feed/adapters/`. Todos los adaptadores (NVD, EPSS, KEV, MITRE ATT&CK,
+> arXiv) comparten el mismo patrón de red: `urllib` puro, `NO_REDIRECT_OPENER`,
+> timeout fijo, reintentos con backoff exponencial, jitter aleatorio (0-25%) y
+> techo de bytes. `build_threat_context()` ahora acepta `include_mitre` y
+> `include_arxiv` como parámetros opcionales. La API pública existente se mantiene
+> intacta; 31/31 tests pasan.
 
 **Fecha:** 2026-08-11  
 **Status histórico (2026-08-11):** COMPLETADO en esa fase. No representa el
@@ -25,7 +34,7 @@ Se implementaron **dos fases de reparación crítica** eliminando 5 hallazgos de
 ## FASE 1: Cinco Fixes Críticos
 
 ### 1. ✅ Reenvío Sin Reconfirmación → Clave Granular
-**Línea:** [app.py:381-384](../../articulador_ui/app.py#L381)
+**Línea:** [app.py:381-384](../../tukul_ui/app.py#L381)
 
 **Antes:**
 ```python
@@ -47,7 +56,7 @@ key = (self.profile.endpoint, self.profile.provider, tuple(files), content_hash)
 ---
 
 ### 2. ✅ Error de Streaming Oculto → Banner Visible
-**Línea:** [app.py:426-438](../../articulador_ui/app.py#L426)
+**Línea:** [app.py:426-438](../../tukul_ui/app.py#L426)
 
 **Antes:**
 ```python
@@ -71,7 +80,7 @@ self.session.conversation.append(ChatMessage("assistant", partial))  # ← No er
 ---
 
 ### 3. ✅ Cola de Eventos Bloqueante → put_nowait() Seguro
-**Línea:** [app.py:119-141](../../articulador_ui/app.py#L119)
+**Línea:** [app.py:119-141](../../tukul_ui/app.py#L119)
 
 **Antes:**
 ```python
@@ -96,7 +105,7 @@ def _queue_event(self, event: tuple) -> None:
 ---
 
 ### 4. ✅ Límite de Respuesta Incorrecto → Techo RAM Independiente
-**Línea:** [llm_session_manager.py:54-74](../../articulador_ui/llm_session_manager.py#L54)
+**Línea:** [llm_session_manager.py:54-74](../../tukul_ui/llm_session_manager.py#L54)
 
 **Antes:**
 ```python
@@ -118,7 +127,7 @@ if accumulated_bytes > MAX_RESPONSE_BYTES:
 ---
 
 ### 5. ✅ Parser Sin Validación → Validación Estricta
-**Línea:** [review.py:24-70](../../articulador_core/review.py#L24)
+**Línea:** [review.py:24-70](../../tukul_core/review.py#L24)
 
 **Antes:**
 ```python
@@ -177,9 +186,9 @@ process_ui_events() → {
 **Garantía:** Ciclo de vida NUNCA cuelga, incluso con UI lenta + 1000 chunks
 
 ### Archivos Clave
-- [app.py:70-83](../../articulador_ui/app.py#L70) - Definición de colas
-- [app.py:119-141](../../articulador_ui/app.py#L119) - Enrutamiento
-- [app.py:480-570](../../articulador_ui/app.py#L480) - Consumer priorizado
+- [app.py:70-83](../../tukul_ui/app.py#L70) - Definición de colas
+- [app.py:119-141](../../tukul_ui/app.py#L119) - Enrutamiento
+- [app.py:480-570](../../tukul_ui/app.py#L480) - Consumer priorizado
 - [docs/QUEUE_POLICY.md](../QUEUE_POLICY.md) - Documentación completa
 
 ---
@@ -246,10 +255,10 @@ python3 -m unittest discover -s tests -v
 ✅ Ran 65 tests in 0.011s → OK
 
 # Archivos compilados
-articulador_ui/app.py                  ✅
-articulador_ui/llm_session_manager.py  ✅
-articulador_core/review.py             ✅
-articulador_core/models.py             ✅
+tukul_ui/app.py                  ✅
+tukul_ui/llm_session_manager.py  ✅
+tukul_core/review.py             ✅
+tukul_core/models.py             ✅
 ```
 
 ---
@@ -326,8 +335,8 @@ articulador_core/models.py             ✅
 
 - [Queue Policy Documentation](../QUEUE_POLICY.md) - Arquitectura detallada
 - [Regression Tests](../../tests/test_queue_semantics.py) - Cobertura completa
-- [app.py](../../articulador_ui/app.py) - Implementación principal
-- [review.py](../../articulador_core/review.py) - Parser validado
+- [app.py](../../tukul_ui/app.py) - Implementación principal
+- [review.py](../../tukul_core/review.py) - Parser validado
 
 ---
 

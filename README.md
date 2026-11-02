@@ -1,4 +1,4 @@
-# Articulador
+# Tukul
 
 Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional. La conversación es el espacio principal; el artículo permanece editable a la izquierda.
 
@@ -11,19 +11,19 @@ Para Linux x86_64 y Windows x86_64 se publican ejecutables standalone (sin Pytho
 ## Ejecutar
 
 ```bash
-python3 articulador.py
+python3 tukul.py
 ```
 
 O, tras una instalación del paquete (`pip install -e .`), con el comando:
 
 ```bash
-articulador
+tukul
 ```
 
 También puedes abrir un documento:
 
 ```bash
-python3 articulador.py /ruta/articulo.md
+python3 tukul.py /ruta/articulo.md
 ```
 
 Otras opciones de línea de comandos:
@@ -36,13 +36,13 @@ Otras opciones de línea de comandos:
 ## Flujo
 
 1. Escribe o abre un artículo. El menú **Recientes** guarda los últimos 10 documentos abiertos.
-2. Conversa con Articulador en lenguaje natural; selecciona texto si quieres enfocar la consulta.
+2. Conversa con Tukul en lenguaje natural; selecciona texto si quieres enfocar la consulta.
 3. Usa **Revisar artículo** para una revisión de ortografía, gramática, semántica, redundancias y estructura.
 4. Guarda el Markdown o un proyecto recuperable que conserva artículo y conversación.
 
-El contexto local es explícito: puedes añadir artículos previos desde **Contexto de artículos…**. Se conservan al abrir otro artículo y, antes de enviarlos junto al artículo activo, Articulador pide confirmación de privacidad.
+El contexto local es explícito: puedes añadir artículos previos desde **Contexto de artículos…**. Se conservan al abrir otro artículo y, antes de enviarlos junto al artículo activo, Tukul pide confirmación de privacidad.
 
-La conversación es por documento: cada artículo mantiene su propia hebra y se recupera al reabrirlo, incluso tras cerrar y volver a abrir Articulador.
+La conversación es por documento: cada artículo mantiene su propia hebra y se recupera al reabrirlo, incluso tras cerrar y volver a abrir Tukul.
 
 ## Atajos de teclado
 
@@ -68,11 +68,11 @@ pip install ".[keyring]"
 
 ## Diagnósticos y respaldo
 
-Los diagnósticos técnicos se guardan en `~/.local/state/articulador/articulador.log`; no incluyen el artículo, la conversación ni API keys.
+Los diagnósticos técnicos se guardan en `~/.local/state/tukul/tukul.log`; no incluyen el artículo, la conversación ni API keys.
 
-Los cambios sin guardar se respaldan automáticamente en `~/.local/state/articulador/autosave/` y se ofrecen para restaurar si la aplicación se cierra de forma inesperada.
+Los cambios sin guardar se respaldan automáticamente en `~/.local/state/tukul/autosave/` y se ofrecen para restaurar si la aplicación se cierra de forma inesperada.
 
-El estado de interfaz (geometría de ventana, zoom, recientes y la conversación de cada documento) se guarda en `estado.json`, junto al `config.toml` de perfiles. Es local y de solo lectura defensiva: si se corrompe o no existe, Articulador arranca con los valores por defecto sin fallar.
+El estado de interfaz (geometría de ventana, zoom, recientes y la conversación de cada documento) se guarda en `estado.json`, junto al `config.toml` de perfiles. Es local y de solo lectura defensiva: si se corrompe o no existe, Tukul arranca con los valores por defecto sin fallar.
 
 ## Calidad
 
@@ -83,22 +83,19 @@ pip install -e ".[dev]"
 ./scripts/quality-gate.sh   # ruff + mypy + pytest con cobertura (mínimo 70 %)
 ```
 
-## Roadmap (prototipo aislado, no integrado)
+## Contexto de amenazas (CVE)
 
-Articulador es hoy un editor de artículos; el contexto que usa proviene siempre
-de archivos que el usuario elige explícitamente. Existe un prototipo aislado
-de una fuente de contexto de amenazas, pero no está expuesto por la UI ni
-forma parte del flujo funcional de esta versión. La evolución prevista hacia
-generación de contenido de concientización en ciberseguridad (CVEs recientes
-y su contexto) introduce una superficie nueva: red saliente iniciada por
-Articulador mismo, no solo por acción directa del usuario hacia el proveedor
-LLM. Detalle de diseño en
-[ARCHITECTURE.md § Evolución planeada](docs/ARCHITECTURE.md#evolución-planeada-fuente-de-contexto-de-amenazas-cve)
+Además de artículos de archivo, el contexto puede incluir un resumen de CVEs
+recientes: en el diálogo "Contexto de artículos", el botón **"Añadir CVEs
+recientes…"** consulta tres fuentes públicas (NVD, EPSS de FIRST.org y el
+catálogo CISA KEV) y añade el resumen como contexto autorizado. Es una conexión
+saliente iniciada por la aplicación —no por el proveedor LLM—, siempre tras una
+acción explícita y una confirmación; nunca automática ni periódica. El resultado
+se trata como dato no confiable y pasa por la aprobación de contexto como
+cualquier otro artículo. Detalle en
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#fuente-de-contexto-de-amenazas-cve)
 y el impacto de seguridad en
-[SECURITY.md § Superficie planeada](docs/SECURITY.md#superficie-planeada-fuente-de-amenazas-cve).
-El prototipo y sus pruebas no constituyen una capacidad comprometida ni una
-garantía de integración; se mantienen aislados hasta completar la revisión de
-seguridad, UI y aceptación correspondiente.
+[SECURITY.md](docs/SECURITY.md#superficie-fuente-de-amenazas-cve).
 
 ## Documentación
 

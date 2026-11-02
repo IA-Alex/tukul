@@ -30,22 +30,22 @@ if [[ -z "$PYTHON" ]]; then
 fi
 
 FAILED=0
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/articulador-verify.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/tukul-verify.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 paso() { echo ""; echo "== $1 =="; }
 
 paso "estado de git: paquetes sin commitear"
 # Borrados o renombrados bajo un paquete = el árbol no representa una versión.
-CAMBIOS_PAQUETES="$(git status --porcelain -- articulador_core articulador_ui articulador.py)"
+CAMBIOS_PAQUETES="$(git status --porcelain -- tukul_core tukul_ui tukul.py)"
 if [[ -z "$CAMBIOS_PAQUETES" ]]; then
     echo "   ✓ árbol limpio para los paquetes del producto"
 else
     echo "$CAMBIOS_PAQUETES" | sed 's/^/   ! /'
-    # Solo es error si hay borrados en articulador_core (el fallo que ya se vio);
+    # Solo es error si hay borrados en tukul_core (el fallo que ya se vio);
     # modificaciones normales de trabajo no bloquean.
-    if echo "$CAMBIOS_PAQUETES" | grep -qE "^ ?D +articulador_core/"; then
-        echo "   ✗ Faltan módulos de articulador_core (¿movidos sin actualizar imports?)" >&2
+    if echo "$CAMBIOS_PAQUETES" | grep -qE "^ ?D +tukul_core/"; then
+        echo "   ✗ Faltan módulos de tukul_core (¿movidos sin actualizar imports?)" >&2
         FAILED=1
     fi
 fi
@@ -56,9 +56,9 @@ if "$PYTHON" -m venv "$VENV" >/dev/null 2>&1; then
     if "$VENV/bin/python" -m pip install -q "$PROJECT_ROOT" 2>"$TMP/install.log"; then
         # Ejecutar desde un directorio ajeno al checkout: si depende de la
         # raíz del repo para importar, esto falla.
-        if (cd "$TMP" && "$VENV/bin/python" -c "import articulador_core, articulador_ui; print('   ✓ import OK desde', articulador_core.__file__)"); then
-            if (cd "$TMP" && "$VENV/bin/articulador" --health >/dev/null 2>&1); then
-                echo "   ✓ comando articulador --health OK"
+        if (cd "$TMP" && "$VENV/bin/python" -c "import tukul_core, tukul_ui; print('   ✓ import OK desde', tukul_core.__file__)"); then
+            if (cd "$TMP" && "$VENV/bin/tukul" --health >/dev/null 2>&1); then
+                echo "   ✓ comando tukul --health OK"
             else
                 echo "   ✗ el comando instalado no arranca con --health" >&2
                 FAILED=1
