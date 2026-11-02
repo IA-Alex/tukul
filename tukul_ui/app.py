@@ -224,6 +224,11 @@ class TukulApp(tk.Tk):
         Usa `threading.Event` como futuro: quien pueda bloquear (un worker)
         espera con `_esperar_key`; la interfaz solo consulta la caché.
         """
+        # Sin backend de sistema no se lanza el hilo: en CI/contenedor la
+        # lectura puede abortar el proceso en lugar de devolver un error.
+        if not storage.credential_backend_disponible():
+            self._keys_llavero[perfil] = ""
+            return
         listo = threading.Event()
         self._llaves_en_curso[perfil] = listo
 

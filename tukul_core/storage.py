@@ -46,6 +46,26 @@ def credential_backend() -> str:
     return "llavero del sistema" if keyring is not None else "solo sesión (instala keyring para recordar la key)"
 
 
+def credential_backend_disponible() -> bool:
+    """True si hay keyring Y un backend de sistema utilizable.
+
+    En Linux sin Secret Service (CI, contenedores, sesiones sin D-Bus) el
+    paquete `keyring` existe pero `get_password` puede abortar el proceso
+    dentro del hilo del llamador (`Fetching password with fallback`). Antes de
+    lanzar cualquier lectura se comprueba que haya backend real.
+    """
+    if keyring is None:
+        return False
+    try:
+        backend = keyring.get_keyring()
+    except Exception:
+        return False
+    # El backend "fail" es el marcador de keyring cuando no hay ninguno; el
+    # "null" no persiste nada, así que se trata igual que no tener llavero.
+    nombre = type(backend).__module__.split(".")[-1]
+    return nombre not in {"fail", "null"}
+
+
 def estado_ui_path(config_path: Path | str = CONFIG_PATH) -> Path:
     """Ruta del estado de interfaz, junto al config de perfiles.
 

@@ -413,8 +413,13 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         programado DESDE el hilo de Tk al abrir el diálogo: llamar a `after`
         desde el hilo de trabajo no es seguro en Tk (lanza `RuntimeError: main
         thread is not in main loop` al registrar el callback).
+
+        La lectura NO arranca si el dialecto de keyring ya falló: en un llavero
+        sin backend (CI, contenedor) `keyring.get_password` puede tumbar el
+        proceso dentro del hilo (`Fetching password with fallback` → segfault),
+        no solo devolver un error.
         """
-        if nombre in app._keys_llavero:
+        if nombre in app._keys_llavero or not storage.credential_backend_disponible():
             return
 
         def leer() -> None:
