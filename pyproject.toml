@@ -32,6 +32,7 @@ keyring = ["keyring>=24.0.0"]  # For secure credential storage
 dev = [
     "pytest>=7.0.0",      # Test runner (la suite lo requiere; faltaba en los extras)
     "pytest-cov>=4.0.0",  # Cobertura: el pipeline la mide y la exige
+    "pytest-timeout>=2.3.0",  # Un test colgado falla con su nombre, no cuelga el job
     "ruff>=0.1.0",        # Fast Python linter
     "mypy>=1.0.0",        # Type checker
     "pip-audit>=2.7.0",   # Auditoría de vulnerabilidades de dependencias
@@ -132,6 +133,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+# Un test que se cuelga debe fallar con su nombre en el log. Sin esto, un job
+# de CI quedó 15 minutos mudo sin indicar qué prueba se había atascado.
+# El tope es por test: la suite entera tarda ~25 s como máximo.
+timeout = 120
+timeout_method = "thread"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
