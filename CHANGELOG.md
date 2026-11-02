@@ -6,6 +6,41 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Corregido
+
+- Instalación e importación: el paquete `articulador_core` vuelve a la raíz y
+  la copia anidada en `articulador_ui/` se elimina. `pip install` y el arranque
+  volvían a fallar con `ModuleNotFoundError` y un árbol de trabajo no válido.
+- `show_review_dialog` superaba la complejidad permitida (C901): el resumen de
+  cada hallazgo y la comprobación de ámbito se extraen a funciones propias, así
+  que `ruff` vuelve a pasar sin excepciones nuevas.
+- Atajos globales (`Ctrl+S`, `Ctrl+O`, `Escape`, `F6` y el zoom) ya no actúan
+  desde dentro de un diálogo: antes guardaban o abrían archivos por debajo del
+  modal con el foco.
+- Los menús contextuales (clic derecho en editor e historial) se destruyen al
+  cerrarse. Antes se acumulaba un `tk.Menu` por clic durante toda la sesión.
+- El modo foco (F11) conserva un botón de menú: ocultaba la barra completa y
+  dejaba sin acceso a «Configurar modelo», «Recientes» y «Abrir proyecto».
+- Los tooltips de la ventana principal no aparecen encima de un diálogo modal.
+- La API key del llavero ya no se lee en el hilo de Tk: la lectura ocurre en un
+  hilo daemon, el resultado se cachea y el envío la resuelve dentro de su worker
+  con un tope de espera. Antes podía congelar la interfaz al enviar o al abrir
+  «Configurar modelo».
+- Se retira `copy_response()`, que no tenía ninguna llamada.
+
+### Añadido
+
+- `scripts/verify-install.sh`: instala el paquete en un entorno aislado, lo
+  importa desde fuera del checkout y arranca `articulador --health`. Se invoca
+  desde `scripts/quality-gate.sh` y desde CI: antes, `pip install -e .` y el
+  `conftest.py` ocultaban que la instalación real estaba rota.
+- `tests/test_installation_integrity.py`: guardas de contrato (paquetes
+  declarados existentes, no anidados y importables sin `conftest.py`).
+- Pruebas de regresión para cada corrección de interfaz y credenciales:
+  `test_atajos_dialogos.py`, `test_menus_contextuales.py`, `test_modo_foco.py`,
+  `test_reentrada_peticiones.py`, `test_keyring_hilo.py` y dos casos nuevos en
+  `test_tooltip.py`.
+
 ### Eliminado
 
 - macOS de `build-release.yml`: no es un objetivo soportado. Se retira el

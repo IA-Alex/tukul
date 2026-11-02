@@ -100,6 +100,36 @@ class ToolTipTests(unittest.TestCase):
         self.assertEqual(etiqueta.cget("text"), "actualizado")
         self.assertEqual(tip.texto, "actualizado")
 
+    def test_no_muestra_la_pista_de_fondo_sobre_un_dialogo_modal(self):
+        """Un modal tapa la ventana: su pista no debe quedar por encima."""
+        dialogo = tk.Toplevel(self.root)
+        entrada = tk.Entry(dialogo)
+        entrada.pack()
+        dialogo.grab_set()
+        self.root.update()
+        tip = self._tooltip("Pista de un control de la ventana principal")
+
+        tip._mostrar()
+
+        self.assertIsNone(tip._ventana, "La pista de la ventana de fondo no debe aparecer")
+        dialogo.grab_release()
+        dialogo.destroy()
+
+    def test_muestra_la_pista_del_control_del_propio_dialogo(self):
+        """Dentro del modal, la pista de un control suyo sí es útil."""
+        dialogo = tk.Toplevel(self.root)
+        entrada = tk.Entry(dialogo)
+        entrada.pack()
+        dialogo.grab_set()
+        self.root.update()
+        tip = ToolTip(entrada, "pista del diálogo")
+
+        tip._mostrar()
+
+        self.assertIsNotNone(tip._ventana)
+        dialogo.grab_release()
+        dialogo.destroy()
+
     def test_set_texto_sin_ventana_visible_solo_guarda_el_valor(self):
         tip = self._tooltip("original")
 

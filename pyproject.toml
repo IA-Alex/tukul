@@ -88,8 +88,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports OK en __init__
 "tests/*" = ["F401", "F841"]  # Unused variables OK en tests
-# El mapa de emoji de consola usa caracteres "ambiguos" a propósito.
-"articulador_core/logging_config.py" = ["RUF001"]
+# El mapa de emoji de consola usa caracteres "ambiguos" a propósito. El patrón
+# se ancla a la raíz (`/` inicial) para que siga valiendo si el módulo cambia de
+# sitio: la versión anterior dependía de la ruta literal y una reubicación
+# reabría el aviso aunque la razón seguía siendo válida.
+"/articulador_core/logging_config.py" = ["RUF001"]
+"/**/articulador_core/logging_config.py" = ["RUF001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["articulador_core", "articulador_ui"]

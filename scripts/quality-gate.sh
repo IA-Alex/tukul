@@ -38,6 +38,16 @@ else
     FAILED=1
 fi
 
+paso "instalación aislada"
+# El lint y la suite pueden pasar dentro del checkout (conftest.py y el cwd
+# resuelven imports que un usuario real no resuelve). Esta comprobación
+# instala el paquete de verdad y lo arranca fuera del repositorio.
+if PYTHON="$PYTHON" bash "$PROJECT_ROOT/scripts/verify-install.sh"; then
+    echo "   ✓ instalación"
+else
+    FAILED=1
+fi
+
 paso "pytest + cobertura"
 # Igual que en CI, el gate local exige que Tk sea operativo. Sin esta prueba,
 # pytest puede marcar toda la interfaz como `skipped` y producir una señal verde

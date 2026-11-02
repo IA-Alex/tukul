@@ -37,6 +37,10 @@ from articulador_ui.tooltip import ToolTip
 MAX_CONTEXT_PACKET_CHARS = 12_000
 MAX_CONTEXT_EXCERPT_CHARS = 3_000
 MAX_INDEXED_FILE_BYTES = 50_000
+# Tope de espera al resolver la key del llavero antes de enviar. Con un llavero
+# sano la lectura tarda milisegundos; el tope evita que una interfaz rota
+# (D-Bus sin respuesta) deje el envío colgado indefinidamente.
+KEYRING_TIMEOUT_SECONDS = 3.0
 # Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
 AUTOSAVE_INTERVAL_MS = 5000
 
@@ -94,6 +98,10 @@ class ArticuladorApp(tk.Tk):
         validate_startup_config(self.profiles, self.active_profile)
         self.session_keys: dict[str, str] = {}
         self._session_keys_max = 32
+        # Caché del llavero y perfiles cuya lectura ya está en curso. El llavero
+        # se consulta en un hilo daemon; aquí solo viven los resultados.
+        self._keys_llavero: dict[str, str] = {}
+        self._llaves_en_curso: dict[str, threading.Event] = {}
 
         # Managers (refactorización de responsabilidades)
         self.docs = DocumentManager()
@@ -161,8 +169,48 @@ class ArticuladorApp(tk.Tk):
         return self.profiles[self.active_profile]
     @property
     def key(self) -> str:
-        """API key en vigor: variable de entorno > key de sesión > llavero."""
-        return os.environ.get(self.profile.api_key_env) or self.session_keys.get(self.active_profile, "") or storage.load_key(self.active_profile)
+        """API key en vigor: variable de entorno > key de sesión > llavero.
+
+        El llavero puede tardar (D-Bus/Secret Service en Linux, diálogo de
+        acceso en macOS): leerlo en el hilo de Tk congelaba la ventana en cada
+        acceso. La lectura se mueve al hilo de trabajo y el resultado se cachea;
+        aquí solo se sirve lo ya conocido, sin bloquear.
+        """
+        return (os.environ.get(self.profile.api_key_env)
+                or self.session_keys.get(self.active_profile, "")
+                or self._keys_llavero.get(self.active_profile, ""))
+
+    def _prime_key(self) -> str:
+        """Lanza la lectura del llavero del perfil activo y devuelve lo cacheado.
+
+        No bloquea: la interfaz llama a esto al cambiar de perfil y el valor
+        llega al mapa en cuanto el hilo de lectura termina.
+        """
+        perfil = self.active_profile
+        if perfil not in self._keys_llavero and perfil not in self._llaves_en_curso:
+            self._precargar_key(perfil)
+        return self.key
+
+    def _precargar_key(self, perfil: str) -> None:
+        """Lanza la lectura del llavero en un hilo daemon y guarda el resultado.
+
+        Usa `threading.Event` como futuro: quien pueda bloquear (un worker)
+        espera con `_esperar_key`; la interfaz solo consulta la caché.
+        """
+        listo = threading.Event()
+        self._llaves_en_curso[perfil] = listo
+
+        def leer() -> None:
+            try:
+                valor = storage.load_key(perfil)
+            except Exception:
+                # Un llavero ajeno (D-Bus, backend del SO) no debe romper la UI.
+                valor = ""
+            self._keys_llavero[perfil] = valor
+            self._llaves_en_curso.pop(perfil, None)
+            listo.set()
+
+        threading.Thread(target=leer, name=f"keyring-{perfil}", daemon=True).start()
 
     def _add_session_key(self, profile: str, key: str) -> None:
         """Agrega o actualiza una key de sesión con desalojo LRU real.
@@ -518,6 +566,10 @@ class ArticuladorApp(tk.Tk):
 
     def _build(self) -> None:
         self._build_barra()
+        # Contrapartida del menú para el modo foco, donde la barra se oculta y
+        # no habría acceso a «Configurar modelo» ni «Recientes» hasta pulsar
+        # F11. Comparte el mismo `menu_archivo`, así que ofrece lo mismo.
+        self.boton_foco = ttk.Menubutton(self, text="☰  Menú", menu=self.menu_archivo)
         # El pie se ancla antes que el área expansible: con pack, lo colocado
         # después es lo que se recorta al faltar espacio.
         self._build_pie()
@@ -765,20 +817,42 @@ class ArticuladorApp(tk.Tk):
             widget.bind("<Control-a>", self.select_all_text)
             widget.bind("<Control-A>", self.select_all_text)
 
-    @staticmethod
-    def _manejador_atajo(accion: Callable[[], object]) -> Callable[[object], str]:
-        """Envuelve una acción como manejador de evento que detiene la propagación."""
-        def manejador(_evento: object) -> str:
-            """Ejecuta la acción asociada al atajo y traga el evento de teclado."""
+    def _manejador_atajo(self, accion: Callable[[], object]) -> Callable[[object], str]:
+        """Envuelve una acción como manejador de evento que detiene la propagación.
+
+        Los atajos se registran con `bind_all`, así que también llegan mientras
+        hay un diálogo modal abierto. Sin esta guarda, `Ctrl+S` guardaba el
+        artículo y `Ctrl+O` abría el selector de archivos DEBAJO del diálogo:
+        acciones destructivas actuando sobre la ventana equivocada. Cuando el
+        evento nace en otra ventana (un Toplevel, un diálogo), se ignora para
+        que el diálogo lo gestione: Escape ya cierra los suyos.
+        """
+        def manejador(evento: object) -> str:
+            """Ejecuta la acción asociada al atajo solo desde la ventana principal."""
+            widget = getattr(evento, "widget", None)
+            if widget is not None:
+                try:
+                    if widget.winfo_toplevel() is not self.winfo_toplevel():
+                        return ""
+                except (AttributeError, tk.TclError):
+                    pass
             accion()
             return "break"
         return manejador
 
     def toggle_foco(self) -> None:
-        """Modo foco: deja solo el artículo, sin barra ni pie (F11 para salir)."""
+        """Modo foco: deja solo el artículo, sin barra ni pie (F11 para salir).
+
+        La barra completa se oculta porque su propósito es reducir distracción,
+        pero se conserva el botón de menú (`boton_foco`): sin él no había forma
+        de abrir «Configurar modelo» ni «Recientes» hasta salir del modo, y
+        F11 es el único atajo de salida documentado.
+        """
         if not self._foco_activo:
             self._foco_previo_asistente = self.asistente_visible
             self._foco_activo = True
+            self.boton_foco.pack(side="left", padx=(es.ESP["sm"], 0), pady=(es.ESP["xs"], 0),
+                                 before=self.panes)
             self.barra.pack_forget()
             self.pie.pack_forget()
             if self.asistente_visible:
@@ -787,6 +861,7 @@ class ArticuladorApp(tk.Tk):
             self.editor.focus_set()
         else:
             self._foco_activo = False
+            self.boton_foco.pack_forget()
             # Re-empaquetar los tres en el orden original (barra, pie, panes):
             # olvidar también los panes evita que el packer deje las capas con
             # tamaño cero al restaurarlas después de un `pack_forget`.
@@ -940,10 +1015,6 @@ class ArticuladorApp(tk.Tk):
         # panes() devuelve rutas Tcl (cadenas), no objetos widget: comparar el
         # widget directamente daba siempre False y el panel nunca se ocultaba.
         return str(self.panel_asistente) in self.panes.panes()
-    def copy_response(self):
-        """Copia la última respuesta al portapapeles, si la hay."""
-        if not self.scope.last_response:return
-        self.clipboard_clear(); self.clipboard_append(self.scope.last_response); self.status.set("Última respuesta copiada.")
     @staticmethod
     def select_all_text(event) -> str:
         """Selecciona todo el texto del widget que recibió el evento."""
@@ -965,9 +1036,26 @@ class ArticuladorApp(tk.Tk):
         menu.add_separator()
         menu.add_command(label="Seleccionar todo", command=lambda: widget.tag_add("sel", "1.0", "end-1c"))
         menu.add_command(label="Borrar todo", command=lambda: widget.delete("1.0", "end"))
-        menu.tk_popup(event.x_root, event.y_root)
-        menu.grab_release()
+        self._popup_efimero(menu, event)
         return "break"
+
+    @staticmethod
+    def _popup_efimero(menu: tk.Menu, event) -> None:
+        """Muestra un menú contextual y lo destruye al cerrarse.
+
+        Antes cada clic derecho creaba un `tk.Menu` hijo de la raíz y nunca lo
+        destruía: los menús se acumulaban durante la sesión. El `destroy()` va en
+        `finally` porque `tk_popup` no retorna hasta que el menú se cierra (con o
+        sin excepción, incluido el caso de que el usuario cierre la ventana).
+        """
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                menu.grab_release()
+            except tk.TclError:
+                pass
+            menu.destroy()
 
     @staticmethod
     def _edit_undo(widget) -> None:
@@ -989,7 +1077,7 @@ class ArticuladorApp(tk.Tk):
         menu.add_command(label="Copiar",command=lambda:self.history.event_generate("<<Copy>>"))
         menu.add_command(label="Copiar mensaje",command=lambda:self._copiar_mensaje(event))
         menu.add_command(label="Seleccionar todo",command=lambda:self.history.tag_add("sel","1.0","end-1c"))
-        menu.tk_popup(event.x_root,event.y_root); menu.grab_release()
+        self._popup_efimero(menu, event)
         return "break"
 
     def _copiar_mensaje(self, event) -> None:
@@ -1176,10 +1264,49 @@ class ArticuladorApp(tk.Tk):
         if not message or self.session.request_active:return
         # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
         # como un turno fantasma del usuario que nunca recibe respuesta.
-        if not self.profile.enabled or not self.key:
-            self.append("Articulador","Configura un perfil LLM y una key para responder.")
+        if not self.profile.enabled or not self._resolver_credenciales():
+            if self.active_profile in self._llaves_en_curso:
+                # La key del llavero aún se está leyendo: se lanza en segundo
+                # plano y el usuario puede reintentar en un instante.
+                self.append("Articulador", "Recuperando la API key del llavero. "
+                                           "Vuelve a enviar en un momento.")
+            else:
+                self.append("Articulador","Configura un perfil LLM y una key para responder.")
             return
         self.input.delete("1.0","end"); self.append("Tú",message); self.request(message)
+
+    def _resolver_credenciales(self) -> str:
+        """Key del perfil activo sin bloquear el hilo de Tk.
+
+        Devuelve lo que haya en memoria (entorno, sesión o caché del llavero) y
+        lanza la lectura del llavero en segundo plano si aún no se hizo. El
+        envío real comprueba la credencial en su worker, así que un fallo de
+        lectura nunca congela la interfaz.
+        """
+        if (os.environ.get(self.profile.api_key_env)
+                or self.session_keys.get(self.active_profile, "")):
+            return self.key
+        if self.active_profile not in self._keys_llavero:
+            self._prime_key()
+            return ""
+        return self._keys_llavero.get(self.active_profile, "")
+
+    def _esperar_key(self, timeout: float = KEYRING_TIMEOUT_SECONDS) -> str:
+        """Resuelve la key esperando la lectura del llavero.
+
+        Solo se invoca desde un worker: `Event.wait` libera el GIL y el tope
+        evita esperas ilimitadas si el llavero no responde.
+        """
+        if self.key:
+            return self.key
+        perfil = self.active_profile
+        if perfil not in self._keys_llavero:
+            self._prime_key()
+            listo = self._llaves_en_curso.get(perfil)
+            if listo is not None:
+                listo.wait(timeout)
+        return self.key
+
     def review(self):
         """Revisa el artículo abierto, o la selección si la hay.
 
@@ -1236,10 +1363,15 @@ class ArticuladorApp(tk.Tk):
             self.show_error("Error interno", "No se pudo preparar la revisión. Inténtalo de nuevo.")
             return
 
-        api_key = self.key
         self.llm.cancel_event = cancel_event
         def work():
             """Transmite la revisión en segundo plano y publica eventos de UI."""
+            # La key se resuelve en el worker: el llavero no debe bloquear Tk.
+            api_key = self.key or self._esperar_key()
+            if not api_key:
+                self.control_queue.put_nowait(
+                    ("error", request_id, "No pude responder: falta la API key", []))
+                return
             self.llm.stream_response(
                 profile, api_key, texto, "", conversacion,
                 on_chunk=lambda chunk: self.chunks.append(request_id, chunk),
@@ -1260,6 +1392,13 @@ class ArticuladorApp(tk.Tk):
         buscar el workspace por cada mensaje hacía que una consulta normal se
         detuviera pidiendo permiso para compartir documentación no solicitada.
         """
+        # Guarda de reentrada: dos envíos simultáneos reutilizaban la misma
+        # ventana de estado y la respuesta del primero se pintaba sobre la
+        # segunda petición. Se descarta mientras haya una viva o pendiente de
+        # aprobación (confirm_and_send aún no marcó el worker como lanzado).
+        if self.session.request_active:
+            self.status.set("Ya hay una petición en curso; espera o cancélala antes de enviar otra.")
+            return
         if not self.profile.enabled or not self.key: self.append("Articulador","Configura un perfil LLM y una key para responder."); return
         article = self.editor.get("1.0","end-1c")
         selected = self.editor.get("sel.first","sel.last") if self.editor.tag_ranges("sel") else article
@@ -1376,10 +1515,18 @@ class ArticuladorApp(tk.Tk):
 
         # Snapshot in the UI thread: the worker must not read mutable session state.
         # IMPORTANTE: usar conversation_with_message que incluye el mensaje actual
-        api_key = self.key
         self.llm.cancel_event = cancel_event
         def work():
             """Ejecuta la petición HTTP en un hilo daemon y publica eventos de UI."""
+            # La key del llavero se resuelve DENTRO del worker: leerla aquí
+            # congelaba el hilo de Tk mientras D-Bus respondía. El envío real ya
+            # es asíncrono, así que probar la credencial en él es equivalente y
+            # no bloquea la interfaz.
+            api_key = self.key or self._esperar_key()
+            if not api_key:
+                self.control_queue.put_nowait(
+                    ("error", request_id, "No pude responder: falta la API key", files))
+                return
             # Usar LLMSessionManager con error handling robusto
             # Publicar eventos en queue para thread-safety (no self.after() desde thread)
             self.llm.stream_response(
@@ -2085,7 +2232,26 @@ class ArticuladorApp(tk.Tk):
                 except tk.TclError:
                     pass
         self._esperar_hilos_de_peticion()
+        self._esperar_hilos_de_keyring()
         super().destroy()
+
+    def _esperar_hilos_de_keyring(self, timeout: float = KEYRING_TIMEOUT_SECONDS) -> None:
+        """Espera (con tope) a que terminen las lecturas del llavero en curso.
+
+        Si la ventana se destruye con una lectura viva, el hilo sigue asignando
+        memoria y el recolector puede ejecutar `Variable.__del__` desde él, que
+        toca Tcl fuera del hilo principal (`main thread is not in main loop`).
+        El tope evita que un llavero colgado impida cerrar la aplicación.
+        """
+        pendientes = list(self._llaves_en_curso.values())
+        if not pendientes:
+            return
+        limite = time.monotonic() + timeout
+        for listo in pendientes:
+            restante = limite - time.monotonic()
+            if restante <= 0:
+                break
+            listo.wait(restante)
 
     def _esperar_hilos_de_peticion(self, timeout: float = 2.0) -> None:
         """Da a los hilos de review/request una última oportunidad de terminar.

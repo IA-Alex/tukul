@@ -2,6 +2,8 @@
 
 Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional. La conversación es el espacio principal; el artículo permanece editable a la izquierda.
 
+![Interfaz de Articulador: artículo a la izquierda y asistente a la derecha](docs/screenshots/articulador.png)
+
 ## Instalar sin Python
 
 Para Linux x86_64 y Windows x86_64 se publican ejecutables standalone (sin Python instalado) en los Releases verificados por CI. macOS no es un target soportado actualmente. Ejecuta `--health` después de instalar.

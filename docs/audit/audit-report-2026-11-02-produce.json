@@ -1,0 +1,341 @@
+{
+  "schema_version": "1.0",
+  "project": "articulador",
+  "audit_date": "2026-11-02",
+  "commit": "8d45cf7",
+  "working_tree_clean": false,
+  "scope": "full-repository",
+  "verdict": "NOT_RELEASABLE",
+  "summary": {
+    "critical": 1,
+    "high": 5,
+    "medium": 10,
+    "low": 9,
+    "total": 25,
+    "tests_executed": 0,
+    "tests_collection_errors": 1
+  },
+  "context": {
+    "type": "python-desktop-app",
+    "ui": "tkinter",
+    "persistence": "local files (toml/json/markdown), no database",
+    "http": "urllib client to remote LLM providers",
+    "python": ">=3.11",
+    "loc_product": 5100,
+    "loc_tests": 4900
+  },
+  "findings": [
+    {
+      "id": "C-1",
+      "severity": "CRITICAL",
+      "category": "Build / Repository integrity",
+      "title": "Working tree does not import: articulador_core relocation incomplete and uncommitted",
+      "description": "11 core modules moved to articulador_ui/articulador_core/ and deleted from articulador_core/; 143 imports still reference the old path. App, pytest, mypy all fail.",
+      "evidence": [
+        "git status: D articulador_core/*.py (11 files), ?? articulador_ui/articulador_core/",
+        "python articulador.py --health -> ModuleNotFoundError: No module named 'articulador_core' (articulador.py:10)",
+        "pytest -> collected 0 items / 1 error (tests/test_auditoria_regresion.py:32)",
+        "mypy -> Cannot read file 'articulador_core'",
+        "ruff -> 2 errors (RUF001 logging_config.py, C901 show_review_dialog)",
+        "pyproject.toml: packages = [\"articulador_core\", \"articulador_ui\"]"
+      ],
+      "impact": "Product cannot run or be tested; refactor invisible in git history.",
+      "recommendation": "Choose canonical location, update imports/pyproject/CI/gate/mypy/bandit/docs/tests, commit atomically with git mv.",
+      "effort": "S",
+      "dependencies": []
+    },
+    {
+      "id": "A-1",
+      "severity": "HIGH",
+      "category": "Architecture",
+      "title": "ArticuladorApp is a God Object: 114 methods, 2110 lines",
+      "description": "Single class owns window, theming, editing, document lifecycle, context articles, LLM request lifecycle, review dialogs, UI persistence, recents, clipboard.",
+      "evidence": [
+        "articulador_ui/app.py: 2110 lines, 114 methods",
+        "__init__ 85 lines, _theme 121, manage_references 86 (inline Toplevel), confirm_and_send 70"
+      ],
+      "impact": "High regression risk, poor testability, root cause of A-2/M-1/M-2.",
+      "recommendation": "Extract ThemeController, ChatController, ContextArticlesController following existing manager pattern.",
+      "effort": "L",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "A-2",
+      "severity": "HIGH",
+      "category": "Concurrency / State",
+      "title": "No re-entrancy guard in request(); cancel and finish can lose responses",
+      "description": "request() sets request_active unconditionally; only callers guard. _cancel_active_request clears ALL request_types/chunks.",
+      "evidence": [
+        "app.py:1256-1266 request() sets request_active=True without checking",
+        "app.py:1957-1976 request_types.clear(); chunks.clear()",
+        "app.py:1445 finish drops response when request_id not in request_types"
+      ],
+      "impact": "Double submit and silent loss of a valid response.",
+      "recommendation": "Introduce a single RequestState object; guard in request(); cancel only the current request; finish validates identity.",
+      "effort": "M",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "A-3",
+      "severity": "HIGH",
+      "category": "Data integrity",
+      "title": "Credential save is not transactional; config can change while UI shows error",
+      "description": "save_profiles and app state mutated before _persistir_credencial; keyring failure reports error though config was applied.",
+      "evidence": [
+        "dialogs.py:439-462 save_profiles -> app.profiles = working -> _persistir_credencial -> except shows error"
+      ],
+      "impact": "Incoherent state involving credentials.",
+      "recommendation": "Apply credentials first returning (ok, err); save_profiles second; roll back on failure.",
+      "effort": "M",
+      "dependencies": ["A-2"]
+    },
+    {
+      "id": "A-4",
+      "severity": "HIGH",
+      "category": "Performance / UX",
+      "title": "Keyring reads on the Tk main thread freeze the UI",
+      "description": "key property calls storage.load_key() (keyring.get_password) on every evaluation, three times per send.",
+      "evidence": [
+        "app.py:163-165 property key -> storage.load_key",
+        "evaluated at app.py:1179, 1263, 1379; dialogs.py:344, 382"
+      ],
+      "impact": "Intermittent UI freeze with locked Secret Service.",
+      "recommendation": "Resolve key once, cache in _resolved_key, make key an attribute.",
+      "effort": "S",
+      "dependencies": ["A-2"]
+    },
+    {
+      "id": "A-5",
+      "severity": "HIGH",
+      "category": "CI/CD",
+      "title": "CI never verifies the package installs and runs from a clean environment",
+      "description": "Editable install plus conftest sys.path injection mask packaging and import-resolution failures.",
+      "evidence": [
+        ".github/workflows/ci.yml: pip install -e . --no-deps",
+        "conftest.py: sys.path.insert(0, str(project_root))"
+      ],
+      "impact": "Green pipeline does not guarantee a releasable package.",
+      "recommendation": "Add package job: python -m build, install wheel in clean venv outside repo, run articulador --health, pip check.",
+      "effort": "S",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-1",
+      "severity": "MEDIUM",
+      "category": "Maintainability",
+      "title": "Dead code and comments describing nonexistent RequestState",
+      "evidence": [
+        "app.py:943 copy_response never called",
+        "app.py:258 COLORS only written, tests/test_ui_integration.py:22 injects it",
+        "models.py:74 and llm_session_manager.py:18 reference RequestState (does not exist)"
+      ],
+      "impact": "Misleading architecture; consolidated debt.",
+      "recommendation": "Delete dead code, fix comments and docs/ARCHITECTURE.md.",
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-2",
+      "severity": "MEDIUM",
+      "category": "UX / Accessibility",
+      "title": "Global bind_all Escape cancels requests from modal dialogs",
+      "evidence": ["app.py:757 (\"<Escape>\", self.cancel_request) registered via bind_all"],
+      "impact": "Silent loss of in-flight work on a reasonable keypress.",
+      "recommendation": "Scope Escape to the main toplevel or ignore when focus is in another toplevel.",
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-3",
+      "severity": "MEDIUM",
+      "category": "Architecture",
+      "title": "threat_feed prototype has no caller and follows redirects contrary to its comment",
+      "evidence": [
+        "no references to build_threat_context outside tests",
+        "threat_feed.py:179 urllib.request.urlopen without _NoRedirectHandler"
+      ],
+      "impact": "Unmaintained network code with inaccurate security comment.",
+      "recommendation": "Move to experiments/ or integrate with no-redirect opener and time budget; fix comment.",
+      "effort": "S",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-4",
+      "severity": "MEDIUM",
+      "category": "Privacy",
+      "title": "State and config directories/files do not set restrictive permissions",
+      "evidence": ["storage.py:109 mkdir(parents=True, exist_ok=True)", "storage.py:114-124 chmod only inherits existing mode"],
+      "impact": "estado.json (full conversation history) may be world-readable in multiuser systems.",
+      "recommendation": "mkdir(mode=0o700), explicit mode=0o600 for config.toml, estado.json, autosave.",
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-5",
+      "severity": "MEDIUM",
+      "category": "Error handling",
+      "title": "load_key swallows every keyring failure as 'no key'",
+      "evidence": ["storage.py:242-245 except Exception: return \"\""],
+      "impact": "Broken keyring is reported as missing configuration.",
+      "recommendation": "Catch only no-entry errors; surface backend failures in status bar.",
+      "effort": "S",
+      "dependencies": ["A-4"]
+    },
+    {
+      "id": "M-6",
+      "severity": "MEDIUM",
+      "category": "Robustness",
+      "title": "Autosave has no size cap; parse_findings parses before limiting",
+      "evidence": ["autosave.py:42-45 read_text unbounded", "review.py:15,50 raw_decode before MAX_FINDINGS"],
+      "recommendation": "stat() check against MAX_ARTICLE_BYTES; cap len(clean) before raw_decode.",
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-7",
+      "severity": "MEDIUM",
+      "category": "Accessibility",
+      "title": "No High-DPI awareness or tk scaling; hardcoded font family without fallback",
+      "evidence": ["0 matches for tk scaling/DpiAwareness", "estilo.py:163 FAMILIA = \"Inter\""],
+      "impact": "Blurry UI and wrong font size on HiDPI; low-vision users affected.",
+      "recommendation": "SetProcessDpiAwareness(1) on Windows, scale from tk scaling, font fallback list.",
+      "effort": "S",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-8",
+      "severity": "MEDIUM",
+      "category": "UX",
+      "title": "Dialogs use absolute pixel sizes exceeding small screens",
+      "evidence": ["dialogs.py:135-136 760x520 minsize 620x380", "dialogs.py:282-283 700x620 minsize 560x400"],
+      "recommendation": "Reuse _restaurar_geometria clamp min(pref, 0.9*screen); lower minsize.",
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "M-9",
+      "severity": "MEDIUM",
+      "category": "Dependencies",
+      "title": "requirements-test.txt duplicates and conflicts with dev extra and lock",
+      "evidence": ["requirements-test.txt open >= pins incl. locust", "requirements-dev.lock 854 hashes", "locust not in any extra or CI"],
+      "recommendation": "Remove requirements-test.txt; regenerate lock with perf extra if locust is kept.",
+      "effort": "XS",
+      "dependencies": []
+    },
+    {
+      "id": "M-10",
+      "severity": "MEDIUM",
+      "category": "Operability",
+      "title": "Visible error dialog gives no path to the log",
+      "evidence": ["app.py:1104-1113 generic showerror after logger.error"],
+      "recommendation": "Add 'Ver detalles' or show log path in status bar.",
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "B-1",
+      "severity": "LOW",
+      "category": "Resource management",
+      "title": "_worker_threads never pruned; chunks not cleared on destroy",
+      "evidence": ["app.py:123, 1252, 1394, 2103-2110"],
+      "effort": "XS",
+      "dependencies": ["A-1"]
+    },
+    {
+      "id": "B-2",
+      "severity": "LOW",
+      "category": "Consistency",
+      "title": "manage_references builds its own Toplevel bypassing _abrir_dialogo",
+      "evidence": ["app.py:1762-1847"],
+      "effort": "S",
+      "dependencies": ["A-1"]
+    },
+    {
+      "id": "B-3",
+      "severity": "LOW",
+      "category": "Accessibility",
+      "title": "Settings dialog: Return does not save; key field late in tab order",
+      "evidence": ["dialogs.py:472 focus on combobox, no Return binding"],
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "B-4",
+      "severity": "LOW",
+      "category": "Accessibility",
+      "title": "Tooltip always placed below widget; can render off-screen; no accessible relation",
+      "evidence": ["tooltip.py:52-73"],
+      "effort": "S",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "B-5",
+      "severity": "LOW",
+      "category": "UX copy",
+      "title": "CANCELADO message promises keeping late response but partial text is deleted",
+      "evidence": ["estado.py:78-82", "app.py:1975 streaming_text = \"\""],
+      "effort": "XS",
+      "dependencies": ["A-2"]
+    },
+    {
+      "id": "B-6",
+      "severity": "LOW",
+      "category": "Maintainability",
+      "title": "COLORS/colores() compatibility shim exists only for one test",
+      "evidence": ["estilo.py:145-159", "tests/test_ui_integration.py:22"],
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "B-7",
+      "severity": "LOW",
+      "category": "Code style",
+      "title": "Dense multi-statement lines in app.py with E701/E702 disabled",
+      "evidence": ["pyproject.toml ruff ignore E701/E702", "app.py:694, 889-900, 1018"],
+      "effort": "S",
+      "dependencies": ["A-1"]
+    },
+    {
+      "id": "B-8",
+      "severity": "LOW",
+      "category": "Correctness",
+      "title": "estimate_prompt_tokens heuristic underestimates for non-Latin text",
+      "evidence": ["llm.py:79-87 int(total_chars / 3.2)"],
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    },
+    {
+      "id": "B-9",
+      "severity": "LOW",
+      "category": "Security hygiene",
+      "title": "No redaction filter for secrets in logging",
+      "evidence": ["logging_config.py:26-38"],
+      "effort": "XS",
+      "dependencies": ["C-1"]
+    }
+  ],
+  "verified_controls": [
+    "atomic_write uses mkstemp -> fsync -> chmod -> os.replace -> dir fsync",
+    "API keys never serialized to TOML/JSON (storage.py:231-235)",
+    "validate_endpoint restricts http:// to loopback; _NoRedirectHandler prevents credential theft (llm.py:108-146)",
+    "bounded response reads and SSE line limits",
+    "path traversal blocked in _validate_relative_path",
+    "workers never touch Tk; queue drained via after(50) with re-arm in finally",
+    "logs exclude article content, prompts and keys; rotating handler",
+    "hash-pinned lockfile, pip-audit in CI, Actions pinned by SHA"
+  ],
+  "roadmap": [
+    {"phase": 0, "task": "F0.1 Restore importable tree", "severity": "CRITICAL", "effort": "S", "dependencies": []},
+    {"phase": 0, "task": "F0.2 Add clean-install packaging job to CI", "severity": "HIGH", "effort": "S", "dependencies": ["F0.1"]},
+    {"phase": 1, "task": "F1.1 Real RequestState and single re-entrancy guard", "severity": "HIGH", "effort": "M", "dependencies": ["F0.1"]},
+    {"phase": 1, "task": "F1.2 Scope Escape to main toplevel", "severity": "MEDIUM", "effort": "XS", "dependencies": ["F0.1"]},
+    {"phase": 1, "task": "F1.3 Transactional credentials and off-thread keyring", "severity": "HIGH", "effort": "M", "dependencies": ["F1.1"]},
+    {"phase": 2, "task": "F2.1 Extract ThemeController", "severity": "HIGH", "effort": "M", "dependencies": ["F1.1"]},
+    {"phase": 2, "task": "F2.2 Extract ChatController", "severity": "HIGH", "effort": "L", "dependencies": ["F2.1"]},
+    {"phase": 2, "task": "F2.3 Extract ContextArticlesController", "severity": "MEDIUM", "effort": "M", "dependencies": ["F2.2"]},
+    {"phase": 3, "task": "F3.1-F3.9 Privacy, accessibility, cleanup", "severity": "MEDIUM", "effort": "M", "dependencies": ["F1.1"]},
+    {"phase": 4, "task": "B-1..B-9 polish", "severity": "LOW", "effort": "M", "dependencies": ["F2.3"]}
+  ],
+  "critical_path": ["F0.1", "F1.1", "F1.3", "F2.2", "F2.3"],
+  "first_task": "F0.1 Restore an importable tree and commit it atomically with git mv"
+}

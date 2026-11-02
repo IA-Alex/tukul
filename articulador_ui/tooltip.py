@@ -53,6 +53,11 @@ class ToolTip:
         self._id = None
         if not self.widget.winfo_exists() or not self.widget.winfo_ismapped():
             return
+        if not self._ventana_es_de_la_ventana_activa():
+            # Un diálogo modal (o cualquier Toplevel) tapa la ventana principal:
+            # una pista de un control de fondo aparecería ENCIMA del diálogo y
+            # daría a entender que ese control es el que tiene el foco.
+            return
         ToolTip._ocultar_global()
         self._ventana = tk.Toplevel(self.widget)
         self._ventana.wm_overrideredirect(True)
@@ -71,6 +76,25 @@ class ToolTip:
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + es.ESP["xs"]
         self._ventana.wm_geometry(f"+{x}+{y}")
         ToolTip._activo = self
+
+    def _ventana_es_de_la_ventana_activa(self) -> bool:
+        """True si el widget pertenece a la ventana superior que tiene el foco.
+
+        Se considera «activa» la ventana con grabbing a nivel de aplicación (un
+        modal) y, si no hay ninguno, la que contiene el foco. Así el tooltip de
+        un control de la ventana principal desaparece mientras hay un diálogo
+        abierto encima.
+        """
+        try:
+            activa = self.widget.winfo_toplevel().grab_current()
+            if activa is None:
+                activa = self.widget.winfo_toplevel().focus_get()
+            if activa is None:
+                return True
+            return activa.winfo_toplevel() is self.widget.winfo_toplevel()
+        except (AttributeError, tk.TclError):
+            return True
+
 
     def _ocultar(self, _evento: tk.Event | None = None) -> None:
         self._cancelar()

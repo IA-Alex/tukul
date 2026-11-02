@@ -17,6 +17,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Canales y concurrencia | [QUEUE_POLICY.md](QUEUE_POLICY.md) | desarrollo | NORMATIVE / mantenedores |
 | Decisiones significativas | [decisions/](decisions/) | arquitectura | SUPPORTING / mantenedores |
 | Convenciones de docstrings | [DOCSTRING_GUIDE.md](DOCSTRING_GUIDE.md) | desarrollo | SUPPORTING / mantenedores |
+| Auditorías puntuales | [audit/](audit/) (informes fechados) | calidad | HISTORICAL |
 | Uso rápido | [../README.md](../README.md) | usuarios | SUPPORTING / mantenedores |
 | Historial | [archive/README.md](archive/README.md) y `CHANGELOG.md` | contexto histórico | HISTORICAL |
 

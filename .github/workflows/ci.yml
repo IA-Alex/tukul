@@ -44,6 +44,12 @@ jobs:
       - name: Audit Python dependencies
         run: python -m pip_audit --local --skip-editable
 
+      # Instalación real en un venv ajeno al checkout. El paso anterior usa
+      # `-e .`, que resuelve imports desde el directorio actual y ocultó un
+      # paquete movido que hacía fallar `pip install` para cualquier usuario.
+      - name: Verify standalone installation
+        run: PYTHON="$(command -v python)" bash scripts/verify-install.sh
+
       # Guarda contra el modo de fallo silencioso: si Tk o el display no
       # funcionan, este paso falla en vez de dejar que 13 tests se omitan.
       - name: Verify GUI tests will actually run

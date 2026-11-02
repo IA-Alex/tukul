@@ -52,10 +52,6 @@ Thumbs.db
 .cache/
 temp/
 
-# Activo local sin referencia en el código (captura sin versionar hasta que el
-# producto la referencie explícitamente).
-articulador.png
-
 # Coverage
 .coverage
 .coverage.*

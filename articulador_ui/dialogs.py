@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
@@ -152,10 +153,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
                        borderwidth=0, font=es.fuente(), activestyle="none")
     items.pack(fill="both", expand=True, padx=(0, es.ESP["sm"]))
     for item in findings:
-        extract = " ".join(item["original"].split())
-        if len(extract) > 44:
-            extract = f"{extract[:41]}…"
-        items.insert("end", f"{item['category'].title()} · {item['severity']} — «{extract}»")
+        items.insert("end", _resumen_hallazgo(item))
     box = app._text(right, wrap="word", padx=es.ESP["md"], pady=es.ESP["sm"],
                     state="disabled")
     box.pack(fill="both", expand=True)
@@ -189,15 +187,7 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
         """Aplica o ignora el hallazgo seleccionado y avanza al siguiente."""
         if not items.curselection():
             return
-        if apply and (app.scope is not scope or not scope.owns(app.session.document_path)):
-            # Un diálogo que sobrevivió a un cambio de documento aplicaría la
-            # sugerencia de un artículo sobre otro, dejándolo sucio y erróneo.
-            messagebox.showinfo(
-                "Revisión caducada",
-                "Estos hallazgos son de otro artículo. Vuelve a revisar el actual.",
-                parent=dialog,
-            )
-            dialog.destroy()
+        if apply and not _review_scope_valida(app, scope, dialog):
             return
         index = items.curselection()[0]
         if apply and not _apply_suggestion(app, dialog, findings[index]):
@@ -219,6 +209,32 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(
         side="left", padx=(es.ESP["sm"], 0))
     return dialog
+
+
+def _resumen_hallazgo(item: dict[str, str]) -> str:
+    """Una línea de la lista: categoría, severidad y extracto del hallazgo."""
+    extract = " ".join(item["original"].split())
+    if len(extract) > 44:
+        extract = f"{extract[:41]}…"
+    return f"{item['category'].title()} · {item['severity']} — «{extract}»"
+
+
+def _review_scope_valida(app, scope, dialog) -> bool:
+    """Comprueba que el diálogo sigue mostrando hallazgos del artículo abierto.
+
+    Un diálogo que sobrevivió a un cambio de documento aplicaría la sugerencia
+    de un artículo sobre otro, dejándolo sucio y erróneo. Devuelve True si es
+    seguro aplicar y False (tras avisar y cerrar) si la revisión caducó.
+    """
+    if app.scope is scope and scope.owns(app.session.document_path):
+        return True
+    messagebox.showinfo(
+        "Revisión caducada",
+        "Estos hallazgos son de otro artículo. Vuelve a revisar el actual.",
+        parent=dialog,
+    )
+    dialog.destroy()
+    return False
 
 
 def _bloque_credencial(frame, fila: int, key, remember) -> None:
@@ -341,8 +357,12 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         value=profile.provider if profile.provider in PROVIDERS else "openai_compatible"
     )
     values = {name: tk.StringVar(value=str(getattr(profile, name))) for name in fields}
-    key = tk.StringVar(value=storage.load_key(selected.get()))
-    remember = tk.BooleanVar(value=bool(key.get()))
+    # La key se pinta de inmediato desde la memoria de la app (cacheada) y el
+    # llavero se consulta aparte: leerlo aquí congelaba el diálogo mientras
+    # D-Bus respondía. La lectura llega al widget por `after`, nunca desde el hilo.
+    cacheada = app._keys_llavero.get(selected.get(), "")
+    key = tk.StringVar(value=cacheada)
+    remember = tk.BooleanVar(value=bool(cacheada))
     _seccion(cuerpo, 0, "CONEXIÓN", primera=True)
     ttk.Label(cuerpo, text="Proveedor").grid(row=1, column=0, sticky="w",
                                              padx=(0, es.ESP["md"]))
@@ -379,9 +399,54 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         provider.set(p.provider if p.provider in PROVIDERS else "openai_compatible")
         for name in fields:
             values[name].set(str(getattr(p, name)))
-        key.set(storage.load_key(selected.get()))
-        remember.set(bool(key.get()))
+        nombre = selected.get()
+        cacheada = app._keys_llavero.get(nombre, "")
+        key.set(cacheada)
+        remember.set(bool(cacheada))
         update_provider_hint()
+        _consultar_llavero_en_segundo_plano(nombre)
+
+    def _consultar_llavero_en_segundo_plano(nombre: str) -> None:
+        """Lee la key del perfil sin bloquear el diálogo ni tocar Tk desde el hilo.
+
+        El hilo solo escribe la caché de la app. El repintado lo hace un sondeo
+        programado DESDE el hilo de Tk al abrir el diálogo: llamar a `after`
+        desde el hilo de trabajo no es seguro en Tk (lanza `RuntimeError: main
+        thread is not in main loop` al registrar el callback).
+        """
+        if nombre in app._keys_llavero:
+            return
+
+        def leer() -> None:
+            try:
+                valor = storage.load_key(nombre)
+            except Exception:
+                valor = ""
+            app._keys_llavero[nombre] = valor
+
+        threading.Thread(target=leer, name=f"keyring-dialogo-{nombre}", daemon=True).start()
+
+    def _aplicar_key_cargada() -> None:
+        """Pinta la key del llavero si ya llegó y el usuario aún no escribió.
+
+        Se programa desde el hilo de Tk (seguro) tras la primera pasada, y se
+        reprograma mientras el diálogo siga abierto hasta recibir el valor.
+        """
+        nombre = selected.get()
+        try:
+            if not dialog.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        if nombre in app._keys_llavero:
+            if not key.get():
+                key.set(app._keys_llavero[nombre])
+                remember.set(bool(app._keys_llavero[nombre]))
+            return
+        try:
+            dialog.after(150, _aplicar_key_cargada)
+        except tk.TclError:
+            pass
 
     def _aplicar_a_working(nombre: str) -> bool:
         """Vuelca el formulario al perfil indicado; False si el formulario es inválido."""
@@ -425,6 +490,10 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     selector_perfil.bind("<<ComboboxSelected>>", _cambiar_perfil)
     _refrescar_perfiles()
     update_provider_hint()
+    # La key del llavero llega de un hilo: se aplica desde aquí, en el hilo de
+    # Tk, mientras el diálogo siga abierto.
+    _consultar_llavero_en_segundo_plano(selected.get())
+    _aplicar_key_cargada()
 
     fila = 3
     for name in CAMPOS_CONEXION:
