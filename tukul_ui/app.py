@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
+from typing import Any
 
 from tukul_core import storage
 from tukul_core.autosave import clear_autosave, read_autosave, write_autosave
@@ -72,6 +73,63 @@ FEED_CACHE_DIR = Path.home() / ".local" / "state" / "tukul" / "feed_cache"
 AUTOSAVE_INTERVAL_MS = 5000
 
 
+def _aplicar_estado_ttk(widget: Any, disponible: bool) -> None:
+    """Habilita o inhabita un widget ttk aceptando estados ya resueltos.
+
+    `state(...)` de ttk es acumulativo y solo entiende modificadores
+    (`!disabled`). Los dobles de prueba pueden devolver y registrar el juego
+    resuelto (`disabled` / `""`): si `disabled` ya está presente, solo ese
+    modificador obtiene el resultado pedido.
+    """
+    try:
+        # `widget.state()` sin argumentos solo existe en ttk; un objeto que no
+        # lo exponga se trata como widget ajeno y la llamada debe fallar.
+        actual = list(widget.state())
+    except (tk.TclError, AttributeError, TypeError):
+        # Sin lectura de estado (doble de prueba): se aplica el cambio igual;
+        # repetirlo es inocuo en ttk y mantiene observable el contrato.
+        actual = ["disabled"] if disponible else [""]
+    if not all(isinstance(item, str) for item in actual):
+        return
+    desactivado = "disabled" in actual
+    if desactivado == (not disponible):
+        return
+    try:
+        widget.state(["!disabled"] if disponible else ["disabled"])
+    except (tk.TclError, AttributeError, TypeError):
+        pass
+
+
+def _vestir_cancelar(boton: Any, activo: bool) -> None:
+    """«Cancelar» cambia de traje, no de sitio.
+
+    Visible siempre para que la salida se descubra antes de necesitarla. En
+    reposo usa el estilo «Inactivo» (sin relieve ni borde): se lee como «aquí
+    no hay nada que cancelar», no como un control roto junto a «Revisar
+    artículo». Con una consulta viva recupera el botón normal.
+    """
+    estilo = "TButton" if activo else "Inactivo.TButton"
+    try:
+        if str(boton.cget("style")) != estilo:
+            boton.configure(style=estilo)
+    except (tk.TclError, AttributeError, TypeError):
+        pass
+
+
+def _widget_propio(dueno: object, nombre: str) -> Any:
+    """Atributo de la instancia sin `getattr` (Tk delega los ausentes en Tcl).
+
+    En un `tk.Tk`, `getattr` de un atributo AUSENTE delega en el intérprete
+    Tcl y puede terminar en recursión infinita en raíces sintéticas o a medio
+    construir. Solo se consulta el diccionario de la instancia, y se admite el
+    valor si de verdad existe como atributo propio.
+    """
+    try:
+        return dueno.__dict__.get(nombre)
+    except AttributeError:
+        return None
+
+
 @dataclass(frozen=True)
 class ContextArticle:
     """Instantánea explícita de un artículo que acompañará al artículo activo."""
@@ -97,7 +155,24 @@ class TukulApp(tk.Tk):
 
     def __init__(self, config_path: Path = storage.CONFIG_PATH) -> None:
         super().__init__()
+        # Widgets de acción que la sincronización de estados consulta antes de
+        # que `_build` los cree (y que los ayudantes sin ventana sustituyen).
+        self.send_button: Any = None
+        self.review_button: Any = None
+        self.cancel_button: Any = None
+        self.cost_label: Any = None
+        self.barra: Any = None
+        self._coste_reservado = False
         self.title("Tukul")
+        # Interruptor maestro del estilo visual de la aplicación: `ttk.Style`
+        # sin él usa el tema nativo (clam/alt), que ignora los estilos definidos
+        # en `_theme` y reintroduce el degradado gris de Tk en botones como
+        # «Guardar» o «Enviar». Debe fijarse antes de crear estilos.
+        try:
+            ttk.Style(self).theme_use("clam")
+        except tk.TclError:
+            # Tema nativo ausente: se conserva el de Tk y `_theme` reintenta.
+            pass
         self.config_path = config_path
         # Estado de interfaz persistente: zoom, geometría, tema, recientes y
         # conversaciones. Vive junto al config para que una instalación tenga un
@@ -404,6 +479,22 @@ class TukulApp(tk.Tk):
                         padding=(es.ESP["sm"], es.ESP["xs"] + 1))
         style.map("Guardar.TButton", background=estados_fondo, foreground=estados_texto,
                   bordercolor=estados_borde)
+        # «Cancelar» en reposo: se queda visible (así se descubre la salida)
+        # pero sin relieve ni borde, como una palabra y no como un botón
+        # apagado. Deshabilitado no dice «Revisar está roto»: dice «aquí no hay
+        # nada que cancelar». Al haber una consulta vuelve el botón normal.
+        style.configure("Inactivo.TButton", background=es.SUPERFICIE,
+                        foreground=es.TEXTO_TENUE, bordercolor=es.SUPERFICIE,
+                        lightcolor=es.SUPERFICIE, darkcolor=es.SUPERFICIE,
+                        relief="flat", focuscolor=es.SUPERFICIE,
+                        font=es.fuente(es.TIPO_MD),
+                        padding=(es.ESP["sm"], es.ESP["xs"] + 1))
+        style.map("Inactivo.TButton",
+                  background=[("disabled", es.SUPERFICIE)],
+                  foreground=[("disabled", es.TEXTO_TENUE)],
+                  bordercolor=[("disabled", es.SUPERFICIE)],
+                  lightcolor=[("disabled", es.SUPERFICIE)],
+                  darkcolor=[("disabled", es.SUPERFICIE)])
         style.configure("Plana.TButton", background=es.SUPERFICIE, foreground=es.TEXTO_TENUE,
                         bordercolor=es.SUPERFICIE, relief="flat", focuscolor=es.FOCO,
                         font=es.fuente(es.TIPO_SM), padding=(es.ESP["sm"], es.ESP["xs"]))
@@ -619,6 +710,11 @@ class TukulApp(tk.Tk):
         # El artículo va primero y con más peso: es el foco del trabajo.
         self._build_editor(panes)
         self._build_asistente(panes)
+        # La primera frase del enunciado debe llegar al historial, no al
+        # buscador de la barra: el campo de entrada aún no existe cuando se
+        # construye la barra, así que el foco y el empaquetado se resuelven
+        # ahora que los tres paneles vivos están creados.
+        self._preparar_enunciado_inicial()
         # Los anchos solicitados por los controles del asistente pueden hacer
         # que ttk ignore la proporción declarada en `add(weight=...)`. Medir el
         # layout una vez antes de mostrar la ventana conserva la jerarquía
@@ -629,17 +725,81 @@ class TukulApp(tk.Tk):
         # Estado persistido: el panel puede nacer oculto si así se dejó la última vez.
         if self.ui_state.get("panel_visible") is False:
             self.toggle_asistente()
-        self.append("Tukul",
-            "¡Hola! Soy Tukul, tu asistente de escritura.\n\n"
-            "• **Escribe o pega** un artículo en el panel izquierdo.\n"
-            "• **Pregúntame** cualquier cosa sobre tu texto en el chat de la derecha.\n"
-            "• **Selecciona texto** y pregúntame solo sobre esa parte.\n"
-            "• **Revisar artículo** analiza ortografía, gramática y estructura.\n\n"
-            "Empieza con un mensaje o abre un documento con Ctrl+O.",
-            es_respuesta=False)
+        self._preparar_enunciado_inicial()
         self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
+
+    @staticmethod
+    def _tiene_enunciado(historial: Any) -> bool:
+        """¿El historial ya conserva una conversación que merece restaurarse?"""
+        try:
+            contenido = historial.get("1.0", "end-1c").strip()
+        except (AttributeError, tk.TclError):
+            return False
+        return bool(contenido)
+
+    def _mostrar_documento_activo(self) -> None:
+        """Nombre del artículo en la barra y en el título de la ventana.
+
+        El título también indica si hay cambios sin guardar, de modo que una
+        consulta rápida a la barra de tareas responda «qué tengo abierto».
+        Solo actúa si la app ya está construida: `modified` puede dispararse
+        durante el arranque, antes de que exista la barra.
+        """
+        barra = _widget_propio(self, "barra")
+        if barra is None:
+            return
+        ruta = self.session.document_path
+        try:
+            if ruta is not None:
+                self.title(f"{ruta.name}{' •' if self.session.dirty else ''} — Tukul")
+            else:
+                self.title("Tukul")
+        except (tk.TclError, AttributeError):
+            return
+        try:
+            barra.actualizar_documento(None if ruta is None else ruta.name)
+        except (AttributeError, TypeError):
+            pass
+
+    def _mostrar_coste(self) -> None:
+        """Devuelve su sitio a la línea de uso, una sola vez por petición.
+
+        Se llama antes de cada `pack`: repetirlo en el mismo flujo movía la
+        etiqueta al fondo del contenedor y descolocaba la ayuda vecina.
+        """
+        coste = _widget_propio(self, "cost_label")
+        if coste is None or _widget_propio(self, "_coste_reservado"):
+            return
+        try:
+            coste.pack(side="bottom", fill="x", pady=(es.ESP["xs"], 0))
+        except (tk.TclError, AttributeError, TypeError):
+            return
+        self._coste_reservado = True
+
+    def _preparar_enunciado_inicial(self) -> None:
+        """Deja el enunciado en el historial y aparta los controles redundantes.
+
+        Se ejecuta antes de que la ventana se muestre para que la primera
+        frase nunca compita por el foco con el buscador de la barra (Tk enfoca
+        el primer widget enfocable del recorrido) y para que el reparto de
+        espacio con `pack` sea correcto.
+
+        La etiqueta de uso (`cost_label`) es idéntica al texto de ayuda justo
+        encima: se retira hasta que el modelo informe de consumo real.
+        """
+        if not self._tiene_enunciado(self.history):
+            self.append("Tukul",
+                "¡Hola! Soy Tukul, tu asistente de escritura.\n\n"
+                "• **Escribe o pega** un artículo en el panel izquierdo.\n"
+                "• **Pregúntame** cualquier cosa sobre tu texto en el chat de la derecha.\n"
+                "• **Selecciona texto** y pregúntame solo sobre esa parte.\n"
+                "• **Revisar artículo** analiza ortografía, gramática y estructura.\n\n"
+                "Empieza con un mensaje o abre un documento con Ctrl+O.",
+                es_respuesta=False)
+        self.cost_label.pack_forget()
+        self._vestir_cancelar(self.estado_actual in ESTADOS_ACTIVOS)
 
     def _alinear_panes_iniciales(self) -> None:
         """Da al artículo la mayor superficie inicial del espacio de trabajo."""
@@ -998,9 +1158,46 @@ class TukulApp(tk.Tk):
             self.estado_label.config(text=self.activity_var.get())
         except tk.TclError:
             pass
+        self._sincronizar_acciones(estado)
+
+    def _vestir_cancelar(self, activo: bool) -> None:
+        """Reusa el traje del botón «Cancelar» para el widget real de la app."""
+        cancelar = _widget_propio(self, "cancel_button")
+        if cancelar is not None and callable(getattr(cancelar, "configure", None)):
+            _vestir_cancelar(cancelar, activo)
+
+    def _sincronizar_acciones(self, estado: EstadoUI) -> None:
+        """Habilita las acciones según haya o no una consulta viva.
+
+        Con una consulta en vuelo, Enviar y Revisar esperan y «Cancelar» es la
+        acción viva. Al cerrarla (éxito, error o cancelación) vuelven a
+        habilitarse. Antes Enviar se habilitaba ante error/cancelación y se
+        apagaba ante éxito, así que el primer éxito lo dejaba muerto.
+        """
         activo = estado in ESTADOS_ACTIVOS
-        self.send_button.state(["disabled"] if activo else ["!disabled"])
-        self.cancel_button.state(["!disabled"] if activo else ["disabled"])
+        # «Guardar» no entra aquí: su disponibilidad depende de que haya un
+        # documento, no de si hay una consulta en vuelo. Guardar mientras el
+        # modelo responde es legítimo y no pierde nada.
+        # Cancelar se fija ANTES que las demás: el foco de ttk al habilitarlo
+        # se lleva al primer widget enfocable posterior del recorrido, y la
+        # sincronización no debe cambiar dónde está el foco más de una vez.
+        #          «Cancelar» se queda visible en reposo, pero sin relieve
+        #          («aquí no hay nada que cancelar») en vez de gris y con borde.
+        cancelar = _widget_propio(self, "cancel_button")
+        if cancelar is not None:
+            _aplicar_estado_ttk(cancelar, activo)
+            _vestir_cancelar(cancelar, activo)
+        for nombre, disponible in (
+            ("send_button", not activo),
+            ("review_button", not activo),
+        ):
+            # Los dobles de prueba registran `state([...])`: se aplican los
+            # estados ttk con el mismo argumento que usaba `_reset_request_ui`
+            # para no invalidar ese contrato.
+            widget = _widget_propio(self, nombre)
+            if widget is None:
+                continue
+            _aplicar_estado_ttk(widget, disponible)
 
     def estado_accesible(self, detalle: str = "") -> str:
         """Descripción del estado para lectores de pantalla y para pruebas."""
@@ -1164,8 +1361,20 @@ class TukulApp(tk.Tk):
         if self.stats_after: self.after_cancel(self.stats_after)
         self.stats_after=self.after(300,self.update_stats)
     def update_context(self):
-        """Actualiza la etiqueta de contexto y el botón de revisión según la selección."""
+        """Alinea el botón de revisión y el pie con el ámbito del editor.
+
+        Firma pública sin argumentos: los widgets del editor la invocan como
+        callback de evento y los tests la llaman desnuda.
+        """
         selected=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
+        # El pie es el reporte de lo ÚLTIMO que ocurrió, no un espejo del
+        # contexto: sobrescribirlo al seleccionar borraba «Documento abierto:
+        # …» o el aviso de error. Con una consulta viva o un error sin resolver
+        # lo que informa el estado manda; el ámbito se ve en «Revisar artículo /
+        # selección» y en las métricas del pie.
+        if self.estado_actual in ESTADOS_ACTIVOS or self.estado_actual is EstadoUI.ERROR:
+            self.schedule_stats()
+            return
         self.status.set(f"Contexto: selección de {len(selected.split())} palabras." if selected else "Contexto: artículo completo.")
         # Revisar solo lo seleccionado es deliberado (edición granular); el botón debe
         # decir sobre qué va a actuar en vez de prometer siempre el artículo entero.
@@ -1270,6 +1479,7 @@ class TukulApp(tk.Tk):
                     es_respuesta=False)
         self._registrar_reciente(path)
         self.session.dirty=False; self._sincronizar_estado_sync("clean")
+        self._mostrar_documento_activo()
         self.update_context(); self.schedule_stats(); self.status.set(f"Documento abierto: {path.name}")
         return True
 
@@ -1637,7 +1847,9 @@ class TukulApp(tk.Tk):
         self.streaming_text = ""
 
         self.status.set("Contexto usado: "+", ".join(files) if files else "Respuesta lista.")
-        if usage[0] is not None: self.cost_label_var.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
+        if usage[0] is not None:
+            self.cost_label_var.set(f"Uso real: {usage[0]:,} entrada · {usage[1] or 0:,} salida")
+            self._mostrar_coste()
 
         # El tipo viaja con la petición: no hay estado de revisión persistente.
         if request_type == "review":
@@ -1702,9 +1914,19 @@ class TukulApp(tk.Tk):
         self.history.config(state="disabled")
 
     def _reset_request_ui(self) -> None:
-        """Devuelve los botones al estado de reposo tras cerrar una petición."""
-        self.send_button.state(["!disabled"])
-        self.cancel_button.state(["disabled"])
+        """Devuelve los botones al estado de reposo al cerrar una petición.
+
+        Libera Enviar y Revisar y devuelve «Cancelar» a su traje inactivo
+        (sigue visible). Antes solo liberaba Enviar, así que Revisar seguía
+        esperando tras un cierre por error o cancelación. «Guardar» queda
+        fuera: depende del documento, no de la consulta.
+        """
+        for nombre in ("send_button", "review_button"):
+            widget = _widget_propio(self, nombre)
+            if widget is not None:
+                _aplicar_estado_ttk(widget, True)
+        self._vestir_cancelar(False)
+
     def stream_chunk(self, request_id, value):
         """Pinta un fragmento incremental de la respuesta en curso."""
         # Verificar que este request_id sigue siendo válido (no cancelado/descartado)
@@ -2545,6 +2767,7 @@ class TukulApp(tk.Tk):
         for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Tukul",item.content)
         self._enter_document_scope(self.session.document_path)
         self.session.dirty=False; self._sincronizar_estado_sync("clean")
+        self._mostrar_documento_activo()
         self.update_context(); self.schedule_stats()
         self.status.set("Proyecto abierto.")
 

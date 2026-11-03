@@ -161,7 +161,9 @@ def colores() -> dict[str, str]:
 
 # --- Tipografía: tres tamaños --------------------------------------------
 FAMILIA = "Inter"
-TIPO_SM = 10   # metadatos, notas al pie
+# 11 px es el mínimo legible-en-pantalla sin depender de zoom: a 10 px los
+# metadatos del historial y las notas se leían con esfuerzo en pantallas 1x.
+TIPO_SM = 11   # metadatos, notas al pie
 TIPO_MD = 12   # controles compactos
 TIPO_LG = 14   # prosa: lectura prolongada
 

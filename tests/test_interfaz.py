@@ -114,6 +114,11 @@ class TestVentanaReal(unittest.TestCase):
         self.app = TukulApp(self.raiz / "config.toml")
         self.app.geometry("1100x700")
         self._asentar()
+        # Estas pruebas corren sobre el display del usuario: la ventana debe
+        # existir (pack/winfo_ismapped solo valen con la ventana mapeada), pero
+        # se arrastra fuera de la pantalla para no tapar su trabajo.
+        self.app.geometry(f"1100x700+{self.app.winfo_screenwidth() + 200}+0")
+        self._asentar()
 
     def tearDown(self):
         self.app.destroy()
@@ -140,8 +145,25 @@ class TestVentanaReal(unittest.TestCase):
             cancelar_desactivado = "disabled" in self.app.cancel_button.state()
             self.assertEqual(enviar_desactivado, activo,
                              f"{estado.name}: Enviar debe estar {'inhabilitado' if activo else 'disponible'}")
+            # «Cancelar» siempre ocupa su sitio (así se descubre la salida)
+            # pero solo se viste de botón cuando hay algo que cancelar: en
+            # reposo usa el estilo «Inactivo», sin relieve.
+            self.assertTrue(self.app.cancel_button.winfo_ismapped(),
+                            f"{estado.name}: Cancelar debe seguir visible")
             self.assertEqual(cancelar_desactivado, not activo,
-                             f"{estado.name}: Cancelar debe estar {'disponible' if activo else 'inhabilitado'}")
+                             f"{estado.name}: Cancelar debe estar {'disponible' if activo else 'inhibido'}")
+            estilo_esperado = "TButton" if activo else "Inactivo.TButton"
+            self.assertEqual(str(self.app.cancel_button.cget("style")), estilo_esperado,
+                             f"{estado.name}: Cancelar con traje equivocado")
+            # Enviar y Revisar nunca quedan muertos tras cerrar la petición:
+            # toda transición los devuelve a disponible.
+            for boton in (self.app.send_button, self.app.review_button):
+                self.assertEqual("disabled" in boton.state(), activo,
+                                 f"{estado.name}: {boton.cget('text')} con estado incorrecto")
+            # Guardar depende del documento, no de la consulta: se puede
+            # guardar mientras el modelo responde.
+            self.assertNotIn("disabled", self.app.boton_guardar.state(),
+                             f"{estado.name}: Guardar no debe depender de la consulta")
 
     def test_el_detalle_se_anade_sin_perder_el_estado(self):
         self.app.set_estado(EstadoUI.ERROR, "tiempo agotado")
@@ -182,11 +204,39 @@ class TestVentanaReal(unittest.TestCase):
     def test_las_acciones_primarias_siguen_visibles_con_el_panel_estrecho(self):
         self.app.geometry("820x560")
         self._asentar()
-        for boton in (self.app.send_button, self.app.cancel_button, self.app.review_button):
+        for boton in (self.app.send_button, self.app.review_button):
             self.assertTrue(boton.winfo_ismapped(),
                             f"{boton.cget('text')} quedó fuera de la vista")
             self.assertGreater(boton.winfo_height(), 1)
         self.assertTrue(self.app.input.winfo_ismapped(), "El campo de mensaje debe verse")
+        # Cancelar ya ocupa su sitio en reposo (apagado, sin relieve): al
+        # iniciar la consulta no empuja a los demás controles.
+        self.assertTrue(self.app.cancel_button.winfo_ismapped())
+        ancho_reposo = self.app.cancel_button.winfo_width()
+        self.app.set_estado(EstadoUI.TRANSMITIENDO)
+        self._asentar()
+        self.assertTrue(self.app.cancel_button.winfo_ismapped())
+        self.assertAlmostEqual(self.app.cancel_button.winfo_width(), ancho_reposo, delta=1,
+                               msg="Cancelar no debe cambiar de ancho al activarse")
+
+    def test_cerrar_la_peticion_libera_todas_las_acciones(self):
+        """`_reset_request_ui` devuelve Enviar y Revisar a disponible.
+
+        Antes solo liberaba Enviar: Revisar se quedaba esperando tras un cierre
+        por error o cancelación. Cancelar sigue visible, pero vuelve a su traje
+        inactivo para no competir con «Revisar artículo».
+        """
+        self.app.set_estado(EstadoUI.TRANSMITIENDO)
+        self._asentar()
+        self.assertIn("disabled", self.app.send_button.state())
+        self.app._reset_request_ui()
+        self._asentar()
+        for boton in (self.app.send_button, self.app.review_button):
+            self.assertNotIn("disabled", boton.state(),
+                             f"{boton.cget('text')} quedó inhabilitado tras cerrar la petición")
+        self.assertTrue(self.app.cancel_button.winfo_ismapped(),
+                        "Cancelar debe seguir visible para descubrir la salida")
+        self.assertEqual(str(self.app.cancel_button.cget("style")), "Inactivo.TButton")
 
     # --- confirmación no invasiva ---------------------------------------
     def test_la_confirmacion_de_contexto_no_es_un_modal(self):

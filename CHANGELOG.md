@@ -8,6 +8,28 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- Auditoría conductual de la interfaz:
+  - «Cancelar» deja de aparecer como botón gris en reposo: sigue visible para
+    descubrir la salida, pero sin relieve (estilo `Inactivo`) hasta que hay una
+    consulta viva. Antes un control sin función competía con «Revisar artículo».
+  - Enviar y Revisar vuelven a habilitarse al cerrar una petición. `finish`
+    dejaba Enviar apagado tras el primer éxito y `_reset_request_ui` no liberaba
+    Revisar. «Guardar» ya no depende del estado de la consulta.
+  - El pie de estado conserva el último mensaje útil: seleccionar texto ya no
+    lo sobrescribía mientras había una consulta activa o un error sin resolver.
+  - La barra y el título muestran el artículo activo (con `•` si hay cambios
+    sin guardar). Antes solo decían «Tukul».
+  - El foco inicial llega al editor: «Guardar» sale del recorrido por Tab, que
+    ahora empieza por «Menú».
+  - El tema `clam` de ttk se fija en el arranque, antes de crear estilos.
+  - El enunciado de bienvenida no se duplica ni pisa una conversación
+    restaurada al reabrir la aplicación.
+  - Los tooltips de la barra no se salen por el borde derecho de la pantalla.
+  - La línea de uso de tokens se oculta hasta que el modelo informa de consumo
+    real, en vez de repetir el texto de ayuda.
+  - Metadatos de 11 px (antes 10) y texto del asistente ajustado al ancho real
+    del panel (antes un `wraplength` fijo de 300 px).
+  - «Revisar artículo» explica en un tooltip qué revisa y que no modifica el texto.
 - Instalación e importación: el paquete `articulador_core` vuelve a la raíz y
   la copia anidada en `articulador_ui/` se elimina. `pip install` y el arranque
   volvían a fallar con `ModuleNotFoundError` y un árbol de trabajo no válido.

@@ -74,6 +74,13 @@ class ToolTip:
         ).pack()
         x = self.widget.winfo_rootx() + es.ESP["sm"]
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + es.ESP["xs"]
+        # Espejo horizontal: un control pegado al borde derecho (los de la
+        # barra superior) generaba una pista que terminaba fuera de pantalla.
+        self._ventana.update_idletasks()
+        ancho = self._ventana.winfo_reqwidth()
+        pantalla = self.widget.winfo_screenwidth()
+        if x + ancho > pantalla - es.ESP["sm"]:
+            x = max(es.ESP["sm"], pantalla - ancho - es.ESP["sm"])
         self._ventana.wm_geometry(f"+{x}+{y}")
         ToolTip._activo = self
 
