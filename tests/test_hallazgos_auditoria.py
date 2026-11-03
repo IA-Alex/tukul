@@ -6,15 +6,31 @@ comportamiento vuelve, el test falla con el nombre del hallazgo.
 import logging
 import stat
 import tempfile
+import time
+import tkinter as tk
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import tukul_core.storage as storage
 from tukul_core import autosave
+from tukul_core.models import LlmProfile
 from tukul_core.review import MAX_RESULT_CHARS, parse_findings
 from tukul_ui import estilo as es
 from tukul_ui.app import TukulApp
+
+
+def _hay_display() -> bool:
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        return False
+    raiz.destroy()
+    return True
+
+
+#: Las pruebas de ventana real corren solo con servidor X (o Xvfb).
+HAY_DISPLAY = _hay_display()
 
 
 class _BackendFalso:
@@ -167,3 +183,57 @@ class TestSinShimDeColor(unittest.TestCase):
     def test_el_shim_esta_retirado(self):
         self.assertFalse(hasattr(es, "colores"))
         self.assertFalse(hasattr(es, "COLORS"))
+
+@unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
+class TestReabrirNoPierdeLaRespuesta(unittest.TestCase):
+    """Bug B: reabrir el mismo documento durante una consulta perdía la respuesta.
+
+    `set_session` sustituye la sesión por una nueva; si la copia de la
+    conversación salía de la sesión nueva (vacía) se perdía también el turno
+    del usuario, y si salía antes de `set_session` se perdía lo que el worker
+    añadiera después. La respuesta se pintaba en pantalla pero no se guardaba.
+    """
+
+    def setUp(self) -> None:
+        self.directorio = tempfile.TemporaryDirectory()
+        raiz = Path(self.directorio.name)
+        self.documento = raiz / "a.md"
+        self.documento.write_text("# A\n", encoding="utf-8")
+        self.app = TukulApp(raiz / "config.toml")
+        self.app.update()
+        self.app.profiles = {"p": LlmProfile(name="p", provider="openai_compatible",
+                                             endpoint="https://api.example.com/v1/chat/completions",
+                                             model="m", api_key_env="X")}
+        self.app.active_profile = "p"
+        self.app.session_keys["p"] = "k"
+        self.app.load_document(self.documento)
+        self.app.update()
+
+    def tearDown(self) -> None:
+        self.app.destroy()
+        self.directorio.cleanup()
+
+    def _esperar(self, cond, limite: float = 2.0) -> None:
+        fin = time.monotonic() + limite
+        while time.monotonic() < fin and not cond():
+            self.app.update()
+            time.sleep(0.01)
+
+    def test_la_respuesta_sobrevive_a_reabrir_el_mismo_documento(self):
+        def stream(*_a, on_chunk=None, on_complete=None, cancel_event=None, **_k):
+            on_chunk("RESPUESTA")
+            on_complete("RESPUESTA", (1, 1))
+
+        with patch.object(self.app.llm, "stream_response", side_effect=stream), \
+                patch("tukul_ui.app.messagebox.askyesno", return_value=False):
+            self.app.request("hola")
+            self._esperar(lambda: self.app.session.request_active)
+            self.app.load_document(self.documento.resolve())
+            self.app.update()
+            self._esperar(lambda: not self.app.session.request_active)
+
+        roles = [item.role for item in self.app.session.conversation]
+        self.assertEqual(roles, ["user", "assistant"],
+                         "el turno del usuario y la respuesta deben persistir")
+        self.assertEqual(self.app.session.conversation[-1].content, "RESPUESTA")
+

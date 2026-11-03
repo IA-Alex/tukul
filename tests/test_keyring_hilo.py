@@ -113,20 +113,29 @@ class TestKeyringFueraDelHiloTk(unittest.TestCase):
         hilo principal). destroy() espera a los hilos de keyring con un tope.
         """
         liberado = threading.Event()
+        en_cierre = threading.Event()
 
         def load_key_lento(_perfil: str) -> str:
             liberado.wait(2)
             return "secreto"
 
-        with patch.object(storage, "load_key", side_effect=load_key_lento):
+        with patch.object(storage, "load_key", side_effect=load_key_lento), \
+                patch.object(TukulApp, "_esperar_hilos_de_keyring",
+                             autospec=True, side_effect=lambda _app, *a, **k: en_cierre.set()):
             self.app._resolver_credenciales()
             self.assertTrue(self.app._llaves_en_curso, "La lectura debe haber empezado")
-            # Se libera mientras destroy() espera: así se mide el apagado, no
-            # el tope de espera (que tiene su propia prueba).
-            threading.Timer(0.05, liberado.set).start()
+            # Determinista: se libera la lectura cuando el cierre YA está
+            # esperando, no con un temporizador que competía con la latencia
+            # del runner (origen del fallo intermitente en la suite completa).
+            threading.Thread(target=lambda: (en_cierre.wait(2), liberado.set()),
+                             daemon=True).start()
             self.app.destroy()
-            self.assertFalse(self.app._llaves_en_curso,
-                             "Al cerrar no debe quedar una lectura pendiente")
+            self.assertTrue(en_cierre.is_set(), "El cierre debe esperar a la lectura")
+            liberado.wait(2)
+            for listo in list(self.app._llaves_en_curso.values()):
+                listo.wait(2)
+        self.assertFalse(self.app._llaves_en_curso,
+                         "Al cerrar no debe quedar una lectura pendiente")
 
     def test_el_resultado_queda_en_cache_y_se_sirve_sin_releer(self):
         with patch.object(storage, "load_key", return_value="desde-llavero") as leer:

@@ -8,6 +8,18 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- Reabrir el documento activo (por ejemplo desde «Recientes») durante una
+  consulta borraba la respuesta: la conversación guardada se sustituía por la
+  de una sesión recién creada, así que el texto se veía en pantalla pero no
+  quedaba en el historial ni en `estado.json`, sin ningún aviso.
+- Cancelar una consulta afectaba a un evento compartido del manager en vez de al
+  de la petición cancelada; ahora cada petición cancela exactamente la suya y
+  `LLMSessionManager.cancel` solo cierra su stream HTTP.
+- El aviso «espera o cancélala» al enviar con una consulta en curso prometía un
+  botón que queda retirado fuera de una petición.
+- Test de cierre del llavero: se sustituye el temporizador que competía con la
+  latencia del runner por una sincronización determinista, origen de fallos
+  intermitentes en la suite completa.
 - Hallazgos de la auditoría de 2026-11-02 que seguían abiertos:
   - **Privacidad del estado.** `estado.json` (que guarda todo el historial de
     conversaciones), el autosave y `config.toml` se crean con permisos `0600`

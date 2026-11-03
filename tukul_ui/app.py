@@ -1551,10 +1551,13 @@ class TukulApp(tk.Tk):
                 self.append("Tú" if item.role == "user" else "Tukul", item.content)
         else:
             # Reabrir el mismo documento (p. ej. desde «Recientes»): el artículo
-            # en disco se recarga, pero la conversación en curso no se toca.
-            conversacion_en_curso = list(self.session.conversation)
-            self.docs.set_session(session)
-            self.session.conversation = conversacion_en_curso
+            # en disco se recarga, pero la conversación en curso no se toca. Por
+            # eso NO se llama a `set_session`: sustituiría la sesión viva por una
+            # nueva y un worker en curso seguiría escribiendo en la vieja; la
+            # respuesta se pintaba en pantalla pero no se guardaba.
+            self.session.article = session.article
+            self.session.document_path = session.document_path
+            self.session.project_path = session.project_path
         self._enter_document_scope(session.document_path)
         self._replace_editor_text(session.article)
         self.append("Tukul", f"Artículo activo: «{path.name}». La conversación y los artículos "
@@ -1693,7 +1696,10 @@ class TukulApp(tk.Tk):
             self.show_error("Error interno", "No se pudo preparar la revisión. Inténtalo de nuevo.")
             return
 
-        self.llm.cancel_event = cancel_event
+        # Sin asignar `llm.cancel_event`: `_cancel_active_request` ya marca
+        # ESTE evento directamente. Publicarlo en el manager hacía que una
+        # cancelación marcara el evento que hubiera en ese momento, no el de la
+        # petición cancelada.
         def work():
             """Transmite la revisión en segundo plano y publica eventos de UI."""
             # La key se resuelve en el worker: el llavero no debe bloquear Tk.
@@ -1726,8 +1732,10 @@ class TukulApp(tk.Tk):
         # ventana de estado y la respuesta del primero se pintaba sobre la
         # segunda petición. Se descarta mientras haya una viva o pendiente de
         # aprobación (confirm_and_send aún no marcó el worker como lanzado).
+        # «Espera o cancélala» prometía un botón que queda retirado del layout
+        # fuera de una petición: aquí solo se puede esperar.
         if self.session.request_active:
-            self.status.set("Ya hay una petición en curso; espera o cancélala antes de enviar otra.")
+            self.status.set("Ya hay una consulta en curso; espera a que termine para enviar otra.")
             return
         if not self.profile.enabled or not self.key: self.append("Tukul","Configura un perfil LLM y una key para responder."); return
         article = self.editor.get("1.0","end-1c")
@@ -1848,7 +1856,10 @@ class TukulApp(tk.Tk):
 
         # Snapshot in the UI thread: the worker must not read mutable session state.
         # IMPORTANTE: usar conversation_with_message que incluye el mensaje actual
-        self.llm.cancel_event = cancel_event
+        # Sin asignar `llm.cancel_event`: `_cancel_active_request` ya marca
+        # ESTE evento directamente. Publicarlo en el manager hacía que una
+        # cancelación marcara el evento que hubiera en ese momento, no el de la
+        # petición cancelada.
         def work():
             """Ejecuta la petición HTTP en un hilo daemon y publica eventos de UI."""
             # La key del llavero se resuelve DENTRO del worker: leerla aquí
@@ -2891,10 +2902,15 @@ class TukulApp(tk.Tk):
         empezado a divergir: una marcaba el estado CANCELADO y ocultaba la barra
         de aprobación, la otra no. Reunirlas aquí evita ese desdoblamiento.
         """
+        # Se marca el evento DE ESTA petición. Antes se llamaba a
+        # `llm.cancel(...)`, que marcaba `llm.cancel_event`: el evento de la
+        # última petición lanzada, que no tiene por qué ser la que se cancela.
+        # El worker ya recibió su evento por parámetro, así que este es el único
+        # canal que importa; cerrar el socket se hace igualmente abajo.
         if self.cancel_event:
             self.cancel_event.set()
         # Cancelar en LLMClient (generation_counter es el request_id actual).
-        self.llm.cancel(self.generation_counter)
+        self.llm.client.cancel(self.generation_counter)
         # Limpiar TODOS los buffers pendientes: una respuesta tardía no debe
         # pintarse ni reactivar una petición ya cerrada.
         self.request_types.clear()

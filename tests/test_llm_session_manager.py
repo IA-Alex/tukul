@@ -140,16 +140,18 @@ class StreamResponseTests(unittest.TestCase):
 
 
 class CancelTests(unittest.TestCase):
-    def test_cancel_marca_el_evento_y_delega_en_el_cliente(self):
-        import threading
+    def test_cancel_cierra_el_stream_del_request_pedido(self):
+        """`cancel` delega en el cliente y no toca ningún evento propio.
 
+        El evento de cancelación es de la petición y lo guarda `TukulApp`; si
+        el manager marcara uno suyo, cancelar marcaría el de la última petición
+        lanzada en vez del de la cancelada.
+        """
         manager = LLMSessionManager()
-        manager.cancel_event = threading.Event()
 
         with patch.object(LLMClient, "cancel") as cancel_cliente:
             manager.cancel(request_id=7)
 
-        self.assertTrue(manager.cancel_event.is_set())
         cancel_cliente.assert_called_once_with(7)
 
     def test_cancel_sin_evento_activo_no_falla(self):

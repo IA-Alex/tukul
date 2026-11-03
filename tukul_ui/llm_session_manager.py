@@ -127,8 +127,11 @@ class LLMSessionManager:
         return accumulated + chunk_bytes
 
     def cancel(self, request_id: int) -> None:
-        """Cancela request activo."""
-        if self.cancel_event:
-            self.cancel_event.set()
+        """Cierra el stream HTTP de un request concreto.
+
+        No marca `cancel_event`: el evento de cancelación lo crea y lo guarda
+        `TukulApp` por petición y el worker lo recibe por parámetro. Marcarlo
+        aquí es lo que hacía `TukulApp._cancel_active_request` antes, y por eso
+        cancelar una consulta podía marcar el evento de otra.
+        """
         self.client.cancel(request_id)
-        # request_id y request_active ahora se manejan en app.py (TukulApp)
