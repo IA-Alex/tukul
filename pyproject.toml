@@ -37,6 +37,7 @@ dev = [
     "mypy>=1.0.0",        # Type checker
     "pip-audit>=2.7.0",   # Auditoría de vulnerabilidades de dependencias
     "bandit>=1.7.0",      # Análisis estático de seguridad
+    "locust>=2.0.0",      # Material de performance opcional (tests/performance/locustfile.py)
 ]
 
 # Sin esto, `pip install -e .` instalaba el paquete pero no dejaba un comando

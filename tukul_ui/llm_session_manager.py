@@ -15,7 +15,8 @@ class LLMSessionManager:
 
     def __init__(self) -> None:
         self.client = LLMClient()
-        # request_id y request_active ahora se manejan vía RequestState en app.py
+        # request_id y request_active los gestiona TukulApp (request_types +
+        # cancel_event): aquí solo vive el evento de cancelación por petición.
         self.cancel_event: threading.Event | None = None
 
     def stream_response(

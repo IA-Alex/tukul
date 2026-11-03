@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import re
@@ -138,9 +139,6 @@ class ContextArticle:
     label: str
     content: str
 
-# Compatibilidad con los diálogos, que leían `app.COLORS`: ahora es una
-# instantánea regenerada en cada `_theme()` desde `es.colores()` (el sistema
-# visual vive en tukul_ui/estilo.py y es la fuente única de color).
 REVIEW_PROMPT = (
     'Revisa el artículo y responde SOLO JSON válido: '
     '{"findings":[{"category":"ortografía|gramática|semántica|redundancia|estructura",'
@@ -173,6 +171,7 @@ class TukulApp(tk.Tk):
         except tk.TclError:
             # Tema nativo ausente: se conserva el de Tk y `_theme` reintenta.
             pass
+        self._ajustar_dpi()
         self.config_path = config_path
         # Estado de interfaz persistente: zoom, geometría, tema, recientes y
         # conversaciones. Vive junto al config para que una instalación tenga un
@@ -310,10 +309,18 @@ class TukulApp(tk.Tk):
         def leer() -> None:
             try:
                 valor = storage.load_key(perfil)
+            except storage.KeyringUnavailableError:
+                # El llavero existe pero no responde: NO es «no hay key». Se
+                # cachea vacío para no reintentar en bucle, pero se avisa en la
+                # barra; si no, el usuario leería «Configura una key», pista falsa.
+                self.control_queue.put_nowait(("keyring_unavailable", perfil))
+                valor = ""
             except Exception:
                 # Un llavero ajeno (D-Bus, backend del SO) no debe romper la UI.
                 valor = ""
             self._keys_llavero[perfil] = valor
+            # Marcar antes de publicar: quien espera esa misma señal no debe
+            # encontrar todavía su entrada en `_llaves_en_curso` ni un instante.
             self._llaves_en_curso.pop(perfil, None)
             listo.set()
 
@@ -331,6 +338,35 @@ class TukulApp(tk.Tk):
         elif len(self.session_keys) >= self._session_keys_max:
             self.session_keys.pop(next(iter(self.session_keys)), None)
         self.session_keys[profile] = key
+
+    def _ajustar_dpi(self) -> None:
+        """Declara la aplicación «DPI-aware» y calibra la escala de Tk.
+
+        Sin esto, en Windows con escalado al 150-200 % el sistema reescala una
+        ventana dibujada a 96 DPI: texto borroso y controles de tamaño
+        incorrecto. En X11 se consulta el DPI del servidor para que `tk scaling`
+        coincida con la pantalla real. Todo es best-effort: sondeos de entornos
+        sin el módulo, sin soporte o con servidores que ya lo resuelven.
+        """
+        try:
+            import ctypes
+
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)  # type: ignore[attr-defined]
+        except (ImportError, AttributeError, OSError):
+            pass
+        try:
+            pulgadas = float(self.winfo_fpixels("1i"))
+            if pulgadas > 0:
+                self.tk.call("tk", "scaling", pulgadas / 72.0)
+        except (tk.TclError, ValueError):
+            pass
+        # La familia tipográfica se resuelve con la raíz ya viva.
+        try:
+            from tkinter import font as tkfont
+
+            es.resolver_familia(tkfont.families(self))
+        except tk.TclError:
+            pass
 
     def _aplicar_tamano_inicial(self) -> None:
         """Propone un tamaño inicial acorde a la pantalla. Se aplica una sola vez.
@@ -451,7 +487,6 @@ class TukulApp(tk.Tk):
         ni recrear nada.
         """
         es.aplicar_tema(self.theme)
-        self.COLORS = es.colores()
         self.configure(bg=es.FONDO)
         style = ttk.Style(self)
         try: style.theme_use("clam")
@@ -1461,10 +1496,17 @@ class TukulApp(tk.Tk):
         """Muestra un error en la barra de estado y en un diálogo modal."""
         self.status.set(title)
         logger.error("Error visible en UI: %s — %s", title, detail)
+        # La ruta del registro es el único dato que permite investigar después
+        # de cerrar el diálogo: sin ella, «quedaron registrados» no dice dónde.
+        registro = next(
+            (handler.baseFilename for handler in logger.handlers
+             if isinstance(handler, logging.FileHandler)), None,
+        )
+        pista = (f"\n\nDetalles en: {registro}" if registro
+                 else "\n\nNo hay archivo de registro disponible en esta instalación.")
         messagebox.showerror(
             title,
-            "No pudimos completar la acción. Vuelve a intentarlo. "
-            "Los detalles técnicos quedaron registrados para diagnóstico.",
+            "No pudimos completar la acción. Vuelve a intentarlo." + pista,
             parent=self,
         )
     def load_document(self, path: Path) -> bool:
@@ -2080,6 +2122,15 @@ class TukulApp(tk.Tk):
             self._flush_pending_chunks(request_id)
             self.finish(request_id, result, files, usage, request_type)
 
+        elif event_type == "keyring_unavailable":
+            # Aviso no modal: el envío fallará con «falta la key», pero la causa
+            # real (llavero sin respuesta) debe quedar visible en el pie.
+            _, perfil = event
+            self.status.set(
+                f"⚠ El llavero no responde (perfil «{perfil}»). "
+                "Revisa el servicio de credenciales o usa la variable de entorno."
+            )
+
     def _flush_pending_chunks(self, request_id: int) -> None:
         """Vuelca lo acumulado de una petición antes de cerrarla.
 
@@ -2400,7 +2451,8 @@ class TukulApp(tk.Tk):
         dialog.transient(parent_dialog)
         dialog.configure(bg=es.SUPERFICIE)
         dialog.minsize(520, 340)
-        dialog.geometry("640x480")
+        dialog.geometry(es.tamano_ventana(640, 480, self.winfo_screenwidth(),
+                                          self.winfo_screenheight(), minimo=(520, 340)))
 
         frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
         frame.pack(fill="both", expand=True)
@@ -2633,7 +2685,8 @@ class TukulApp(tk.Tk):
         dialog.transient(self)
         dialog.configure(bg=es.SUPERFICIE)
         dialog.minsize(460, 280)
-        dialog.geometry("580x360")
+        dialog.geometry(es.tamano_ventana(580, 360, self.winfo_screenwidth(),
+                                          self.winfo_screenheight(), minimo=(460, 280)))
         frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Artículos de contexto", style="Titulo.TLabel").pack(anchor="w")

@@ -8,6 +8,11 @@ ALLOWED_CATEGORIES = {"ortografía", "gramática", "semántica", "redundancia", 
 ALLOWED_SEVERITIES = {"alta", "media", "baja"}
 MAX_FINDINGS = 12
 MAX_FIELD_LENGTH = 500  # Máximo de caracteres por campo
+# Tope de entrada antes de `raw_decode`: el tope de hallazgos se aplica DESPUÉS
+# de materializar el árbol, así que un JSON enorme (o malformado desde el
+# principio) se parseaba entero antes de poder descartarlo. 12 hallazgos de
+# 5*500 caracteres caben holgadamente en este margen.
+MAX_RESULT_CHARS = 512 * 1024
 
 
 def _validated_finding(item: object) -> dict[str, str] | None:
@@ -43,6 +48,10 @@ def parse_findings(result: str) -> list[dict[str, str]]:
     clean = result.strip()
     if clean.startswith("```"):
         clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    # Envolver el bloque externo de un JSON encapsulado puede rebasar el tope
+    # sin que el contenido útil lo haga: se recorta antes de decodificar.
+    if len(clean) > MAX_RESULT_CHARS:
+        return []
     try:
         start = clean.find("{")
         if start < 0:

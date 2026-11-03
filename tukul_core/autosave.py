@@ -16,6 +16,9 @@ from .storage import atomic_write
 logger = setup_logging()
 
 AUTOSAVE_DIR = Path.home() / ".local" / "state" / "tukul" / "autosave"
+#: Tope del respaldo que se acepta al recuperar. Coincide con el máximo de
+#: artículo que el gestor de documentos acepta leer.
+MAX_AUTOSAVE_BYTES = 5 * 1024 * 1024
 
 
 def _autosave_path(document_path: Path) -> Path:
@@ -32,15 +35,26 @@ def write_autosave(document_path: Path, content: str) -> None:
     la escritura principal.
     """
     try:
-        atomic_write(_autosave_path(document_path), content)
+        # 0600: el respaldo es una copia del artículo, datos privados del autor.
+        atomic_write(_autosave_path(document_path), content, mode=0o600)
     except OSError as error:
         logger.warning("No se pudo escribir el autosave de %s: %s", document_path, error)
 
 
 def read_autosave(document_path: Path) -> str | None:
-    """Contenido del respaldo si existe; None en caso contrario."""
+    """Contenido del respaldo si existe; None en caso contrario.
+
+    Con tope de tamaño: el archivo vive en disco y puede haberlo sustituido
+    cualquier cosa desde fuera. Leerlo entero sin límite materializaba en RAM
+    lo que hubiera, igual que hacen `DocumentManager` y `load_project`.
+    """
+    path = _autosave_path(document_path)
     try:
-        return _autosave_path(document_path).read_text(encoding="utf-8")
+        if path.stat().st_size > MAX_AUTOSAVE_BYTES:
+            logger.warning("Autosave de %s excede %d bytes; se ignora.",
+                           document_path, MAX_AUTOSAVE_BYTES)
+            return None
+        return path.read_text(encoding="utf-8")
     except OSError:
         return None
 

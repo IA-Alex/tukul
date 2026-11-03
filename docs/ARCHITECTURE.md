@@ -21,7 +21,7 @@ Actores: usuario local, proveedor LLM configurado y sistema operativo/servicios 
 
 | Componente | Responsibility | Inputs / outputs | State ownership | Dependencies | Failure modes |
 |---|---|---|---|---|---|
-| `TukulApp` | Coordina UI, documento, conversación, requests y cierre | eventos Tk; cambios visuales y mensajes | sesión UI, `RequestState`, ámbito del documento | Tkinter, managers, storage | error de UI, request cancelada, config inválida |
+| `TukulApp` | Coordina UI, documento, conversación, requests y cierre | eventos Tk; cambios visuales y mensajes | sesión UI, `request_types` + `cancel_event`, ámbito del documento | Tkinter, managers, storage | error de UI, request cancelada, config inválida |
 | `DocumentManager` | Abre/guarda Markdown y proyectos recuperables | rutas y `ArticleSession`; archivos | sesión del artículo | `storage.atomic_write` | ruta ilegible, tamaño excedido, proyecto inválido |
 | `LLMSessionManager` | Orquesta prompt, streaming, callbacks y cancelación | perfil, key, contexto; chunks/control | request en curso | `LLMClient`, prompting | límite de respuesta, error del proveedor |
 | `LLMClient` | HTTP, adaptadores y parsing de respuestas | `LlmProfile`, prompt; `LlmResponse`/chunks | conexiones activas por request ID | `urllib`, proveedor | timeout, HTTP, JSON/SSE malformado |

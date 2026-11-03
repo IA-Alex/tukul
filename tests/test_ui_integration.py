@@ -19,7 +19,6 @@ class UISettingsDialogTests(unittest.TestCase):
         app.profile = initial_profile
         app.profiles = {"test": initial_profile}
         app.config_path = Path(tempfile.gettempdir()) / "mock_config.toml"
-        app.COLORS = {"muted": "#999"}
         return app
 
     @patch("tukul_ui.dialogs.storage.save_profiles")

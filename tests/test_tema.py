@@ -87,12 +87,14 @@ class TestPaletasYTokens(unittest.TestCase):
         self.assertEqual(claro, es.PALETAS["light"]["estado_exito"])
         self.assertEqual(oscuro, es.PALETAS["dark"]["estado_exito"])
 
-    def test_colores_mantiene_la_vista_compatible_de_app(self):
+    def test_el_tema_vigente_es_la_fuente_unica_de_color(self):
+        """`app.COLORS` y `es.colores()` se retiraron: solo queda `PALETAS`."""
         es.aplicar_tema("light")
-        vista = es.colores()
-        self.assertEqual(vista["bg"], es.PALETAS["light"]["fondo"])
-        self.assertEqual(vista["raised"], es.PALETAS["light"]["superficie_alta"])
-        self.assertEqual(vista["accent"], es.PALETAS["light"]["acento"])
+        self.assertEqual(es.FONDO, es.PALETAS["light"]["fondo"])
+        self.assertEqual(es.SUPERFICIE_ALTA, es.PALETAS["light"]["superficie_alta"])
+        self.assertEqual(es.ACENTO, es.PALETAS["light"]["acento"])
+        self.assertFalse(hasattr(es, "colores"), "el shim muerto no debe volver")
+        es.aplicar_tema("dark")
 
     # --- contraste ------------------------------------------------------
     def test_ambas_paletas_cumplen_contraste_de_texto_normal(self):

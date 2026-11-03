@@ -73,7 +73,8 @@ class ArticleSession:
     article: str = ""
     conversation: list[ChatMessage] = field(default_factory=list)
     dirty: bool = False
-    # request_active se mantiene solo como conveniencia, se sincroniza con RequestState
+    # Bandera de conveniencia para la UI (habilitar Enviar/Cancelar). El estado
+    # autoritativo de la petición vive en `TukulApp.request_types` + `cancel_event`.
     request_active: bool = False
 
 

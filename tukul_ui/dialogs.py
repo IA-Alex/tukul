@@ -133,7 +133,10 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
     scope = app.scope
     # No modal: hay que poder leer el artículo mientras se decide sobre él.
     dialog, cuerpo = _abrir_dialogo(app, "Revisión del artículo", modal=False)
-    dialog.geometry("760x520")
+    # Tamaño preferido, pero recortado a la pantalla: en un 1366x768 el alto
+    # fijo dejaba los botones de acción fuera de alcance.
+    dialog.geometry(es.tamano_ventana(760, 520, app.winfo_screenwidth(),
+                                      app.winfo_screenheight(), minimo=(620, 380)))
     dialog.minsize(620, 380)
 
     ttk.Label(cuerpo, text="Elige un hallazgo y decide: aplicar la sugerencia o ignorarla.",
@@ -295,7 +298,8 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
 def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gestión de perfiles)
     """Abre el diálogo de configuración de perfiles LLM (selector + gestión)."""
     dialog, frame = _abrir_dialogo(app, "Configurar modelo")
-    dialog.geometry("700x620")
+    dialog.geometry(es.tamano_ventana(700, 620, app.winfo_screenwidth(),
+                                      app.winfo_screenheight(), minimo=(560, 400)))
     dialog.minsize(560, 400)
     # Todo el cuerpo usa estilos ttk (se repintan solos); solo el fondo del
     # Toplevel es un color directo que hay que reaplicar al cambiar de tema.
@@ -425,6 +429,11 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         def leer() -> None:
             try:
                 valor = storage.load_key(nombre)
+            except storage.KeyringUnavailableError as error:
+                # Llavero roto ≠ «no hay key»: no se cachea vacío (pinta una
+                # pista falsa en el campo) y se deja rastro para diagnóstico.
+                logger.warning("Llavero no disponible al leer '%s': %s", nombre, error)
+                return
             except Exception:
                 valor = ""
             app._keys_llavero[nombre] = valor

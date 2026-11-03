@@ -8,6 +8,31 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- Hallazgos de la auditoría de 2026-11-02 que seguían abiertos:
+  - **Privacidad del estado.** `estado.json` (que guarda todo el historial de
+    conversaciones), el autosave y `config.toml` se crean con permisos `0600`
+    y su carpeta con `0700`; antes heredaban el umask (0755 típico) y eran
+    legibles por otros usuarios de la máquina.
+  - **Llavero caído ≠ «no hay key».** `storage.load_key` distingue «no existe
+    la entrada» de un backend sin respuesta y lanza
+    `KeyringUnavailableError` en el segundo caso. La interfaz lo avisa en el pie
+    («El llavero no responde…») en vez de pedir configurar una key que sí existe.
+  - **Topes de lectura.** `read_autosave` rechaza respaldos de más de 5 MB y
+    `parse_findings` descarta la respuesta antes de `raw_decode` si supera
+    512 KB, sin materializar el árbol JSON.
+  - **El error visible dice dónde está el registro.** El diálogo de error incluye
+    la ruta del log, o avisa de que no hay archivo en esa instalación.
+  - **High-DPI y fuente con reserva.** La app se declara DPI-aware en Windows,
+    calibra `tk scaling` con el DPI real y elige la primera familia instalada
+    (`Inter` → `Segoe UI` → `DejaVu Sans`…) en vez de caer en una fuente ajena.
+  - **Los diálogos caben en la pantalla.** Tamaño preferido recortado con margen
+    de 32/64 px: en un portátil de 1366x768 el de configuración dejaba sus
+    botones fuera de alcance.
+  - **Código muerto retirado.** `app.COLORS`, `estilo.colores()` y los
+    comentarios sobre un `RequestState` inexistente; `docs/ARCHITECTURE.md`
+    describe el dueño real del estado de petición.
+  - **Una sola fuente de dependencias de test.** Se retira
+    `requirements-test.txt` y `locust` pasa al extra `dev`.
 - La geometría guardada de la ventana vuelve a restaurarse cuando está a la
   izquierda o por encima del origen del escritorio: Tk la escribe como
   `1920x1011+-61+-23` y el patrón anterior no casaba con `+-61`, así que se

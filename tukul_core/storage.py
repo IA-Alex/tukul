@@ -96,9 +96,14 @@ def save_ui_state(state: dict, config_path: Path | str = CONFIG_PATH) -> None:
         raise ValueError(
             f"El estado de interfaz supera el límite de {MAX_UI_STATE_BYTES // (1024 * 1024)} MB."
         )
+    # `estado.json` guarda TODO el historial de conversaciones: no puede quedar
+    # legible por otros usuarios de la máquina. `atomic_write` respeta el modo
+    # del destino si ya existe; para uno nuevo se pide 0600 explícito, y la
+    # carpeta se crea cerrada (0700) en vez de heredar el umask (0755 típico).
     atomic_write(
         estado_ui_path(config_path),
         content,
+        mode=0o600,
     )
 
 
@@ -126,7 +131,9 @@ def atomic_write(path: Path, content: str, mode: int | None = None) -> None:
     artículo y el proyecto. Era `_atomic_write` (privado), pero otro módulo la
     consumía a diario, rompiendo el contrato del guion bajo.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # `mode` solo se aplica a los directorios que se crean aquí; uno que ya
+    # existe conserva sus permisos (no se restringe la carpeta del usuario).
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if mode is None:
         # mkstemp crea el temporal con 0600. Sin heredar los permisos del destino,
         # cada guardado degradaba un artículo 0644 a 0600 (y rompía compartición).
@@ -261,8 +268,37 @@ def load_key(profile: str) -> str:
         return ""
     try:
         return keyring.get_password("tukul", profile) or ""
-    except Exception:
-        return ""
+    except Exception as error:
+        # «No existe entrada» es equivalente a no tener key. Un backend
+        # bloqueado (D-Bus caído, Secret Service sin sesión, llavero remoto sin
+        # respuesta) NO lo es: devolver "" enviaba al usuario a «Configura un
+        # perfil LLM y una key», una pista falsa. Quien llama decide qué hacer
+        # con `KeyringUnavailableError`.
+        if _es_sin_entrada(error):
+            logger.debug("Sin entrada de llavero para '%s'.", profile)
+            return ""
+        raise KeyringUnavailableError(
+            f"El llavero no responde ({type(error).__name__}). "
+            "Revisa el servicio de credenciales del sistema."
+        ) from error
+
+
+def _es_sin_entrada(error: BaseException) -> bool:
+    """¿El error significa «esta entrada no existe» y no «el llavero falla»?
+
+    keyring usa `PasswordNotFound` en la mayoría de backends, pero no en todos
+    (algunos devuelven None o lanzan `KeyringError` genérico). Se reconoce por
+    tipo y, como respaldo, por el texto conocido.
+    """
+    errores = getattr(keyring, "errors", None)
+    if errores is not None and isinstance(error, getattr(errores, "PasswordNotFound", ())):
+        return True
+    texto = str(error).lower()
+    return "no password" in texto or "not found" in texto
+
+
+class KeyringUnavailableError(RuntimeError):
+    """El llavero existe pero no responde; no equivale a «no hay key»."""
 
 
 def save_key(profile: str, key: str) -> None:

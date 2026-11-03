@@ -21,6 +21,8 @@ capas.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 # --- Paletas: dark / light ------------------------------------------------
 # Única fuente de verdad del color. `aplicar_tema()` vuelca la paleta elegida
 # a los atributos de módulo; el resto del código lee `es.FONDO`, `es.TEXTO`, …
@@ -142,25 +144,17 @@ def token(nombre: str) -> str:
     return PALETAS[TEMA_ACTIVO][nombre]
 
 
-def colores() -> dict[str, str]:
-    """Vista plana del tema activo con los nombres históricos de `app.COLORS`.
-
-    Compatibilidad para quien consumía el diccionario estático: la fuente única
-    de verdad sigue siendo `PALETAS` y esta función devuelve SIEMPRE los tokens
-    del tema vigente, nunca una copia congelada del anterior.
-    """
-    t = PALETAS[TEMA_ACTIVO]
-    return {
-        "bg": t["fondo"], "panel": t["superficie"], "raised": t["superficie_alta"],
-        "field": t["superficie_alta"], "text": t["texto"], "muted": t["texto_tenue"],
-        "muted_light": t["texto_tenue"], "accent": t["acento"],
-        "accent_text": t["acento_texto"], "border": t["borde"],
-        "selection": t["seleccion"], "assistant": t["voz_asistente"],
-    }
-
-
 # --- Tipografía: tres tamaños --------------------------------------------
 FAMILIA = "Inter"
+#: Lista de reserva, en orden. Tk no sustituye una familia ausente por otra de
+#: forma predecible: si «Inter» no está instalada cae en una fuente serif o en
+#: el ancho por defecto del sistema, y toda la interfaz cambia de aspecto. Se
+#: prueban primero las familias del propio proyecto y después las de escritorio
+#: más comunes en Linux, macOS y Windows.
+FAMILIAS_RESERVA = ("Inter", "Segoe UI", "Helvetica Neue", "Noto Sans",
+                    "DejaVu Sans", "Liberation Sans", "Helvetica", "Arial")
+#: Familia realmente disponible. La fija `resolver_familia()` tras crear la raíz.
+_familia_activa: str | None = None
 # 11 px es el mínimo legible-en-pantalla sin depender de zoom: a 10 px los
 # metadatos del historial y las notas se leían con esfuerzo en pantallas 1x.
 TIPO_SM = 11   # metadatos, notas al pie
@@ -179,6 +173,42 @@ ZOOM_STEP = 0.1
 ESP = {"xs": 4, "sm": 8, "md": 12, "lg": 16}
 
 
+def resolver_familia(familias_disponibles: Iterable[str] | None = None) -> str:
+    """Elige la primera familia instalada de `FAMILIAS_RESERVA`.
+
+    Se resuelve una vez, con la raíz Tk ya creada (`tkinter.font.families()`
+    necesita un intérprete). Sin información disponible se conserva `FAMILIA`.
+    """
+    global _familia_activa
+    if familias_disponibles is None:
+        _familia_activa = FAMILIA
+        return FAMILIA
+    disponibles = {str(nombre).lower() for nombre in familias_disponibles}
+    for candidata in FAMILIAS_RESERVA:
+        if candidata.lower() in disponibles:
+            _familia_activa = candidata
+            return candidata
+    _familia_activa = FAMILIA
+    return FAMILIA
+
+
+def tamano_ventana(ancho: int, alto: int, pantalla_ancho: int, pantalla_alto: int,
+                   *, minimo: tuple[int, int] = (480, 360)) -> str:
+    """Tamaño que cabe en la pantalla del usuario, con margen para el sistema.
+
+    Los diálogos usaban tamaños absolutos (`760x520`, `700x620`): en un portátil
+    de 1366x768 el de configuración quedaba más alto que la pantalla y sus
+    botones de acción, fuera de alcance. Se conserva el tamaño preferido cuando
+    cabe, y el mínimo se aplica solo si la pantalla lo permite.
+    """
+    disponible_ancho, disponible_alto = pantalla_ancho - 32, pantalla_alto - 64
+    if disponible_ancho <= 0 or disponible_alto <= 0:
+        return f"{ancho}x{alto}"
+    minimo_ancho, minimo_alto = minimo
+    return (f"{max(min(ancho, disponible_ancho), min(minimo_ancho, disponible_ancho))}"
+            f"x{max(min(alto, disponible_alto), min(minimo_alto, disponible_alto))}")
+
+
 def fuente(tamano: int = TIPO_MD, *, negrita: bool = False, cursiva: bool = False) -> tuple:
     """Construye una fuente de la escala. Evita tamaños sueltos por el código."""
     estilos = []
@@ -187,7 +217,7 @@ def fuente(tamano: int = TIPO_MD, *, negrita: bool = False, cursiva: bool = Fals
     if cursiva:
         estilos.append("italic")
     cuerpo = max(1, round(tamano * ZOOM))
-    return (FAMILIA, cuerpo, *estilos)
+    return (_familia_activa or FAMILIA, cuerpo, *estilos)
 
 
 def _canal(valor: int) -> float:

@@ -1,5 +1,0 @@
-# Dependencias para ejecutar la estrategia de pruebas completa.
-# pytest y pytest-cov también están declarados en el extra: pip install -e ".[dev]"
-pytest>=7.0.0
-pytest-cov>=4.0.0
-locust>=2.0.0
