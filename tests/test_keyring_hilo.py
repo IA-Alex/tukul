@@ -39,6 +39,15 @@ class TestKeyringFueraDelHiloTk(unittest.TestCase):
     """La key del llavero llega sin bloquear el bucle de eventos."""
 
     def setUp(self):
+        # Estos tests verifican CÓMO se lee el llavero, no si el runner tiene
+        # backend. En CI (sin Secret Service) hay que simular uno disponible;
+        # de lo contrario la app acierta al no lanzar la lectura y el test
+        # mediría otra cosa.
+        self._backend_original = storage.credential_backend_disponible
+        storage.credential_backend_disponible = lambda: True
+        self.addCleanup(lambda: setattr(
+            storage, "credential_backend_disponible", self._backend_original))
+
         self.directorio = tempfile.TemporaryDirectory()
         raiz = Path(self.directorio.name)
         self.documento = raiz / "articulo.md"

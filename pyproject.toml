@@ -137,7 +137,7 @@ addopts = "-v --tb=short"
 # de CI quedó 15 minutos mudo sin indicar qué prueba se había atascado.
 # El tope es por test: la suite entera tarda ~25 s como máximo.
 timeout = 120
-timeout_method = "thread"
+timeout_method = "signal"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]

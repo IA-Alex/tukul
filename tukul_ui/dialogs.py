@@ -523,9 +523,6 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
             app.profiles = working
             app.active_profile = active
             app.profile_chip.config(text=f"Modelo: {working[active].model or 'sin configurar'}")
-            _persistir_credencial(app, active, key.get().strip(), remember.get())
-            messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
-            dialog.destroy()
         except (OSError, RuntimeError) as error:
             messagebox.showerror(
                 "Error al guardar perfil",
@@ -534,6 +531,23 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
                 parent=dialog
             )
             logger.error("Error guardando perfil: %s", error, exc_info=True)
+            return
+        # La credencial es independiente: sin llavero la key queda en sesión,
+        # que es el comportamiento documentado. Un fallo aquí no invalida el
+        # perfil ya guardado ni debe abrir un error modal (en CI, sin backend,
+        # ese modal bloqueaba la app esperando un clic que nunca llega).
+        try:
+            _persistir_credencial(app, active, key.get().strip(), remember.get())
+            messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
+        except (OSError, RuntimeError) as error:
+            logger.warning("La key no se pudo recordar; queda solo en sesión: %s", error)
+            messagebox.showinfo(
+                "Perfil guardado",
+                "El perfil se guardó, pero la key no se pudo recordar en este "
+                f"equipo ({error}). Se usará solo durante esta sesión.",
+                parent=dialog,
+            )
+        dialog.destroy()
 
     acciones = ttk.Frame(cuerpo)
     acciones.grid(row=api_key_row + 4, column=0, columnspan=2, sticky="ew",

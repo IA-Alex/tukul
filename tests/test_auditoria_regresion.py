@@ -1360,12 +1360,46 @@ class TestGestionDePerfiles(unittest.TestCase):
             buttons["Borrar"].invoke()  # borra el activo «p1»
         self._settle()
 
-        with patch("tukul_ui.dialogs.messagebox.showinfo"):
+        with patch("tukul_ui.dialogs.messagebox.showinfo") as info, \
+                patch("tukul_ui.dialogs.messagebox.showerror") as error:
             buttons["Guardar"].invoke()
         self._settle()
 
         self.assertNotIn("p1", self.app.profiles, "El perfil borrado ya no debe existir")
         self.assertIn("p2", self.app.profiles)
+        error.assert_not_called()
+        info.assert_called_once()
+
+    def test_guardar_sin_llavero_no_deja_el_dialogo_colgado(self):
+        """Sin llavero de sistema (CI) el guardado no abre un error modal.
+
+        `save()` persiste primero y luego la credencial; si el backend falla,
+        mostraba `showerror`, que en una sesión sin interacción espera un clic
+        para siempre. El perfil sí se guarda: la key queda solo en sesión, que
+        es el comportamiento documentado sin llavero.
+        """
+        from tkinter import ttk
+
+        from tukul_core import storage
+
+        original = storage.keyring
+        storage.keyring = None
+        self.addCleanup(lambda: setattr(storage, "keyring", original))
+
+        from tukul_ui.dialogs import show_settings_dialog
+
+        show_settings_dialog(self.app)
+        self._settle()
+        _dialogo, widgets = self._widgets()
+        buttons = {w.cget("text"): w for w in widgets if isinstance(w, ttk.Button)}
+
+        with patch("tukul_ui.dialogs.messagebox.showinfo"), \
+                patch("tukul_ui.dialogs.messagebox.showerror") as error:
+            buttons["Guardar"].invoke()
+        self._settle()
+
+        error.assert_not_called()
+        self.assertIn("p1", self.app.profiles, "Sin llavero el perfil se guarda igual")
 
     def test_nuevo_perfil_se_crea_y_pasa_a_ser_activo(self):
         from tkinter import ttk
