@@ -8,6 +8,14 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- La geometría guardada de la ventana vuelve a restaurarse cuando está a la
+  izquierda o por encima del origen del escritorio: Tk la escribe como
+  `1920x1011+-61+-23` y el patrón anterior no casaba con `+-61`, así que se
+  abría con el tamaño por defecto. La normalización vive en
+  `TukulApp._geometria_saneada`, la usan tanto la restauración como el guardado
+  y acota tamaño y posición al escritorio actual.
+- Una ventana aún no mapeada ya no persiste su `geometry()` provisional
+  (`1x1+0+0`), que encogía la próxima apertura al mínimo.
 - Auditoría conductual de la interfaz:
   - «Cancelar» deja de aparecer como botón gris en reposo: sigue visible para
     descubrir la salida, pero sin relieve (estilo `Inactivo`) hasta que hay una

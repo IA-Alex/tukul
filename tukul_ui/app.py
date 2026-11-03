@@ -350,6 +350,58 @@ class TukulApp(tk.Tk):
             self.minsize(720, 540)
             self.geometry("1180x760")
 
+    def _ventana_mapeada(self) -> bool:
+        """¿La ventana ya tiene tamaño y posición reales?
+
+        Antes de `update_idletasks`, `geometry()` devuelve el tamaño pedido
+        (a menudo «1x1+0+0»), no el real. Persistir ese valor convertiría una
+        ventana que aún no se pintó en una miniatura de 720x540 al reabrir.
+        """
+        try:
+            return bool(self.winfo_ismapped() and self.winfo_width() > 1
+                        and self.winfo_height() > 1)
+        except tk.TclError:
+            return False
+
+    # Geometría «ancho x alto ±x ±y». El signo va DENTRO del grupo para que las
+    # dos negaciones se elijan por separado: Tk las escribe de verdad como
+    # «1920x1011+-61+-23» cuando la ventana queda a la izquierda o por encima del
+    # origen del escritorio. Un patrón que solo admitiera «[+-]\d+» no casa con
+    # «+-61» y la lectura descartaba la geometría guardada, abriendo con el
+    # tamaño por defecto en lugar de donde la persona dejó la ventana.
+    PATRON_GEOMETRIA = re.compile(r"(\d+)x(\d+)([+-]-?\d+)([+-]-?\d+)")
+
+    @classmethod
+    def _geometria_saneada(cls, guardada: object, pantalla_ancho: int,
+                           pantalla_alto: int) -> str | None:
+        """Normaliza y acota una geometría; None si no es utilizable.
+
+        Devuelve siempre el formato canónico «AxA+x+y» (coordenadas no
+        negativas), de modo que lo restaurado y lo que se escribe en
+        `estado.json` comparten una única representación. Una geometría de otro
+        monitor, de otra resolución o de una sesión remota puede no caber en el
+        escritorio actual; Tk la aceptaría, pero dejaría controles fuera del
+        viewport. Ante valores no utilizables o pantallas sin dimensiones se
+        descarta sin lanzar excepciones.
+        """
+        if not isinstance(guardada, str):
+            return None
+        if pantalla_ancho <= 0 or pantalla_alto <= 0:
+            return None
+        coincidencia = cls.PATRON_GEOMETRIA.fullmatch(guardada.strip())
+        if coincidencia is None:
+            return None
+
+        ancho, alto, x, y = (int(valor.replace("+-", "-"))
+                             for valor in coincidencia.groups())
+        # Mantiene un margen visible para que la barra del sistema y los
+        # bordes no oculten la ventana completa en escritorios pequeños.
+        ancho = min(max(ancho, 720), max(720, pantalla_ancho - 32))
+        alto = min(max(alto, 540), max(540, pantalla_alto - 64))
+        x = min(max(x, 0), max(0, pantalla_ancho - ancho))
+        y = min(max(y, 0), max(0, pantalla_alto - alto))
+        return f"{ancho}x{alto}+{x}+{y}"
+
     @staticmethod
     def _zoom_validado(valor: object) -> float:
         """Convierte el zoom persistido a un factor acotado; 1.0 ante basura."""
@@ -379,23 +431,12 @@ class TukulApp(tk.Tk):
         if not isinstance(guardada, str) or not guardada.strip():
             return
 
-        coincidencia = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", guardada.strip())
-        if coincidencia is None:
+        ancho, alto = self.winfo_screenwidth(), self.winfo_screenheight()
+        if ancho <= 100 or alto <= 100:
             return
-
-        ancho, alto, x, y = (int(valor) for valor in coincidencia.groups())
-        pantalla_ancho = self.winfo_screenwidth()
-        pantalla_alto = self.winfo_screenheight()
-        if pantalla_ancho <= 100 or pantalla_alto <= 100:
-            return
-
-        # Mantiene un margen visible para que la barra del sistema y los
-        # bordes no oculten la ventana completa en escritorios pequeños.
-        ancho = min(max(ancho, 720), max(720, pantalla_ancho - 32))
-        alto = min(max(alto, 540), max(540, pantalla_alto - 64))
-        x = min(max(x, 0), max(0, pantalla_ancho - ancho))
-        y = min(max(y, 0), max(0, pantalla_alto - alto))
-        self.geometry(f"{ancho}x{alto}+{x}+{y}")
+        saneada = self._geometria_saneada(guardada, ancho, alto)
+        if saneada is not None:
+            self.geometry(saneada)
 
     @staticmethod
     def _tema_validado(valor: object) -> str:
@@ -2870,7 +2911,18 @@ class TukulApp(tk.Tk):
         que el tema nunca pisa el resto de preferencias.
         """
         estado = dict(self.ui_state)
-        estado["geometry"] = self.geometry()
+        # Se guarda con el mismo saneador que la restauración: Tk escribe las
+        # negaciones como «+-61», que es correcto para Tk pero deja en disco
+        # coordenadas que no caben en este escritorio. Normalizar aquí evita
+        # reproducir el problema de apertura en la próxima sesión.
+        # Si la ventana no se ha mapeado, `geometry()` devuelve su tamaño
+        # pedido (p. ej. «1x1+0+0») y guardarlo encogería la próxima apertura:
+        # en ese caso no se toca lo que ya había en `estado.json`.
+        if self._ventana_mapeada():
+            saneada = self._geometria_saneada(self.geometry(), self.winfo_screenwidth(),
+                                              self.winfo_screenheight())
+            if saneada is not None:
+                estado["geometry"] = saneada
         estado["panel_visible"] = self.asistente_visible
         estado["zoom"] = es.ZOOM
         estado["theme"] = self.theme

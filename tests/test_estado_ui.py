@@ -7,6 +7,7 @@ import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tukul_core import storage
 from tukul_ui import estilo as es
@@ -161,6 +162,65 @@ class TestUxVentanaReal(unittest.TestCase):
         self._asentar()
         self.assertTrue(self.app.barra.winfo_ismapped())
         self.assertTrue(self.app.pie.winfo_ismapped())
+
+    # --- geometría -----------------------------------------------------
+    def test_geometria_con_posicion_negativa_se_restaura_en_tk(self):
+        """Tk escribe «+-61»; esa geometría debe volver a aplicarse sin error.
+
+        La ventana guardada a la izquierda o por encima del origen del
+        escritorio se abría con el tamaño por defecto porque la lectura
+        descartaba la cadena. Se comprueba contra Tk real: el formato se acepta
+        y la ventana termina dentro del escritorio.
+        """
+        pantalla_ancho = self.app.winfo_screenwidth()
+        pantalla_alto = self.app.winfo_screenheight()
+        saneada = TukulApp._geometria_saneada("1920x1011+-61+-23", pantalla_ancho, pantalla_alto)
+        self.assertIsNotNone(saneada)
+        self.assertNotIn("+-", saneada)
+        self.app.geometry(saneada)
+        for _ in range(5):
+            self.app.update()
+        self.app.update_idletasks()
+        ancho, alto, x, y = map(int, TukulApp.PATRON_GEOMETRIA.fullmatch(
+            self.app.geometry()).groups())
+        self.assertGreaterEqual(x, 0)
+        self.assertGreaterEqual(y, 0)
+        self.assertLessEqual(x + ancho, pantalla_ancho)
+        self.assertLessEqual(y + alto, pantalla_alto)
+
+    def test_guardado_normaliza_la_geometria_persistida(self):
+        """Lo escrito en estado.json se reabre en la próxima sesión tal cual."""
+        self.app.geometry("1100x700+-40+-30")
+        self._asentar()
+        estado = self.app._snapshot_estado_ui()
+        self.assertNotIn("+-", estado["geometry"])
+        self.assertIsNotNone(TukulApp.PATRON_GEOMETRIA.fullmatch(estado["geometry"]))
+        self.app._guardar_estado_ui()
+        self.assertEqual(storage.load_ui_state(self.config)["geometry"], estado["geometry"])
+
+    def test_cerrar_sin_mapear_no_pisa_la_geometria_guardada(self):
+        """Sin ventana mapeada `geometry()` devuelve «1x1+0+0».
+
+        Guardarlo convertía la próxima apertura en una miniatura de 720x540.
+        Cuando no hay medida real, se conserva la última geometría de disco.
+        """
+        storage.save_ui_state({"geometry": "1180x760+10+10"}, self.config)
+        self.app.ui_state = storage.load_ui_state(self.config)
+        with patch.object(TukulApp, "_ventana_mapeada", return_value=False):
+            estado = self.app._snapshot_estado_ui()
+        self.assertEqual(estado["geometry"], "1180x760+10+10")
+
+        with patch.object(TukulApp, "_ventana_mapeada", return_value=True), \
+                patch.object(TukulApp, "geometry", return_value="1x1+0+0"):
+            estado = self.app._snapshot_estado_ui()
+        self.assertEqual(estado["geometry"], "720x540+0+0",
+                         "Mapeada sí se sanea, aunque el valor sea mínimo")
+
+    def test_geometria_invalida_abre_con_tamano_por_defecto(self):
+        """Basura persistida no rompe el arranque: se ignora y se usa el tamaño acorde."""
+        self.assertIsNone(TukulApp._geometria_saneada("1920x1011+-6x1+-23", 1920, 1080))
+        self.assertIsNone(TukulApp._geometria_saneada(None, 1920, 1080))
+        self.assertIsNone(TukulApp._geometria_saneada("1180x760+0+0", 0, 0))
 
     # --- conversación persistida ---------------------------------------
     def test_restaurar_conversacion_desde_estado(self):
