@@ -67,16 +67,38 @@ class TestEstadoPersistente(unittest.TestCase):
 
 
 class TestEscalaZoom(unittest.TestCase):
-    """El zoom escala la fuente y se valida defensivamente."""
+    """El zoom escala la fuente y se valida defensivamente.
+
+    La familia NO se fija aquí: la resuelve `_aplicar_dpi` al construir la
+    ventana con las fuentes realmente instaladas. En un runner de CI no hay
+    «Inter» y la familia activa es, por ejemplo, «DejaVu Sans». Asumir
+    `es.FAMILIA` hacía fallar la suite en CI pero no en un escritorio con
+    «Inter», que es justo la diferencia que este test debe respetar.
+    """
 
     def tearDown(self):
         es.ZOOM = 1.0
 
     def test_fuente_escala_con_el_zoom(self):
         es.ZOOM = 1.0
-        self.assertEqual(es.fuente(es.TIPO_MD), (es.FAMILIA, es.TIPO_MD))
+        familia, cuerpo, *_ = es.fuente(es.TIPO_MD)
+        self.assertEqual(familia, es._familia_activa or es.FAMILIA)
+        self.assertEqual(cuerpo, round(es.TIPO_MD * 1.0))
+
         es.ZOOM = 1.5
-        self.assertEqual(es.fuente(es.TIPO_MD), (es.FAMILIA, round(es.TIPO_MD * 1.5)))
+        familia_zoom, cuerpo_zoom, *_ = es.fuente(es.TIPO_MD)
+        self.assertEqual(familia_zoom, familia)
+        self.assertEqual(cuerpo_zoom, round(es.TIPO_MD * 1.5))
+
+    def test_fuente_usa_la_familia_resuelta_por_la_ventana(self):
+        """Regresión: con una familia instalada, `fuente()` la usa tal cual."""
+        es.ZOOM = 1.0
+        anteriores = es._familia_activa
+        try:
+            es.resolver_familia(["DejaVu Sans", "Liberation Sans"])
+            self.assertEqual(es.fuente(es.TIPO_MD)[0], "DejaVu Sans")
+        finally:
+            es._familia_activa = anteriores
 
     def test_zoom_validado_acota_y_rechaza_basura(self):
         self.assertEqual(TukulApp._zoom_validado("abc"), 1.0)

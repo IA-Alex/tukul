@@ -21,7 +21,9 @@ A diferencia de la auditoría anterior (2026-11-02, árbol roto por un refactor 
 | Suite + cobertura | `xvfb-run -a .venv/bin/python -m pytest -q --cov=...` | ⚠️ **425 passed, 1 failed**, cobertura **81 %** (umbral 70 %) |
 | Tk operativo | `xvfb-run -a python -c 'tkinter.Tk()'` | ✅ `Tk OK` |
 
-El único fallo (`test_internal_imports_resolve_without_conftest`) es un **artefacto del entorno local**: el paquete no está instalado en `.venv` (`pip install -e .` no se ejecutó en este checkout). CI lo instala explícitamente, así que allí pasaría. **Pero** `scripts/quality-gate.sh` no instala el proyecto antes de correr pytest y, por tanto, **falla en un checkout limpio aunque el código esté correcto**: es un defecto del gate, no del producto.
+El único fallo (`test_internal_imports_resolve_without_conftest`) es un **artefacto del entorno local**: el paquete no está instalado en `.venv` (`pip install -e .` no se ejecutó en este checkout). **Pero** `scripts/quality-gate.sh` no instala el proyecto antes de correr pytest y, por tanto, **falla en un checkout limpio aunque el código esté correcto**: es un defecto del gate, no del producto. Tras `pip install -e . --no-deps` la suite queda en **427 passed, 0 skipped**.
+
+> **Corrección del 2026-11-04 (misma fecha, comprobación posterior en GitHub Actions).** Este informe daba por sentado que CI estaba verde. No lo estaba: el último run correcto es `13c8f2a` (2026-11-02 17:41) y **todos los commits posteriores fallan**. El primer fallo es del producto (`TestEscalaZoom::test_fuente_escala_con_el_zoom`, que asumía «Inter» instalada; el runner usa lo que traiga `xvfb`), y los runs de `e1459c9` y `997e45e` **fallan en 1-2 s sin ejecutar ningún paso** (`steps: []`, `billable.total_ms = 0`), por límites o ajustes de Actions del repositorio. Consecuencias sobre este informe: el veredicto de la fase 1 cambia de "alinear el gate" a **"restaurar el verde de CI"**, y la línea base de métricas es la suite local, no CI.
 
 ### Contraste con la auditoría del 2026-11-02
 
@@ -34,10 +36,10 @@ Los 25 hallazgos previos (1 CRÍTICO, 5 ALTOS, 10 MEDIOS, 9 BAJOS) están cerrad
 | Severidad | Cantidad |
 |---|---|
 | 🔴 CRÍTICO | 0 |
-| 🟠 ALTO | 3 |
+| 🟠 ALTO | 4 |
 | 🟡 MEDIO | 6 |
 | 🔵 BAJO | 5 |
-| **Total** | **14** |
+| **Total** | **15** |
 
 > **Nota de calibración.** Tukul es una aplicación **de escritorio local (Tkinter + urllib)**: no hay servidor, ni base de datos, ni superficie HTTP entrante. El riesgo de seguridad absoluto es bajo y los ejes "Backend/API", "Datos" y "Despliegue" se reinterpretan como: *cliente HTTP y adaptadores de proveedor*, *persistencia en archivos (TOML/JSON/autosave)* y *empaquetado PyInstaller + releases*. Un hallazgo es "ALTO" cuando degrada de forma significativa la mantenibilidad o debilita una garantía que la documentación declara.
 
@@ -68,6 +70,31 @@ Los 25 hallazgos previos (1 CRÍTICO, 5 ALTOS, 10 MEDIOS, 9 BAJOS) están cerrad
 ## 3. Hallazgos
 
 ### 🟠 ALTO
+
+---
+
+#### [ALTO] CI/CD: la suite de CI lleva en rojo desde el 2026-11-02 y los dos últimos runs no ejecutan ningún paso
+
+**Descripción**
+- El último run verde es `13c8f2a` (2026-11-02 17:41, 99 s). Desde entonces, **cinco commits consecutivos** fallan: `3387ac3`, `b4f25d5`, `66742ac`, `e1459c9` y `997e45e`.
+- `3387ac3`–`66742ac` fallan con un error real y reproducible: `TestEscalaZoom::test_fuente_escala_con_el_zoom` compara contra `es.FAMILIA` («Inter») aunque la familia se resuelve en `_aplicar_dpi` con las fuentes instaladas. En un escritorio con «Inter» pasa; en el runner no existe.
+- `e1459c9` y `997e45e` **no llegan a ejecutar ni un paso**: cuatro jobs `failure` en 1-2 s, `steps: []`, `runner_name` vacío y `billable.total_ms = 0`. Es un rechazo del runner (límite de minutos / Actions) posterior al cambio del repositorio a privado, no un fallo de código.
+- La documentación (`docs/TESTING.md`, `TESTING.md` `QUALITY_GATE_PASS`) y el README siguen anunciando un pipeline verde sin condiciones.
+
+**Evidencia**
+- `13c8f2a` → run `41554676163`, 99 s, `success`. `66742ac` → run `41559901326`, step 11 (`Run test suite`) `failure`: `AssertionError: Tuples differ: ('DejaVu Sans', 12) != ('Inter', 12)`.
+- `997e45e` → run `41926041496` (+ reintento `attempt 2`): 4 jobs, todos sin pasos, 1-2 s.
+- `tests/test_estado_ui.py:77` (antes de la corrección): `assertEqual(es.fuente(es.TIPO_MD), (es.FAMILIA, es.TIPO_MD))`.
+
+**Por qué importa**
+- Todo lo que depende de CI (release por tag con `--health` del binario, `pip-audit`, Bandit) está bloqueado: `build-release.yml` no puede publicar un release verificado mientras el pipeline esté en rojo.
+- Un fallo de entorno en la suite invalida la señal "0 skips = cobertura de UI real": el chequeo se cumplía, pero el test comparaba un valor del entorno, no del código.
+
+**Recomendación**
+- Corregido el test (familia leída de `estilo._familia_activa || FAMILIA` + regresión de `resolver_familia`). Ver Tarea 0 del roadmap.
+- Separar en un test propio la resolución de familia (ya existe `TestFuenteConReserva`): el test de zoom debe comprobar **zoom**, no tipografía.
+- Añadir un paso de diagnóstico al job de test (`python -c "import tkinter.font; r=tkinter.Tk(); print(sorted(tkinter.font.families(r))[:40])"`) para que una nueva dependencia de fuente falle con contexto legible.
+- Desbloquear Actions (billing/plan) o volver el repositorio público; sin eso ningún commit posterior se verifica.
 
 ---
 
@@ -309,7 +336,14 @@ Los 25 hallazgos previos (1 CRÍTICO, 5 ALTOS, 10 MEDIOS, 9 BAJOS) están cerrad
 
 ## 4. Roadmap ejecutable (Paso 4)
 
-### Fase 1 — Consistencia de la puerta de calidad (esta semana)
+### Fase 1 — Restaurar el verde de CI y la puerta de calidad (esta semana)
+
+#### Tarea 0: Reparar `TestEscalaZoom` y desbloquear el runner
+- **Severidad:** ALTO · **Esfuerzo:** XS · **Dependencias:** ninguna
+- **Problema:** el test de zoom asumía «Inter» instalada y falla en el runner; además, los runs nuevos se rechazan antes de arrancar.
+- **Solución:** leer la familia de `estilo._familia_activa or FAMILIA` (cambio aplicado en `tests/test_estado_ui.py`, junto con una regresión de `resolver_familia`). Aparte, desbloquear Actions (minutos/plan) o volver el repositorio público.
+- **Archivo(s):** `tests/test_estado_ui.py`; GitHub → Settings → Actions.
+- **Verificación:** run verde de CI con los 4 jobs ejecutando pasos; reintentar el último commit y comprobar `billable.total_ms > 0`.
 
 #### Tarea 1: Alinear `quality-gate.sh` con CI
 - **Severidad:** ALTO · **Esfuerzo:** S · **Dependencias:** ninguna
@@ -376,6 +410,7 @@ Los 25 hallazgos previos (1 CRÍTICO, 5 ALTOS, 10 MEDIOS, 9 BAJOS) están cerrad
 
 | Tarea | Depende de | Bloquea a |
 |---|---|---|
+| 0 Test zoom / runner | — | (todo: sin CI nada se verifica) |
 | 1 Gate | — | (reduce riesgo de todo lo demás) |
 | 2 Perfiles | — | — |
 | 3 Doc CVE | — | — |
@@ -429,6 +464,4 @@ Los 25 hallazgos previos (1 CRÍTICO, 5 ALTOS, 10 MEDIOS, 9 BAJOS) están cerrad
 
 ## 9. Primera tarea a ejecutar
 
-**Tarea 1 — alinear `scripts/quality-gate.sh` con CI y hacer que detecte el checkout sin instalar.**
-
-Es de esfuerzo S, no depende de nada y elimina la clase de problema que hizo que esta auditoría encontrara un fallo local que CI no vería (y viceversa: dependencias vulnerables que solo CI detecta). Además convierte "el gate es el espejo de CI" en una afirmación verificable, que es la premisa sobre la que descansan todas las tareas siguientes.
+**Tarea 0 — reparar `TestEscalaZoom` y desbloquear el runner de CI.** (Cambio de primera tarea respecto al primer cierre del informe: sin CI verde no se verifica nada de lo demás.) La Tarea 1 sigue siendo el paso siguiente, de esfuerzo S, no depende de nada y elimina la clase de problema que hizo que esta auditoría encontrara un fallo local que CI no vería (y viceversa: dependencias vulnerables que solo CI detecta). Además convierte "el gate es el espejo de CI" en una afirmación verificable, que es la premisa sobre la que descansan todas las tareas siguientes.
