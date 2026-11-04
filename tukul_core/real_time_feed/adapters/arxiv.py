@@ -19,7 +19,11 @@ from tukul_core.models import FeedEntry
 
 from .base import SourceAdapter
 
-ARXIV_API_URL = "http://export.arxiv.org/api/query"
+# https, no http: arXiv responde 301 hacia https y NO_REDIRECT_OPENER rechaza
+# todas las redirecciones (para no reenviar credenciales ni aceptar cuerpos de
+# otro origen). Con http:// el 301 llegaba como HTTPError, 301 no es reintentable
+# y el adaptador fallaba siempre: la fuente nunca aportaba datos.
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
 HTTP_TIMEOUT = 30
 MAX_ATTEMPTS = 2
 BACKOFF_BASE = 0.5

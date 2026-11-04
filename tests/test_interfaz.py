@@ -114,9 +114,12 @@ class TestVentanaReal(unittest.TestCase):
         self.app = TukulApp(self.raiz / "config.toml")
         self.app.geometry("1100x700")
         self._asentar()
-        # Estas pruebas corren sobre el display del usuario: la ventana debe
-        # existir (pack/winfo_ismapped solo valen con la ventana mapeada), pero
-        # se arrastra fuera de la pantalla para no tapar su trabajo.
+        # La ventana debe estar MAPEADA (pack/winfo_ismapped y las medidas solo
+        # valen así), pero no debe estorbar. Con `withdraw()` dejaría de estar
+        # mapeada y las aserciones medirían cero, por eso se mueve fuera del
+        # escritorio. Aun así, X11 la recorta a la pantalla y el WM puede darle
+        # foco: por eso la suite debe correr con `xvfb-run` (lo exige
+        # `conftest.py`). Este desplazamiento es solo una segunda barrera.
         self.app.geometry(f"1100x700+{self.app.winfo_screenwidth() + 200}+0")
         self._asentar()
 

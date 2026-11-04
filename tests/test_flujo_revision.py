@@ -12,6 +12,7 @@ que fijan estas pruebas se observaron en la interfaz:
 - Un «Hola» sin coincidencias ofrecía compartir archivos por repliegue.
 """
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -339,6 +340,99 @@ class TestMensajeNormalConservaSuFlujo(unittest.TestCase):
 
         self.assertTrue(self.app.panel_asistente.barra_aprobacion.winfo_ismapped(),
                         "Un modelo distinto es otro destino de autorización")
+
+
+@unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
+class TestErrorDeGeneracionDeIdeas(unittest.TestCase):
+    """El fallo del pipeline de CVEs debe llegar al usuario, no morir en un lambda.
+
+    Regresión de un `NameError` real: las ramas de error de
+    `_fetch_impact_suggestion` diferían `self.after(0, lambda: ...(error))`.
+    Python borra la variable del `except` al salir del bloque, así que el lambda
+    reventaba al ejecutarse desde el bucle de Tk: el logger sí registraba el
+    fallo, pero el usuario no veía nada y el diálogo quedaba colgado.
+
+    El fix está aplicado (`_publicar_error_ideas` materializa `mensaje` antes de
+    diferirlo); estos tests lo fijan para que no regrese.
+    """
+
+    def setUp(self):
+        self.directorio = tempfile.TemporaryDirectory()
+        self.raiz = Path(self.directorio.name)
+        config = self.raiz / "config.toml"
+        config.write_text(
+            '[llm]\nactive_profile = "p"\n\n[profiles.p]\n'
+            'provider = "openai_compatible"\n'
+            'endpoint = "https://api.example.com/v1/chat/completions"\n'
+            'model = "m"\napi_key_env = "CLAVE_PRUEBA_IDEAS"\n',
+            encoding="utf-8")
+        os.environ["CLAVE_PRUEBA_IDEAS"] = "clave"
+        self.app = TukulApp(config)
+        for _ in range(5):
+            self.app.update()
+        self.dialogo = tk.Toplevel(self.app)
+
+    def tearDown(self):
+        try:
+            self.dialogo.destroy()
+        except tk.TclError:
+            pass
+        self.app.destroy()
+        self.directorio.cleanup()
+        os.environ.pop("CLAVE_PRUEBA_IDEAS", None)
+
+    def _error_del_pipeline(self, excepcion: Exception) -> list[tuple]:
+        """Lanza el pipeline con `excepcion` y devuelve los callbacks diferidos.
+
+        No espera al bucle de Tk: captura lo que `after(0, ...)` deja pendiente y
+        lo ejecuta aquí, de modo que un `NameError` en el lambda se ve de
+        inmediato y no como un cuelgue silencioso.
+        """
+        import tukul_ui.app as modulo
+
+        diferidos: list = []
+        original_after = self.app.after
+
+        def _after(ms, funcion=None, *args):
+            if funcion is not None:
+                diferidos.append(funcion)
+                return "id-falso"
+            return original_after(ms)
+
+        class _OrquestadorQueFalla:
+            def __init__(self, **_kwargs):
+                pass
+
+            def fetch_all(self, **_kwargs):
+                raise excepcion
+
+        errores: list[tuple] = []
+        self.app._on_impact_suggestion_error = lambda *a, **k: errores.append(a)
+
+        with patch.object(modulo, "FeedOrchestrator", _OrquestadorQueFalla), \
+             patch.object(modulo.messagebox, "askyesno", return_value=True), \
+             patch.object(self.app, "after", side_effect=_after):
+            self.app._fetch_impact_suggestion(self.dialogo, lambda: None)
+            # El pipeline corre en un hilo daemon: se espera a que termine.
+            for hilo in list(self.app._worker_threads):
+                hilo.join(timeout=5)
+
+        for funcion in diferidos:
+            funcion()
+        return errores
+
+    def test_un_runtimeerror_del_orquestador_llega_al_usuario(self):
+        """Fallo de red: el mensaje se muestra en vez de lanzar NameError."""
+        errores = self._error_del_pipeline(RuntimeError("Ninguna fuente respondió"))
+        self.assertEqual(len(errores), 1, "Debe informarse exactamente un error")
+        self.assertIn("Ninguna fuente respondió", errores[0][1])
+
+    def test_un_error_inesperado_llega_al_usuario(self):
+        """Fallo genérico: también se informa, con el prefijo esperado."""
+        errores = self._error_del_pipeline(ValueError("json corrupto"))
+        self.assertEqual(len(errores), 1, "Debe informarse exactamente un error")
+        self.assertIn("Error inesperado", errores[0][1])
+        self.assertIn("json corrupto", errores[0][1])
 
 
 if __name__ == "__main__":

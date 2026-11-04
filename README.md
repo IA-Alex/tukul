@@ -2,7 +2,7 @@
 
 Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional. La conversación es el espacio principal; el artículo permanece editable a la izquierda.
 
-![Interfaz de Articulador: artículo a la izquierda y asistente a la derecha](docs/screenshots/articulador.png)
+![Interfaz de Tukul: artículo a la izquierda y asistente a la derecha](docs/screenshots/tukul.png)
 
 ## Instalar sin Python
 

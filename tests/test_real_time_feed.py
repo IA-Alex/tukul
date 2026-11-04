@@ -16,7 +16,7 @@ import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,7 +33,14 @@ from tukul_core.models import (
     FoggAnalysis,
     SourceConflict,
 )
-from tukul_core.real_time_feed import FeedCache, FeedNormalizer
+from tukul_core.real_time_feed import FeedCache, FeedNormalizer, FeedOrchestrator
+from tukul_core.real_time_feed import orchestrator as orchestrator_module
+from tukul_core.real_time_feed.adapters.arxiv import (
+    ARXIV_API_URL,
+    MAX_ATTEMPTS,
+    NO_REDIRECT_OPENER,
+    ArxivAdapter,
+)
 
 # ─── Tests de dataclasses ──────────────────────────────────────────────────
 
@@ -473,3 +480,225 @@ class TestSuggestionGenerator:
         assert result.title == "Vuln crítica"
         assert result.target_audience == "tecnicos"
         assert result.impact_level == "alto"
+
+
+# ─── Tests de adaptadores: contrato de red ─────────────────────────────────
+
+class TestArxivAdapterFetch:
+    """El adaptador de arXiv debe poder CONSULTAR, no solo normalizar.
+
+    El resto de la suite solo ejercitaba `normalize()` con datos sintéticos, así
+    que la URL del endpoint nunca se comprobaba. Con `http://` arXiv responde
+    301, y como `NO_REDIRECT_OPENER` rechaza toda redirección (a propósito, para
+    no reenviar credenciales), el 301 llegaba como `HTTPError` no reintentable:
+    el adaptador fallaba SIEMPRE. Estos tests fijan el contrato que faltaba.
+    """
+
+    def test_el_endpoint_usa_https(self):
+        """https es obligatorio: con http:// el 301 de arXiv rompe el fetch."""
+        assert ARXIV_API_URL.startswith("https://"), (
+            "arXiv responde 301 hacia https y el opener no sigue redirecciones; "
+            "con http:// el adaptador no puede funcionar nunca."
+        )
+
+    def test_fetch_pide_al_endpoint_correcto_y_devuelve_las_entradas(self):
+        """`fetch()` consulta el endpoint y delega el parseo del Atom recibido."""
+        atom = (
+            b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+            b"<entry><id>http://arxiv.org/abs/1</id>"
+            b"<title>Paper uno</title><summary>resumen</summary>"
+            b"<published>2026-01-01T00:00:00Z</published></entry></feed>"
+        )
+        urls_vistas: list[str] = []
+
+        def _open(request, timeout=None):
+            urls_vistas.append(request.full_url)
+            # read(n) debe agotarse como un cuerpo real: los bytes y luego b"".
+            cuerpo = iter([atom, b""])
+            respuesta = MagicMock()
+            respuesta.read.side_effect = lambda *_a: next(cuerpo)
+            respuesta.headers = {}
+            return respuesta
+
+        with patch.object(NO_REDIRECT_OPENER, "open", side_effect=_open):
+            entradas = ArxivAdapter().fetch(24)
+
+        # Dos categorías consultadas (cs.CR y cs.AI).
+        assert len(entradas) == 2
+        assert entradas[0]["category"] == "cs.CR"
+        assert entradas[1]["category"] == "cs.AI"
+        assert len(urls_vistas) == 2
+        for url in urls_vistas:
+            assert url.startswith(f"{ARXIV_API_URL}?")
+
+    def test_un_301_se_reintenta_y_luego_se_propaga_como_error(self):
+        """Una redirección termina en error legible en vez de colarse en silencio.
+
+        `_fetch_category` reintenta todo `HTTPError` hasta `MAX_ATTEMPTS`, así
+        que un 301 agota los intentos y se propaga como error con el código
+        visible: nunca devuelve una lista vacía que oculte el fallo.
+        """
+        import urllib.error
+        from email.message import Message
+
+        error = urllib.error.HTTPError(
+            ARXIV_API_URL, 301, "Moved Permanently", Message(), None
+        )
+        with patch.object(NO_REDIRECT_OPENER, "open", side_effect=error) as abrir:
+            # El backoff real dormiría; aquí solo importa cuántas veces reintenta.
+            with patch.object(ArxivAdapter, "_sleep", return_value=None):
+                with pytest.raises(Exception, match="301"):
+                    ArxivAdapter()._fetch_category("cs.CR", 24)
+
+        assert abrir.call_count == MAX_ATTEMPTS, (
+            "Los HTTPError se reintentan hasta agotar MAX_ATTEMPTS antes de fallar."
+        )
+
+
+# ─── Tests de FeedOrchestrator ─────────────────────────────────────────────
+# El orquestador corre hilos, agrega fuentes y decide la degradación. Un bug
+# real (arXiv con `http://`) pasó precisamente por no ejercitar `fetch()`.
+# Aquí se sustituye `REGISTRY` por adaptadores de doble, así que no hay red.
+
+class _AdaptadorDoble:
+    """Adaptador de prueba que devuelve entradas prefabricadas o falla."""
+
+    def __init__(self, sid: str, entradas=None, error: Exception | None = None):
+        self._sid = sid
+        self._entradas = entradas or []
+        self._error = error
+
+    def fetch(self, hours: int):
+        if self._error is not None:
+            raise self._error
+        return self._entradas
+
+    def normalize(self, raw):
+        return list(raw)
+
+
+def _entrada(sid: str, source: str, severity: float | None = None,
+             published: datetime | None = None) -> FeedEntry:
+    return FeedEntry(
+        source_id=sid, source=source, title=sid, description="d", url="u",
+        published=published or datetime.now(UTC), severity=severity,
+    )
+
+
+@pytest.fixture()
+def _registro(monkeypatch):
+    """Aísla cada test: REGISTRY propio y sin adaptadores reales.
+
+    `orchestrator` importa `REGISTRY` por nombre, así que hay que parchear
+    tanto el módulo de adaptadores como el del orquestador.
+    """
+    registro: dict = {}
+    monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+    return registro
+
+
+class TestFeedOrchestrator:
+    def test_sin_fuentes_devuelve_vacio_sin_consultar(self, tmp_path: Path, _registro):
+        """`sources=[]` no dispara ninguna consulta ni error.
+
+        Se registra un adaptador que fallaría si se invocara: así el test
+        distingue «no consultó» de «consultó y no devolvió nada».
+        """
+        def _no_debe_llamarse():
+            raise AssertionError("sources=[] no debe instanciar adaptadores")
+
+        _registro["centinela"] = _no_debe_llamarse
+        o = FeedOrchestrator(tmp_path / "c.json")
+        assert o.fetch_all(sources=[]) == []
+
+    def test_fuente_inexistente_no_rompe_el_resto(self, tmp_path, monkeypatch):
+        """Un ID desconocido se registra como error sin tumbar las demás."""
+        registro = {
+            "buena": lambda: _AdaptadorDoble("buena", [_entrada("buena:1", "buena")]),
+        }
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        resultado = o.fetch_all(sources=["buena", "fantasma"])
+        assert [e.source_id for e in resultado] == ["buena:1"]
+
+    def test_todas_las_fuentes_fallan_lanza_error_con_detalle(self, tmp_path, monkeypatch):
+        """Si todas fallan, el error incluye el motivo de cada una."""
+        registro = {
+            "a": lambda: _AdaptadorDoble("a", error=RuntimeError("timeout a")),
+            "b": lambda: _AdaptadorDoble("b", error=RuntimeError("404 b")),
+        }
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        with pytest.raises(RuntimeError) as excinfo:
+            o.fetch_all(sources=["a", "b"])
+        mensaje = str(excinfo.value)
+        assert "timeout a" in mensaje and "404 b" in mensaje
+
+    def test_una_fuente_rota_no_impide_la_degradacion_parcial(self, tmp_path, monkeypatch):
+        """Degradación granular: la que funciona entrega sus entradas."""
+        registro = {
+            "ok": lambda: _AdaptadorDoble("ok", [_entrada("ok:1", "ok", severity=5.0)]),
+            "rota": lambda: _AdaptadorDoble("rota", error=RuntimeError("boom")),
+        }
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        resultado = o.fetch_all(sources=["ok", "rota"])
+        assert len(resultado) == 1 and resultado[0].source_id == "ok:1"
+
+    def test_usa_el_cache_y_no_reconsulta(self, tmp_path, monkeypatch):
+        """Con caché vigente no se vuelve a llamar al adaptador."""
+        llamadas = {"n": 0}
+
+        class _Cuenta(_AdaptadorDoble):
+            def fetch(self, hours):
+                llamadas["n"] += 1
+                return super().fetch(hours)
+
+        registro = {
+            "src": lambda: _Cuenta("src", [_entrada("src:1", "src")]),
+        }
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        o.fetch_all(sources=["src"])
+        o.fetch_all(sources=["src"])
+        assert llamadas["n"] == 1, "La segunda llamada debe servirse del caché."
+
+    def test_use_cache_false_fuerza_reconsulta(self, tmp_path, monkeypatch):
+        """`use_cache=False` ignora el caché y vuelve a consultar."""
+        llamadas = {"n": 0}
+
+        class _Cuenta(_AdaptadorDoble):
+            def fetch(self, hours):
+                llamadas["n"] += 1
+                return super().fetch(hours)
+
+        registro = {"src": lambda: _Cuenta("src", [_entrada("src:1", "src")])}
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        o.fetch_all(sources=["src"])
+        o.fetch_all(sources=["src"], use_cache=False)
+        assert llamadas["n"] == 2
+
+    def test_available_sources_refleja_el_registro(self, tmp_path, monkeypatch):
+        """La lista para la UI sale del registro y expone id/label."""
+        class _ConEtiqueta:
+            @classmethod
+            def source_id(cls):
+                return "x"
+
+            @classmethod
+            def label(cls):
+                return "Fuente X"
+
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", {"x": _ConEtiqueta})
+        o = FeedOrchestrator(tmp_path / "c.json")
+        assert o.available_sources() == [{"id": "x", "label": "Fuente X"}]
+
+    def test_invalidate_cache_por_fuente_y_total(self, tmp_path, monkeypatch):
+        """Invalidar una fuente o todo el caché no debe lanzar."""
+        registro = {"x": lambda: _AdaptadorDoble("x", [_entrada("x:1", "x")])}
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        o.fetch_all(sources=["x"])
+        o.invalidate_cache("x")
+        o.invalidate_cache()  # total
