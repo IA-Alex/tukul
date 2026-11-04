@@ -30,6 +30,10 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 - El diálogo de ideas pedía la misma confirmación dos veces.
 - `_read_bounded` drena el cuerpo rechazado en vez de cortar el socket a medias.
 - `SECURITY.md` ya no presenta la fuente CVE como un prototipo no integrado.
+- Cancelar durante el reintento ya no espera al final del backoff: el envío
+  termina en cuanto se marca la cancelación.
+- Una respuesta que pide herramientas (`tool_calls`) se reconoce y se ignora con
+  aviso en el log, en vez de llegar como texto vacío sin explicación.
 
 ### Corregido
 

@@ -70,7 +70,7 @@
         "tukul_ui/app.py:1703,1863,2269,2375"
       ],
       "recommendation": "Extraer RequestLifecycle y UIStateBookkeeper; app.py < 1500 líneas.",
-      "status": "pendiente"
+      "status": "abierto: requiere extracción (Tarea 6)"
     },
     {
       "id": "H3",
@@ -119,7 +119,7 @@
         "tukul_ui/app.py:_esperar_hilos_de_peticion"
       ],
       "recommendation": "cancel_event.wait(delay); diagnóstico visible.",
-      "status": "parcial"
+      "status": "resuelto"
     },
     {
       "id": "M4",
@@ -131,7 +131,7 @@
         "tukul_ui/app.py:1278"
       ],
       "recommendation": "Tests de contraste AA, tabla EstadoUI, foco de Toplevel.",
-      "status": "pendiente"
+      "status": "abierto"
     },
     {
       "id": "M5",
@@ -144,7 +144,7 @@
         "requirements-dev.lock"
       ],
       "recommendation": "SHA256SUMS + sbom.cdx.json; test de equivalencia de lockfiles.",
-      "status": "pendiente"
+      "status": "abierto"
     },
     {
       "id": "M6",
@@ -156,7 +156,7 @@
         "docs/SECURITY.md tabla"
       ],
       "recommendation": "Campos kind/provenance; regresión de escape de contenido.",
-      "status": "parcial: envelope pendiente"
+      "status": "resuelto: tool_calls reconocidas e ignoradas; envoltura estructurada opcional"
     },
     {
       "id": "L1",
