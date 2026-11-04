@@ -6,6 +6,31 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Añadido
+
+- Tests de contrato HTTP del cliente LLM contra un servidor local
+  (`tests/test_llm_http_contract.py`): SSE real, `Retry-After`, 302 que no se
+  sigue, techo de cuerpo y cabecera de credencial por protocolo.
+- `tukul_ui/worker_threads.py`: registro de los hilos de trabajo, que se espera
+  en el cierre y se vacía en el hijo de un `fork()`.
+- Paridad verificada entre `scripts/quality-gate.sh` y CI
+  (`tests/test_quality_gate_parity.py`).
+
+### Corregido
+
+- `--health` y el log explican un campo de perfil ignorado por tipo, con perfil,
+  campo y valor recibido. Antes el perfil arrancaba con los valores por defecto
+  y nada lo indicaba. `4096.0` se acepta como `4096`; un booleano no se acepta
+  como número.
+- El gate local ejecuta `--health`, el contrato CLI, `pip-audit` y
+  `bandit -lll -ii`, y avisa con el comando de instalación si falta el paquete.
+- Un worker que tocaba `after()` con la ventana ya destruida podía abortar el
+  proceso (`RuntimeError: main thread is not in main loop`): fuera del hilo de
+  Tk ahora solo se registra.
+- El diálogo de ideas pedía la misma confirmación dos veces.
+- `_read_bounded` drena el cuerpo rechazado en vez de cortar el socket a medias.
+- `SECURITY.md` ya no presenta la fuente CVE como un prototipo no integrado.
+
 ### Corregido
 
 - Reabrir el documento activo (por ejemplo desde «Recientes») durante una

@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tukul_ui.app import REVIEW_PROMPT, TukulApp
 from tukul_ui.estado import EstadoUI
+from tukul_ui.worker_threads import WorkerThreads
 
 RESPUESTA_VALIDA = json.dumps({"findings": [
     {"category": "gramática", "severity": "alta", "original": "floja",
@@ -390,6 +391,9 @@ class TestErrorDeGeneracionDeIdeas(unittest.TestCase):
         """
         import tukul_ui.app as modulo
 
+        # El worker corre en otro hilo y, correctamente, no programa `after`
+        # desde ahí (eso aborta el intérprete en CPython 3.13). Aquí se simula
+        # el hilo de Tk para capturar lo que dejaría pendiente.
         diferidos: list = []
         original_after = self.app.after
 
@@ -411,11 +415,11 @@ class TestErrorDeGeneracionDeIdeas(unittest.TestCase):
 
         with patch.object(modulo, "FeedOrchestrator", _OrquestadorQueFalla), \
              patch.object(modulo.messagebox, "askyesno", return_value=True), \
+             patch.object(modulo, "_en_el_hilo_de_tk", return_value=True), \
              patch.object(self.app, "after", side_effect=_after):
             self.app._fetch_impact_suggestion(self.dialogo, lambda: None)
             # El pipeline corre en un hilo daemon: se espera a que termine.
-            for hilo in list(self.app._worker_threads):
-                hilo.join(timeout=5)
+            WorkerThreads.esperar(5)
 
         for funcion in diferidos:
             funcion()

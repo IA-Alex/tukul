@@ -46,7 +46,7 @@
         "run 41926041496: 4 jobs sin pasos, billable.total_ms=0"
       ],
       "recommendation": "Leer la familia de estilo._familia_activa en el test (aplicado) y desbloquear Actions/billing.",
-      "status": "test corregido en el árbol de trabajo; runner pendiente"
+      "status": "test corregido; runner bloqueado"
     },
     {
       "id": "H1",
@@ -57,7 +57,8 @@
         "scripts/quality-gate.sh:37-89",
         ".github/workflows/ci.yml:jobs.test+security"
       ],
-      "recommendation": "Añadir pasos de seguridad y comprobar import tukul_core antes de pytest; CI debe invocar el script."
+      "recommendation": "Añadir pasos de seguridad y comprobar import tukul_core antes de pytest; CI debe invocar el script.",
+      "status": "resuelto"
     },
     {
       "id": "H2",
@@ -68,7 +69,8 @@
         "tukul_ui/app.py:3085",
         "tukul_ui/app.py:1703,1863,2269,2375"
       ],
-      "recommendation": "Extraer RequestLifecycle y UIStateBookkeeper; app.py < 1500 líneas."
+      "recommendation": "Extraer RequestLifecycle y UIStateBookkeeper; app.py < 1500 líneas.",
+      "status": "pendiente"
     },
     {
       "id": "H3",
@@ -79,7 +81,8 @@
         "tukul_core/storage.py:167-184",
         "tukul_core/storage.py:197-240"
       ],
-      "recommendation": "Warn por campo y exponer en --health; coerción tolerante documentada."
+      "recommendation": "Warn por campo y exponer en --health; coerción tolerante documentada.",
+      "status": "resuelto"
     },
     {
       "id": "M1",
@@ -91,7 +94,8 @@
         "README.md:86-98",
         "tests/test_threat_feed*.py"
       ],
-      "recommendation": "Convertir sección en histórica y añadir fila a TRACEABILITY.md."
+      "recommendation": "Convertir sección en histórica y añadir fila a TRACEABILITY.md.",
+      "status": "resuelto"
     },
     {
       "id": "M2",
@@ -102,7 +106,8 @@
         "tukul_core/llm.py:140-398",
         "coverage llm.py 83%"
       ],
-      "recommendation": "Servidor HTTP local en tests/test_llm_http_contract.py."
+      "recommendation": "Servidor HTTP local en tests/test_llm_http_contract.py.",
+      "status": "resuelto"
     },
     {
       "id": "M3",
@@ -113,7 +118,8 @@
         "tukul_core/llm.py:170-203",
         "tukul_ui/app.py:_esperar_hilos_de_peticion"
       ],
-      "recommendation": "cancel_event.wait(delay); diagnóstico visible."
+      "recommendation": "cancel_event.wait(delay); diagnóstico visible.",
+      "status": "parcial"
     },
     {
       "id": "M4",
@@ -124,7 +130,8 @@
         "tukul_ui/estilo.py",
         "tukul_ui/app.py:1278"
       ],
-      "recommendation": "Tests de contraste AA, tabla EstadoUI, foco de Toplevel."
+      "recommendation": "Tests de contraste AA, tabla EstadoUI, foco de Toplevel.",
+      "status": "pendiente"
     },
     {
       "id": "M5",
@@ -136,7 +143,8 @@
         "uv.lock",
         "requirements-dev.lock"
       ],
-      "recommendation": "SHA256SUMS + sbom.cdx.json; test de equivalencia de lockfiles."
+      "recommendation": "SHA256SUMS + sbom.cdx.json; test de equivalencia de lockfiles.",
+      "status": "pendiente"
     },
     {
       "id": "M6",
@@ -147,7 +155,8 @@
         "tukul_core/llm.py:SYSTEM_PROMPT",
         "docs/SECURITY.md tabla"
       ],
-      "recommendation": "Campos kind/provenance; regresión de escape de contenido."
+      "recommendation": "Campos kind/provenance; regresión de escape de contenido.",
+      "status": "parcial: envelope pendiente"
     },
     {
       "id": "L1",

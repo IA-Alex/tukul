@@ -47,18 +47,14 @@ ventana Tk real; los controles en sí no son "planeados".
 | Fuente externa inestable causa cuelgue o reintento infinito | disponibilidad | llamada HTTP a NVD/EPSS/KEV | timeout fijo, tope de 3 intentos, backoff exponencial acotado con jitter, `Retry-After` respetado y acotado, techo de bytes en la respuesta; degradación por fuente y por lote (EPSS) | la fuente puede estar caída y el usuario ve error, no cuelgue |
 | Ninguna key/credencial requerida hoy en las 3 fuentes | — | — | no aplica todavía; si se agrega una fuente con key, sigue la misma política que las keys de LLM: env/keyring/sesión, nunca TOML, y reutilizando el guard anti-redirect | — |
 
-## Superficie planeada: fuente de amenazas (CVE)
+## Histórico: fuente de amenazas (CVE)
 
-Estado: **prototipo aislado, no integrado ni invocado por la aplicación.** El
-módulo experimental tiene pruebas de transporte y límites, pero no debe
-considerarse una integración disponible ni una garantía de seguridad de la
-capacidad futura.
-
-La futura integración deberá tratar las respuestas de NVD, EPSS y CISA KEV como
-datos no confiables, solicitar aprobación antes de enviarlas al LLM y mantener
-timeouts, reintentos acotados y límites de tamaño. Esta tabla se promoverá a
-los controles actuales solo cuando exista una ruta de usuario integrada, tests
-de integración y una revisión de seguridad específica.
+Antes del 2026-11-02 este módulo era un prototipo aislado, no invocado por la
+aplicación. **Ya no lo es**: la tabla de arriba describe los controles vigentes
+de la integración real (botón «Añadir CVEs recientes…» del diálogo de contexto),
+con tests unitarios de transporte y de UI. Esta nota se conserva solo para que
+quien encuentre referencias antiguas a un "prototipo" sepa que quedaron
+obsoletas; no hay una superficie "planeada" separada.
 
 ## Actualizaciones y reporte
 

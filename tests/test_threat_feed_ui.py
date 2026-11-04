@@ -22,6 +22,7 @@ from tukul_ui.app import (
     ContextArticle,
     TukulApp,
 )
+from tukul_ui.worker_threads import WorkerThreads
 
 _PACKET = "Contexto de amenazas (CVE)\n\nCVE-2026-10001\n  ...\n"
 _FILES = ["nvd:recent-24h", "epss", "cisa-kev"]
@@ -32,7 +33,6 @@ def _app() -> MagicMock:
     app = MagicMock()
     app.after = lambda _delay, fn: fn()
     app.closing = False
-    app._worker_threads = []
     app.context_articles = []
     # Los tres métodos reales que queremos ejercitar de verdad:
     app._fetch_threat_feed = TukulApp._fetch_threat_feed.__get__(app)
@@ -41,11 +41,12 @@ def _app() -> MagicMock:
     return app
 
 
-def _run_thread_synchronously(app: MagicMock) -> None:
-    """Ejecuta el `work()` que `_fetch_threat_feed` dejó en un Thread daemon."""
-    assert app._worker_threads, "no se lanzó ningún hilo de fetch"
-    target = app._worker_threads[-1]._target  # type: ignore[union-attr]
-    target()
+def _run_thread_synchronously() -> None:
+    """Ejecuta el `work()` que `_fetch_threat_feed` dejó en un hilo daemon."""
+    vivos = WorkerThreads.vivos()
+    assert vivos, "no se lanzó ningún hilo de fetch"
+    vivos[-1]._target()  # type: ignore[attr-defined]
+    WorkerThreads.esperar(5)
 
 
 def test_no_hay_fetch_si_el_usuario_no_confirma():
@@ -55,7 +56,7 @@ def test_no_hay_fetch_si_el_usuario_no_confirma():
          patch("tukul_ui.app.build_threat_context") as build:
         app._fetch_threat_feed(dialog, on_done=MagicMock())
     build.assert_not_called()
-    assert app._worker_threads == []
+    assert WorkerThreads.vivos() == []
 
 
 def test_fetch_correcto_anade_contexto_y_lo_autoriza():
@@ -67,7 +68,7 @@ def test_fetch_correcto_anade_contexto_y_lo_autoriza():
          patch("tukul_ui.app.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         app._fetch_threat_feed(dialog, on_done)
-        _run_thread_synchronously(app)
+        _run_thread_synchronously()
 
     build.assert_called_once_with(hours=THREAT_FEED_HOURS)
     app._upsert_context_article.assert_called_once()
@@ -91,7 +92,7 @@ def test_threat_feed_error_se_reporta_y_no_anade_contexto():
          patch("tukul_ui.app.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         app._fetch_threat_feed(dialog, on_done=MagicMock())
-        _run_thread_synchronously(app)
+        _run_thread_synchronously()
 
     showerror.assert_called_once()
     app._upsert_context_article.assert_not_called()
@@ -107,7 +108,7 @@ def test_no_toca_tcl_si_la_ventana_se_esta_cerrando():
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         app._fetch_threat_feed(MagicMock(), on_done=MagicMock())
         app.closing = True
-        _run_thread_synchronously(app)
+        _run_thread_synchronously()
     app.after.assert_not_called()
 
 

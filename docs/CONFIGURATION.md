@@ -37,4 +37,6 @@ Cada entrada bajo `profiles.<name>` crea un `LlmProfile`. `name` se deriva de la
 
 DeepInfra, Novita AI y OpenAI-compatible usan Chat Completions. Timeout HTTP: 90 s. Apertura: hasta 3 intentos para 408, 429, 5xx y errores de conexión, con backoff y `Retry-After`; no se reintenta un stream ya iniciado.
 
+Un campo con el tipo equivocado no se ignora en silencio. El perfil se carga con el valor por defecto de ese campo, se registra un aviso en el log y `tukul --health` lo lista junto al componente `llm`, con el perfil, el campo y el valor recibido. Ejemplo: `max_output_tokens = "4096"` (texto) se rechaza y el perfil usa `1000`; `max_output_tokens = 4096.0` (número sin parte decimal) se acepta como `4096`. Los booleanos nunca se aceptan como números.
+
 `config.toml` y `estado.json` no contienen API keys. La prioridad de credenciales y las restricciones de endpoint están en [SECURITY.md](SECURITY.md).

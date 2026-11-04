@@ -13,5 +13,7 @@
 | persistence | ARCHITECTURE | `storage.atomic_write`, projects/UI state | storage/regression tests | OPERATIONS | DATA_AND_PRIVACY |
 | logging | SECURITY | `logging_config.py` | `TestLogging` | OPERATIONS | SECURITY |
 | health check | ARCHITECTURE | `health.py`, CLI | `TestSaludDeLaInstalacion` | OPERATIONS | — |
+| perfil con campos ignorados | CONFIGURATION | `storage.load_profiles`, `DISCARDED_PROFILE_FIELDS`, `health.check_health` | `tests/test_diagnostico_perfiles.py` | CONFIGURATION, OPERATIONS | — |
+| fuente de amenazas (CVE) | SECURITY / ARCHITECTURE | `threat_feed.py`, adaptadores `real_time_feed`, `http_safety` | `test_threat_feed.py`, `test_threat_feed_ui.py`, `test_real_time_feed.py` | SECURITY, ARCHITECTURE | SECURITY |
 | size/token limits | CONFIGURATION | models, prompting, llm, app | core/regression tests | OPERATIONS | SECURITY |
 | configuration parsing | CONFIGURATION | `storage.load_profiles` | `TestPerfilesInvalidos` | OPERATIONS | SECURITY |

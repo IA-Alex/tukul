@@ -123,6 +123,20 @@ def check_health(config_path: Path | str | None = None) -> HealthStatus:
             )
         else:
             components["llm"] = (ComponentStatus.WARNING, "Sin perfiles habilitados")
+        # Campos descartados por tipo: el perfil arranca con los valores por
+        # defecto y el usuario no tenía forma de saber por qué. Va dentro del
+        # componente `llm` en vez de como componente propio: la clave "config"
+        # ya la usan los usuarios de `status.components` para el archivo.
+        descartados = list(storage.DISCARDED_PROFILE_FIELDS)
+        if descartados:
+            muestra = "; ".join(descartados[:3])
+            resto = f" (+{len(descartados) - 3} más)" if len(descartados) > 3 else ""
+            estado_llm, detalle = components["llm"]
+            components["llm"] = (
+                ComponentStatus.WARNING if estado_llm.is_ok() else estado_llm,
+                f"{detalle} · {len(descartados)} campo(s) ignorado(s) por tipo: "
+                f"{muestra}{resto}",
+            )
     except Exception as e:
         components["llm"] = (ComponentStatus.ERROR, f"Error: {e}")
         logger.warning(f"Health: fallo del LLM - {e}")

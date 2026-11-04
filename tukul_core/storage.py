@@ -163,23 +163,67 @@ _STRING_FIELDS = ("provider", "endpoint", "model", "api_key_env")
 _INT_FIELDS = ("max_output_tokens", "max_context_chars", "max_total_model_tokens")
 _FLOAT_FIELDS = ("temperature", "input_price_per_million", "output_price_per_million")
 
+#: Campos descartados en la última lectura de perfiles, con el motivo legible.
+#: `--health` los muestra: un campo mal tipado dejaba el perfil con los valores
+#: por defecto del dataclass sin ningún rastro, y el usuario veía "sin
+#: configurar" con un config.toml que parecía correcto.
+DISCARDED_PROFILE_FIELDS: list[str] = []
 
-def _coerce_profile_fields(raw: dict, allowed: set[str]) -> dict[str, int | float | str]:
-    """Filtra un perfil crudo del TOML a campos conocidos y del tipo correcto."""
+
+def _discard(key: str, value: object, profile: str, motivo: str) -> None:
+    """Registra (log + lista pública) un campo descartado de un perfil."""
+    detalle = (
+        f"perfiles.{profile}.{key}={value!r} ({type(value).__name__}): {motivo}"
+    )
+    DISCARDED_PROFILE_FIELDS.append(detalle)
+    logger.warning("Campo de perfil ignorado: %s", detalle)
+
+
+def _coerce_one(key: str, value: object, profile: str) -> int | float | str | None:
+    """Convierte un campo al tipo esperado; None si se descarta (ya registrado)."""
+    if key in _STRING_FIELDS:
+        if isinstance(value, str):
+            return value
+        _discard(key, value, profile, "se esperaba texto")
+        return None
+    # `bool` es subclase de `int` en Python: `max_output_tokens = true` no debe
+    # pasar como 1. Se rechaza explícitamente antes de mirar números.
+    if isinstance(value, bool):
+        esperado = "un entero" if key in _INT_FIELDS else "un número"
+        _discard(key, value, profile, f"se esperaba {esperado}, no un booleano")
+        return None
+    if key in _INT_FIELDS:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            # `4096.0` es lo que escribe cualquier editor al tocar un entero;
+            # rechazarlo obligaba a reescribir el TOML completo.
+            return int(value)
+        _discard(key, value, profile, "se esperaba un entero")
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    _discard(key, value, profile, "se esperaba un número")
+    return None
+
+
+def _coerce_profile_fields(
+    raw: dict, allowed: set[str], profile: str = "?"
+) -> dict[str, int | float | str]:
+    """Filtra un perfil crudo del TOML a campos conocidos y del tipo correcto.
+
+    Un campo con el tipo equivocado no se descarta en silencio: se registra en
+    `DISCARDED_PROFILE_FIELDS` y en el log con el perfil, el campo y el valor
+    recibido, de modo que `--health` pueda explicar por qué el perfil no usa
+    los límites que el usuario escribió.
+    """
     kwargs: dict[str, int | float | str] = {}
     for key in allowed:
         if key == "name" or key not in raw:
             continue
-        value = raw[key]
-        if key in _STRING_FIELDS:
-            if isinstance(value, str):
-                kwargs[key] = value
-        elif key in _INT_FIELDS:
-            if isinstance(value, int):
-                kwargs[key] = value
-        elif key in _FLOAT_FIELDS:
-            if isinstance(value, (int, float)):
-                kwargs[key] = float(value)
+        valor = _coerce_one(key, raw[key], profile)
+        if valor is not None:
+            kwargs[key] = valor
     return kwargs
 
 
@@ -203,6 +247,7 @@ def load_profiles(path: Path | str = CONFIG_PATH) -> tuple[dict[str, LlmProfile]
     path = Path(path) if isinstance(path, str) else path
     profiles = {"default": LlmProfile()}
     active = "default"
+    DISCARDED_PROFILE_FIELDS.clear()
 
     if not path.exists():
         return profiles, active
@@ -227,7 +272,7 @@ def load_profiles(path: Path | str = CONFIG_PATH) -> tuple[dict[str, LlmProfile]
         if not isinstance(raw, dict) or not isinstance(name, str):
             continue
         try:
-            kwargs = _coerce_profile_fields(raw, allowed)
+            kwargs = _coerce_profile_fields(raw, allowed, profile=name)
             profiles[name] = LlmProfile(name=name, **kwargs)  # type: ignore[arg-type]
         except Exception as error:
             # Perfil individual corrupto: ignorar y continuar, pero dejar rastro.

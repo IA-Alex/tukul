@@ -47,6 +47,7 @@ from tukul_ui.document_manager import DocumentManager
 from tukul_ui.document_scope import DocumentScope
 from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from tukul_ui.llm_session_manager import LLMSessionManager
+from tukul_ui.worker_threads import WorkerThreads
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
 # Vivían en tukul_core/context.py junto al índice BM25; al retirar ese
@@ -148,6 +149,18 @@ REVIEW_PROMPT = (
 logger = setup_logging()
 
 
+def _en_el_hilo_de_tk(raiz: tk.Misc) -> bool:
+    """True si el llamador es el hilo que puede tocar Tcl.
+
+    `after()` desde un worker lanza `RuntimeError: main thread is not in main
+    loop` en CPython 3.13, y ese error —surgido durante la recolección de
+    basura— puede abortar el proceso entero en lugar de propagarse. Los
+    workers son daemon: pueden sobrevivir al cierre y llegar aquí. Mejor no
+    programar nada que morir.
+    """
+    return threading.current_thread() is threading.main_thread()
+
+
 class TukulApp(tk.Tk):
     """Ventana principal: widgets, estado, streaming y ciclo de vida de la sesión."""
 
@@ -229,7 +242,6 @@ class TukulApp(tk.Tk):
         # esperarlos brevemente en destroy() antes de tirar la ventana de Tk.
         # Sin esto, un hilo que todavía no había arrancado a ejecutarse podía
         # seguir vivo tras el cierre y chocar con Tcl desde otro hilo.
-        self._worker_threads: list[threading.Thread] = []
         self.streaming_request: int | None = None
         self.streaming_text = ""
         self.closing = False
@@ -1716,9 +1728,7 @@ class TukulApp(tk.Tk):
                 request_id=request_id,
                 cancel_event=cancel_event,
             )
-        hilo = threading.Thread(target=work, daemon=True)
-        self._worker_threads.append(hilo)
-        hilo.start()
+        WorkerThreads.start(work)
 
     def request(self, message: str, request_type: str = "normal"):
         """Envía una consulta sobre el artículo, sin explorar archivos locales.
@@ -1881,9 +1891,7 @@ class TukulApp(tk.Tk):
                 request_id=request_id,
                 cancel_event=cancel_event,
             )
-        hilo = threading.Thread(target=work, daemon=True)
-        self._worker_threads.append(hilo)
-        hilo.start()
+        WorkerThreads.start(work)
 
     def _pedir_aprobacion(self, request_id: int, files: list[str],
                           key: ContextApprovalKey, al_aceptar) -> None:
@@ -2286,9 +2294,7 @@ class TukulApp(tk.Tk):
                 return
             self.after(0, lambda: self._on_threat_feed_ready(packet, files, on_done))
 
-        hilo = threading.Thread(target=work, daemon=True)
-        self._worker_threads.append(hilo)
-        hilo.start()
+        WorkerThreads.start(work)
 
     def _on_threat_feed_error(self, dialog: tk.Toplevel, detail: str) -> None:
         """Informa del fallo del fetch sin tumbar el diálogo de contexto."""
@@ -2344,27 +2350,6 @@ class TukulApp(tk.Tk):
         ):
             return
 
-        # Probe de credenciales: solo avisa; el envío real resuelve la key en
-        # su worker (el llavero nunca se lee en el hilo de Tk).
-        if not self.profile.enabled or not self._resolver_credenciales():
-            messagebox.showinfo(
-                "LLM no configurado",
-                "Configura un perfil LLM y una API key para generar sugerencias.",
-                parent=dialog,
-            )
-            return
-
-        if not messagebox.askyesno(
-            "Generar ideas de artículo",
-            "Tukul consultará fuentes oficiales (NVD, EPSS, KEV, MITRE ATT&CK, arXiv) "
-            "y correlacionará las entradas para generar ideas de artículo. "
-            "El resultado se mostrará para que selecciones la que quieras desarrollar.\n\n"
-            "Es una conexión saliente iniciada por la aplicación. "
-            "¿Continuar?",
-            parent=dialog,
-        ):
-            return
-
         self.status.set("Generando ideas de artículo…")
 
         # Capturar perfil y key en el hilo de UI para evitar condiciones de carrera
@@ -2375,6 +2360,11 @@ class TukulApp(tk.Tk):
         def work() -> None:
             """Ejecuta el pipeline fuera del hilo de Tk y publica el resultado."""
             try:
+                # Al cerrar (o al destruir la ventana en las pruebas), cualquier
+                # contacto con Tk desde aquí aborta el intérprete: el hilo
+                # arranca tarde, ya sin interfaz, y no hay a quién responder.
+                if self.closing:
+                    return
                 publicado = self._ejecutar_pipeline_ideas(
                     dialog, profile, api_key, cache_path, on_done)
             except RuntimeError as error:
@@ -2384,13 +2374,19 @@ class TukulApp(tk.Tk):
             except Exception as error:
                 logger.error("IdeaGeneration: error inesperado: %s", error, exc_info=True)
                 publicado = False
-                self._publicar_error_ideas(dialog, f"Error inesperado: {error}")
+                # Un hilo daemon que toca Tcl con la ventana ya destruida (o
+                # tras `destroy()` en un test) aborta el proceso entero:
+                # `RuntimeError: main thread is not in main loop`. `after` es
+                # el único punto de contacto con Tk, así que se protege.
+                if not self.closing:
+                    try:
+                        self._publicar_error_ideas(dialog, f"Error inesperado: {error}")
+                    except (RuntimeError, tk.TclError):
+                        logger.debug("La ventana ya no existe; error de ideas descartado")
             if not publicado:
                 logger.debug("Pipeline de ideas sin resultado que publicar")
 
-        hilo = threading.Thread(target=work, daemon=True)
-        self._worker_threads.append(hilo)
-        hilo.start()
+        WorkerThreads.start(work)
 
     def _ejecutar_pipeline_ideas(self, dialog, profile, api_key, cache_path,
                                  on_done: Callable[[], None]) -> bool:
@@ -2441,8 +2437,19 @@ class TukulApp(tk.Tk):
         return _llm_callable
 
     def _publicar_error_ideas(self, dialog, mensaje: str) -> None:
-        """Publica un error del pipeline en el hilo de Tk."""
-        self.after(0, lambda: self._on_impact_suggestion_error(dialog, mensaje))
+        """Publica un error del pipeline en el hilo de Tk.
+
+        Se llama desde el worker de ideas, que es daemon y puede llegar aquí
+        cuando la ventana ya no existe. `after()` desde otro hilo aborta el
+        proceso en CPython 3.13, así que fuera del hilo de Tk solo se registra.
+        """
+        if not _en_el_hilo_de_tk(self):
+            logger.warning("IdeaGeneration: la interfaz ya no está disponible: %s", mensaje)
+            return
+        try:
+            self.after(0, lambda: self._on_impact_suggestion_error(dialog, mensaje))
+        except (RuntimeError, tk.TclError):
+            logger.debug("Ventana destruida; error de ideas descartado")
 
     def _show_idea_selection_dialog(
         self,
@@ -3074,12 +3081,6 @@ class TukulApp(tk.Tk):
         terminan a tiempo, siguen como daemon y el proceso no se bloquea por
         ellos, solo se registra el aviso.
         """
-        limite = time.monotonic() + timeout
-        for hilo in self._worker_threads:
-            restante = limite - time.monotonic()
-            if restante <= 0:
-                break
-            hilo.join(timeout=restante)
-        vivos = [hilo for hilo in self._worker_threads if hilo.is_alive()]
+        vivos = WorkerThreads.esperar(timeout)
         if vivos:
             logger.warning("%d hilo(s) de petición seguían activos al cerrar", len(vivos))

@@ -237,6 +237,43 @@ class LLMClient:
         return urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
 
     @staticmethod
+    def _declared_too_large(response, max_bytes: int) -> bool:
+        """True si `Content-Length` ya anuncia un cuerpo por encima del techo."""
+        headers = getattr(response, "headers", None)
+        declared = headers.get("Content-Length") if headers is not None else None
+        if declared is None:
+            return False
+        try:
+            return int(declared) > max_bytes
+        except (TypeError, ValueError):
+            return False  # Malformado: el techo se aplica al leer.
+
+    @staticmethod
+    def _read_capped(read, max_bytes: int) -> bytes:
+        """Lee por tramos, drenando (sin acumular) lo que excede el techo.
+
+        Al superar el techo no se corta la lectura: se drena el resto y después
+        se lanza el error. Cerrar el socket a medias dejaba al servidor
+        bloqueado escribiendo un cuerpo que nadie lee, y eso colgó el cierre del
+        servidor en las pruebas de contrato.
+        """
+        chunks: list[bytes] = []
+        total = 0
+        excedido = False
+        while True:
+            chunk = read(min(READ_CHUNK_BYTES, max_bytes - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                excedido = True
+            elif not excedido:
+                chunks.append(chunk)
+        if excedido:
+            raise LlmError(RESPONSE_TOO_LARGE_ERROR)
+        return b"".join(chunks)
+
+    @staticmethod
     def _read_bounded(response, max_output_tokens: int) -> bytes:
         """Lee una respuesta completa (no streaming) con techo de memoria.
 
@@ -246,35 +283,22 @@ class LLMClient:
         agotar la memoria del proceso.
         """
         max_bytes = MAX_BODY_OVERHEAD_BYTES + max_output_tokens * BYTES_PER_OUTPUT_TOKEN
-        headers = getattr(response, "headers", None)
-        declared = headers.get("Content-Length") if headers is not None else None
-        if declared is not None:
-            try:
-                if int(declared) > max_bytes:
-                    raise LlmError(RESPONSE_TOO_LARGE_ERROR)
-            except ValueError:
-                pass  # Content-Length malformado: el techo se aplica al leer.
+        if LLMClient._declared_too_large(response, max_bytes):
+            # `with response:` del llamador cierra la conexión: aquí no se lee
+            # ni un byte, y el servidor no puede haber enviado nada aún.
+            raise LlmError(RESPONSE_TOO_LARGE_ERROR)
         read = getattr(response, "read", None)
-        chunks: list[bytes] = []
-        total = 0
         if read is None:
             # Dobles de prueba y proveedores atípicos sin read(): se acota igual.
+            partes = []
+            total = 0
             for chunk in response:
                 total += len(chunk)
                 if total > max_bytes:
                     raise LlmError(RESPONSE_TOO_LARGE_ERROR)
-                chunks.append(chunk)
-            return b"".join(chunks)
-        while True:
-            remaining = max_bytes - total
-            chunk = read(min(READ_CHUNK_BYTES, remaining + 1))
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_bytes:
-                raise LlmError(RESPONSE_TOO_LARGE_ERROR)
-            chunks.append(chunk)
-        return b"".join(chunks)
+                partes.append(chunk)
+            return b"".join(partes)
+        return LLMClient._read_capped(read, max_bytes)
 
     @staticmethod
     def _iter_lines(response):
