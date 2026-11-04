@@ -1,0 +1,45 @@
+{
+  "repository": "Tukul",
+  "commit": "e1459c9",
+  "date": "2026-11-04",
+  "skill": "audit-fullstack",
+  "verdict": "ENTREGABLE CON RESERVAS",
+  "environment": {
+    "ruff": "pass",
+    "mypy": "pass (42 files)",
+    "pytest": {"passed": 425, "failed": 1, "skipped": 0, "failure": "test_internal_imports_resolve_without_conftest (package not installed in local .venv)"},
+    "coverage_total": "81%",
+    "coverage_app_py": "74%",
+    "coverage_llm_py": "83%",
+    "tk": "operational under xvfb"
+  },
+  "counts": {"CRITICAL": 0, "HIGH": 3, "MEDIUM": 6, "LOW": 5, "total": 14},
+  "findings": [
+    {"id": "H1", "severity": "HIGH", "category": "CI/CD", "title": "quality-gate.sh no replica pip-audit/bandit/health/CLI y no garantiza instalación", "evidence": ["scripts/quality-gate.sh:37-89", ".github/workflows/ci.yml:jobs.test+security"], "recommendation": "Añadir pasos de seguridad y comprobar import tukul_core antes de pytest; CI debe invocar el script."},
+    {"id": "H2", "severity": "HIGH", "category": "Arquitectura", "title": "TukulApp monolítica (3085 líneas, ~200 métodos, 4 workers duplicados)", "evidence": ["tukul_ui/app.py:3085", "tukul_ui/app.py:1703,1863,2269,2375"], "recommendation": "Extraer RequestLifecycle y UIStateBookkeeper; app.py < 1500 líneas."},
+    {"id": "H3", "severity": "HIGH", "category": "Configuración", "title": "_coerce_profile_fields descarta campos mal tipados en silencio", "evidence": ["tukul_core/storage.py:167-184", "tukul_core/storage.py:197-240"], "recommendation": "Warn por campo y exponer en --health; coerción tolerante documentada."},
+    {"id": "M1", "severity": "MEDIUM", "category": "Documentación", "title": "SECURITY.md declara 'prototipo no integrado' la fuente CVE ya implementada", "evidence": ["docs/SECURITY.md secciones CVE", "README.md:86-98", "tests/test_threat_feed*.py"], "recommendation": "Convertir sección en histórica y añadir fila a TRACEABILITY.md."},
+    {"id": "M2", "severity": "MEDIUM", "category": "Testing", "title": "Sin contrato HTTP real para LLMClient (3 protocolos, retries, redirects, límites de body)", "evidence": ["tukul_core/llm.py:140-398", "coverage llm.py 83%"], "recommendation": "Servidor HTTP local en tests/test_llm_http_contract.py."},
+    {"id": "M3", "severity": "MEDIUM", "category": "Operabilidad", "title": "Backoff con time.sleep no cancelable; cierre con workers vivos solo deja warning en log", "evidence": ["tukul_core/llm.py:170-203", "tukul_ui/app.py:_esperar_hilos_de_peticion"], "recommendation": "cancel_event.wait(delay); diagnóstico visible."},
+    {"id": "M4", "severity": "MEDIUM", "category": "Frontend/A11y", "title": "Sin verificación automatizada de contraste WCAG, foco de diálogos ni estado_accesible completo", "evidence": ["tukul_ui/estilo.py", "tukul_ui/app.py:1278"], "recommendation": "Tests de contraste AA, tabla EstadoUI, foco de Toplevel."},
+    {"id": "M5", "severity": "MEDIUM", "category": "Entrega", "title": "Releases sin checksums/SBOM; uv.lock y requirements-dev.lock sin verificación de equivalencia", "evidence": [".github/workflows/build-release.yml", "uv.lock", "requirements-dev.lock"], "recommendation": "SHA256SUMS + sbom.cdx.json; test de equivalencia de lockfiles."},
+    {"id": "M6", "severity": "MEDIUM", "category": "Seguridad", "title": "Defensa anti prompt-injection basada solo en system prompt; contenido sin envoltura estructurada", "evidence": ["tukul_core/llm.py:SYSTEM_PROMPT", "docs/SECURITY.md tabla"], "recommendation": "Campos kind/provenance; regresión de escape de contenido."},
+    {"id": "L1", "severity": "LOW", "category": "Calidad", "title": "test_auditoria_regresion.py con 1427 líneas mezcla dominios", "evidence": ["tests/test_auditoria_regresion.py"], "recommendation": "Dividir por dominio."},
+    {"id": "L2", "severity": "LOW", "category": "Dependencias", "title": "Doble lockfile sin verificación de equivalencia", "evidence": ["uv.lock", "requirements-dev.lock"], "recommendation": "Test o retirar uv.lock."},
+    {"id": "L3", "severity": "LOW", "category": "Docs", "title": "Sin presupuesto de duración de suite en CI", "evidence": ["pyproject.toml:137-140"], "recommendation": "--durations=10 y umbral de tiempo."},
+    {"id": "L4", "severity": "LOW", "category": "Operación", "title": "Falta CONTRIBUTING.md y política de ramas/commits", "evidence": ["raíz del repo"], "recommendation": "Documento breve."},
+    {"id": "L5", "severity": "LOW", "category": "Observabilidad", "title": "--health sin versión ni commit de build", "evidence": ["tukul_core/health.py"], "recommendation": "Añadir version y commit."}
+  ],
+  "roadmap": [
+    {"task": "Alinear quality-gate.sh con CI", "severity": "HIGH", "effort": "S", "depends_on": []},
+    {"task": "Diagnóstico de campos de perfil descartados", "severity": "HIGH", "effort": "S", "depends_on": []},
+    {"task": "Reconciliar docs de fuente CVE", "severity": "MEDIUM", "effort": "XS", "depends_on": []},
+    {"task": "Contrato HTTP de LLMClient", "severity": "MEDIUM", "effort": "M", "depends_on": []},
+    {"task": "Cancelación durante backoff", "severity": "MEDIUM", "effort": "XS", "depends_on": ["Contrato HTTP de LLMClient"]},
+    {"task": "Extraer RequestLifecycle", "severity": "HIGH", "effort": "L", "depends_on": ["Contrato HTTP de LLMClient", "Cancelación durante backoff"]},
+    {"task": "Extraer UIStateBookkeeper", "severity": "MEDIUM", "effort": "M", "depends_on": ["Extraer RequestLifecycle"]},
+    {"task": "Accesibilidad determinista", "severity": "MEDIUM", "effort": "M", "depends_on": []},
+    {"task": "Checksums + SBOM en release", "severity": "MEDIUM", "effort": "S", "depends_on": []}
+  ],
+  "first_task": "Alinear scripts/quality-gate.sh con CI y detectar el checkout sin instalar."
+}
