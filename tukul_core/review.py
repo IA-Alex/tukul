@@ -43,28 +43,46 @@ def _validated_finding(item: object) -> dict[str, str] | None:
     }
 
 
-def parse_findings(result: str) -> list[dict[str, str]]:
-    """Extrae hallazgos válidos de la respuesta JSON del modelo con validación estricta."""
+def _decode_payload(result: str) -> tuple[str, object | None]:
+    """Localiza y decodifica el objeto JSON; devuelve la causa si no se puede."""
     clean = result.strip()
     if clean.startswith("```"):
         clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    # Envolver el bloque externo de un JSON encapsulado puede rebasar el tope
-    # sin que el contenido útil lo haga: se recorta antes de decodificar.
     if len(clean) > MAX_RESULT_CHARS:
-        return []
+        return "truncado", None
+    start = clean.find("{")
+    if start < 0:
+        return "sin_json", None
     try:
-        start = clean.find("{")
-        if start < 0:
-            return []
         payload, _end = json.JSONDecoder().raw_decode(clean[start:])
-        findings = payload.get("findings", [])
-    except (ValueError, AttributeError, TypeError):
-        return []
+    except ValueError:
+        # Hay una llave de apertura pero no un objeto completo: corte o
+        # respuesta a medias, que es información distinta de una prosa.
+        return "truncado", None
+    return "ok", payload
 
-    # Un `findings` que no sea lista (p. ej. una cadena enorme) se recorrería
-    # carácter a carácter para descartarlo todo. Cortar antes de iterar.
+
+def diagnose_findings(result: str) -> tuple[str, list[dict[str, str]]]:
+    """Devuelve la causa del resultado junto a los hallazgos válidos.
+
+    `parse_findings` colapsa cuatro situaciones distintas en `[]`: respuesta sin
+    JSON, JSON con otro esquema (p. ej. `{"respuesta": …}`), artículo sin
+    hallazgos y JSON truncado. La interfaz las presentaba todas como «el modelo
+    no devolvió una revisión utilizable», cuando una de ellas —el artículo sin
+    hallazgos— es un éxito. La causa se separa aquí, en el único punto que
+    conoce el formato, en vez de reparsear en la UI.
+
+    Causas: ``ok``, ``sin_hallazgos``, ``sin_json``, ``esquema_ajeno``,
+    ``truncado``.
+    """
+    causa, payload = _decode_payload(result)
+    if causa != "ok":
+        return causa, []
+    if not isinstance(payload, dict) or "findings" not in payload:
+        return "esquema_ajeno", []
+    findings = payload["findings"]
     if not isinstance(findings, list):
-        return []
+        return "esquema_ajeno", []
 
     validated: list[dict[str, str]] = []
     for item in findings:
@@ -75,4 +93,13 @@ def parse_findings(result: str) -> list[dict[str, str]]:
         if len(validated) >= MAX_FINDINGS:
             break
 
-    return validated
+    if not validated:
+        # Lista presente y vacía, o hallazgos todos descartados por el
+        # validador. Sin ninguno útil, el artículo se considera sin hallazgos.
+        return "sin_hallazgos", []
+    return "ok", validated
+
+
+def parse_findings(result: str) -> list[dict[str, str]]:
+    """Extrae hallazgos válidos de la respuesta JSON del modelo con validación estricta."""
+    return diagnose_findings(result)[1]

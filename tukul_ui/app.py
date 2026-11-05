@@ -31,9 +31,9 @@ from tukul_core.models import (
     FeedEntry,
     LlmProfile,
 )
-from tukul_core.prompting import build_editor_prompt
+from tukul_core.prompting import REVIEW_PROMPT, build_editor_prompt, build_review_prompt
 from tukul_core.real_time_feed import FeedOrchestrator
-from tukul_core.review import parse_findings
+from tukul_core.review import diagnose_findings, parse_findings
 from tukul_core.threat_feed import ThreatFeedError, build_threat_context
 from tukul_ui import estilo as es
 from tukul_ui import ui_state
@@ -149,12 +149,6 @@ class ContextArticle:
     label: str
     content: str
 
-REVIEW_PROMPT = (
-    'Revisa el artículo y responde SOLO JSON válido: '
-    '{"findings":[{"category":"ortografía|gramática|semántica|redundancia|estructura",'
-    '"severity":"alta|media|baja","original":"fragmento exacto","suggestion":"reemplazo",'
-    '"reason":"breve"}]}. Máximo 12 hallazgos. No inventes fragmentos.'
-)
 logger = setup_logging()
 
 
@@ -1722,9 +1716,10 @@ class TukulApp(tk.Tk):
 
         profile = self.profile
         # El prompt técnico viaja al modelo, no al historial: es ruido ilegible.
+        # La conversación la construye `prompting`, dueño del contrato de salida.
         conversacion = [ChatMessage("user", REVIEW_PROMPT)]
         try:
-            prompt = build_editor_prompt(texto, "", conversacion)
+            prompt = build_review_prompt(texto)
             tokens = estimate_prompt_tokens(SYSTEM_PROMPT, prompt)
             if tokens > profile.max_total_model_tokens - profile.max_output_tokens:
                 self._abort_request(request_id)
@@ -2005,11 +2000,21 @@ class TukulApp(tk.Tk):
 
         findings = self.parse_findings(result)
         if not findings:
-            # Respuesta recibida pero inservible: se dice en lenguaje llano, sin
-            # enseñar el JSON que el modelo devolvió mal.
+            # Cada causa se dice por separado. Antes las cuatro se presentaban
+            # como fallo del modelo, incluida la que no lo es: un artículo sin
+            # hallazgos es un resultado correcto.
+            causa, _ = diagnose_findings(result)
+            if causa == "sin_hallazgos":
+                self.set_estado(EstadoUI.EXITO, "sin hallazgos")
+                self._append_notice("Revisión terminada: no se encontraron hallazgos que corregir.")
+                return
             self.set_estado(EstadoUI.ERROR, "la respuesta no era una revisión válida")
-            self._append_notice("El modelo no devolvió una revisión utilizable. "
-                                "Prueba con un fragmento más corto o con otro modelo.")
+            aviso = {
+                "sin_json": "El modelo respondió en prosa en vez de la revisión estructurada.",
+                "esquema_ajeno": "El modelo devolvió otro formato de revisión, no el esperado.",
+                "truncado": "La revisión llegó incompleta y no se pudo leer.",
+            }.get(causa, "El modelo no devolvió una revisión utilizable.")
+            self._append_notice(f"{aviso} Prueba con un fragmento más corto o con otro modelo.")
             return
 
         self.set_estado(EstadoUI.EXITO, f"{len(findings)} hallazgo(s)")
@@ -2175,10 +2180,10 @@ class TukulApp(tk.Tk):
             self.stream_chunk(request_id, texto)
 
     parse_findings = staticmethod(parse_findings)
+    diagnose_findings = staticmethod(diagnose_findings)
     def show_findings(self,findings):
         """Abre el diálogo de hallazgos de una revisión (una sola ventana a la vez)."""
         # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.
-        self._close_review_dialogs()
         self.review_dialogs.append(show_review_dialog(self, findings))
 
     def _close_review_dialogs(self) -> None:
