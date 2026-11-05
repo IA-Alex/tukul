@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -134,7 +135,9 @@ def main() -> int:
     prompt_usuario = build_editor_prompt(articulo, contexto, conversacion_con_revision)
 
     try:
+        inicio = time.monotonic()
         salida = _llamar(SYSTEM_PROMPT, prompt_usuario, clave)
+        latencia_ms = int((time.monotonic() - inicio) * 1000)
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         print(json.dumps({"output": "", "error": _redactar(str(error), clave)}))
         return 0
@@ -149,6 +152,11 @@ def main() -> int:
             # El parser REAL del repo decide esto, igual que en la aplicación.
             "parse_findings_count": len(hallazgos),
             "parse_findings_categories": sorted({h["category"] for h in hallazgos}),
+            # Tamaño de la respuesta y tiempo de pared: la calidad no sirve si
+            # una revisión tarda 30 s o devuelve 400 KB, y sin medirlo el eval
+            # solo podía opinar sobre el contenido.
+            "response_chars": len(salida),
+            "latency_ms": latencia_ms,
             "endpoint": ENDPOINT,
             "model": MODELO,
         },
