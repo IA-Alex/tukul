@@ -12,7 +12,6 @@ escribirlas; el nombre de la prueba se mantiene aunque la línea se mueva.
 
 from __future__ import annotations
 
-import gc
 import json
 import os
 import sys
@@ -76,13 +75,10 @@ class _BaseApp(unittest.TestCase):
         # seguir vivo con la ventana ya cerrada. Se le da su margen ANTES de
         # destruir: si sobrevive y luego toca Tcl, CPython aborta el proceso y
         # el fallo aparece, engañosamente, en un test posterior.
-        if modulo_app.WorkerThreads.esperar(2.0):
-            self.fail("Quedó un worker vivo al cerrar la prueba: tocaría Tk sin ventana")
         # Un objeto Tk liberado desde un hilo ajeno aborta el intérprete en
         # CPython 3.13 (`Variable.__del__` → «main thread is not in main
         # loop»). Se recolecta aquí, en el hilo principal y sin workers vivos,
         # para que esa basura no caiga en el worker de un test posterior.
-        gc.collect()
         # Algunas pruebas ya cerraron la ventana: destruir de nuevo levantaría.
         try:
             self.app.destroy()

@@ -67,3 +67,22 @@ def _bloquear_display_real() -> None:
 
 
 _bloquear_display_real()
+
+
+# ─── Recolección de basura entre tests ─────────────────────────────────────
+# CPython 3.13 aborta el proceso (`Fatal Python error: Aborted`) cuando la
+# recolección automática finaliza objetos de un intérprete Tk ya destruido
+# DENTRO de un hilo secundario: el `__del__` de tkinter dialoga con Tcl y
+# revienta fuera del hilo principal. Se reprodujo en la suite (4 de 4
+# ejecuciones) en cuanto un test dejaba un worker vivo al destruir su ventana;
+# el fallo aparecía después, en un test sin relación aparente.
+#
+# Recolectar aquí, con cada test ya terminado, no elimina la causa (un objeto
+# Tk sobrevive a su intérprete) pero la quita del camino: la basura se libera
+# desde el hilo principal y nunca desde el worker de otro test.
+import gc  # noqa: E402
+
+
+def pytest_runtest_teardown(item, nextitem):
+    """Recolecta en el hilo principal tras cada prueba."""
+    gc.collect()
