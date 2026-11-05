@@ -1,4 +1,21 @@
-"""Sistema visual de Tukul: precisión, estructura y foco.
+"""Sistema visual de Tukul: la casa redonda del sur de Etiopía.
+
+El nombre es el de la *tukul* (también «tekul»): la casa redonda de paredes de
+barro y témpano, techo de paja cónica y anillo de madera de enset («falso
+plátano»), que Kambaata y otras gentes del sur de Etiopía construyen desde hace
+generaciones. Es un lugar para escribir a gusto: espacio cerrado, luz que entra
+por una sola puerta y una techumbre que reparte el calor.
+
+De ahí sale la paleta, y solo la paleta: el comportamiento no cambia.
+
+- **Húmedo de arcilla y paja** (`fondo`, `superficie`, `superficie_alta`): el
+  barro seco y el interior sin luz.
+- **Anillo de enset y baldana**, un ocre cálido (matiz ≈40°), para el borde.
+- **Luz de puerta**: un azul de cielo alto, el único acento frío. Contrapunto
+  deliberado al ocre, como la puerta clara en un muro de barro.
+- **Ámbar de fuego** (`borde_control`): el color de la leña quemada, solo para
+  los controles que deben verse (separadores arrastrables, barra de
+  desplazamiento, bordes de campo).
 
 Reglas del sistema, deliberadamente estrechas para que la interfaz se lea como
 una sola pieza:
@@ -8,7 +25,12 @@ una sola pieza:
   `aplicar_tema()` los reasigna en bloque, así que no hay segunda fuente de
   verdad ni copias congeladas del color.
 - **Un fondo** (`fondo`) y **dos superficies** (`superficie`, `superficie_alta`).
-  Nada más. La profundidad se expresa con esas tres capas y con el borde.
+  Nada más. La profundidad se expresa con esas tres capas.
+- **Dos bordes con funciones distintas**: `borde` (divisoria sutil y hover) y
+  `borde_control` (borde de las piezas accionables, ≥ 3:1 contra su fondo según
+  WCAG 1.4.11). Mezclarlos fue el error que dejó el borde original sin
+  contraste: aclararlo para cumplir 1.4.11 convertía cada divisoria en una
+  línea dura y, peor, aclaraba el fondo de hover por debajo del texto.
 - **Un acento** (`acento`), reservado para la acción primaria y la identidad.
 - **Escala tipográfica de tres tamaños**: `TIPO_SM`, `TIPO_MD`, `TIPO_LG`.
 - **Espaciado de 4/8/12/16** (`ESP`). Ningún margen fuera de esa rejilla.
@@ -16,8 +38,8 @@ una sola pieza:
 Los colores de estado (`ESTADO_*`) NO son acentos: son señal funcional,
 desaturada, y nunca viajan solas — cada estado lleva además símbolo y texto,
 porque el color no puede ser el único portador de información. Ambas paletas
-cumplen WCAG AA (4.5:1 para texto normal y 3:1 para el foco) contra las tres
-capas.
+cumplen WCAG AA: 4.5:1 para el texto sobre cada capa, 3:1 para foco y
+`borde_control`; `tests/test_accesibilidad.py` lo mide.
 """
 from __future__ import annotations
 
@@ -31,44 +53,50 @@ TEMAS_VALIDOS = frozenset({"dark", "light"})
 
 PALETAS: dict[str, dict[str, str]] = {
     "dark": {
-        # --- Capas ------------------------------------------------------
-        "fondo": "#18181B",           # grafito de la aplicación
-        "superficie": "#2C2C30",      # paneles: separación sobria
-        "superficie_alta": "#37373C", # campos, conversación y elementos activos
-        "borde": "#62626F",           # divisores discretos
-        # El indicador de foco sí es información necesaria: WCAG 1.4.11 exige
-        # 3:1 contra el fondo adyacente. Verificado contra las tres capas
-        # (6.2:1 en el peor caso).
-        "foco": "#9DBBFF",
-        # --- Acento (uno) ----------------------------------------------
-        "acento": "#7AA7FF",          # cobalto: actividad y acciones de IA
+        # --- Capas: barro y sombra del interior de la tukul ---------------
+        "fondo": "#1A1611",           # noche: tierra sin luz
+        "superficie": "#2C261E",      # panel: barro seco
+        "superficie_alta": "#39322A", # campo: barro más claro al lado de la puerta
+        # --- Divisorias y controles ---------------------------------------
+        "borde": "#8F8575",           # ocre de paja: divisorias y hover (>=3:1)
+        # WCAG 1.4.11 exige 3:1 a los bordes de elementos accionables. El ocre
+        # de arriba se queda en 2.4-3.4:1 y además es el fondo del hover, así
+        # que los controles usan este ámbar de fuego (3.6:1 contra superficie).
+        "borde_control": "#9A907E",
+        "superficie_activa": "#3B352C",  # hover de botones y pestañas
+        "foco": "#9DBBFF",            # cielo alto: indicador de foco
+        # --- Acento: la luz que entra por la puerta ----------------------
+        "acento": "#7AA7FF",
         "acento_activo": "#A5C4FF",
-        "acento_texto": "#10131A",    # texto sobre el acento
-        # --- Texto -----------------------------------------------------
-        "texto": "#F4F4F5",
-        "texto_tenue": "#C7C7CC",
-        "seleccion": "#3A5182",
-        # --- Señal de estado (funcional, no decorativa) ----------------
-        "estado_neutro": "#A4A4AD",
+        "acento_texto": "#10131A",
+        # --- Texto -------------------------------------------------------
+        "texto": "#F4F1EA",           # cal con sol
+        "texto_tenue": "#C9C2B4",     # cal a media luz
+        "seleccion": "#3A5182",       # sombra azulada de la puerta
+        # --- Señal de estado (funcional, no decorativa) ------------------
+        "estado_neutro": "#A9A296",
         "estado_proceso": "#7FD6E0",
         "estado_exito": "#8DE2B6",
         "estado_error": "#E28D8D",
         "estado_aviso": "#E2C88D",
-        # --- Rol conversacional ---------------------------------------
+        # --- Rol conversacional -----------------------------------------
         "voz_usuario": "#9FD0C9",
         "voz_asistente": "#D4B5FF",
     },
     "light": {
-        "fondo": "#F4F4F5",
-        "superficie": "#E4E4E7",
-        "superficie_alta": "#FAFAFA",
-        "borde": "#A1A1AA",
-        "foco": "#1D4ED8",
+        # --- Capas: la tukul a mediodía --------------------------------
+        "fondo": "#F6F2E9",           # cal y arcilla al sol
+        "superficie": "#EAE4D8",      # pared a la sombra
+        "superficie_alta": "#FCFAF5", # hoja de papel sobre la mesa
+        "borde": "#7E7466",           # ocre de paja: divisorias y hover
+        "borde_control": "#757063",
+        "superficie_activa": "#D6D0C2",  # hover: el texto tenue baja a 5.6:1
+        "foco": "#1D4ED8",            # cielo alto sobre el papel
         "acento": "#1D4ED8",
         "acento_activo": "#1E40AF",
         "acento_texto": "#FFFFFF",
-        "texto": "#18181B",
-        "texto_tenue": "#3F3F46",
+        "texto": "#201B14",           # tinta de brasa
+        "texto_tenue": "#4A4238",
         "seleccion": "#B7C9FF",
         "estado_neutro": "#52525B",
         "estado_proceso": "#155E75",
@@ -88,6 +116,8 @@ FONDO = PALETAS[TEMA_DEFECTO]["fondo"]
 SUPERFICIE = PALETAS[TEMA_DEFECTO]["superficie"]
 SUPERFICIE_ALTA = PALETAS[TEMA_DEFECTO]["superficie_alta"]
 BORDE = PALETAS[TEMA_DEFECTO]["borde"]
+BORDE_CONTROL = PALETAS[TEMA_DEFECTO]["borde_control"]
+SUPERFICIE_ACTIVA = PALETAS[TEMA_DEFECTO]["superficie_activa"]
 FOCO = PALETAS[TEMA_DEFECTO]["foco"]
 ACENTO = PALETAS[TEMA_DEFECTO]["acento"]
 ACENTO_ACTIVO = PALETAS[TEMA_DEFECTO]["acento_activo"]
@@ -114,6 +144,7 @@ def tema_validado(valor: object) -> str:
 def aplicar_tema(nombre: object) -> None:
     """Activa una paleta y reasigna los tokens de módulo (fuente única de color)."""
     global TEMA_ACTIVO, FONDO, SUPERFICIE, SUPERFICIE_ALTA, BORDE, FOCO, ACENTO
+    global BORDE_CONTROL, SUPERFICIE_ACTIVA
     global ACENTO_ACTIVO, ACENTO_TEXTO, TEXTO, TEXTO_TENUE, SELECCION
     global ESTADO_NEUTRO, ESTADO_PROCESO, ESTADO_EXITO, ESTADO_ERROR, ESTADO_AVISO
     global VOZ_USUARIO, VOZ_ASISTENTE
@@ -123,6 +154,8 @@ def aplicar_tema(nombre: object) -> None:
     SUPERFICIE = tokens["superficie"]
     SUPERFICIE_ALTA = tokens["superficie_alta"]
     BORDE = tokens["borde"]
+    BORDE_CONTROL = tokens["borde_control"]
+    SUPERFICIE_ACTIVA = tokens["superficie_activa"]
     FOCO = tokens["foco"]
     ACENTO = tokens["acento"]
     ACENTO_ACTIVO = tokens["acento_activo"]

@@ -6,6 +6,15 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Cambiado
+
+- Paleta visual derivada de la tukul (casa redonda de barro y paja del sur de
+  Etiopía): capas de arcilla cálida, divisorias ocres y el azul de la luz de la
+  puerta como único acento. Solo cambia el color: comportamiento intacto.
+- Nuevos tokens `borde_control` (bordes de controles, sash y scrollbar, ≥ 3:1
+  según WCAG 1.4.11) y `superficie_activa` (hover de botones). `borde` queda
+  como divisoria sutil, también ≥ 3:1 contra las tres capas.
+
 ### Añadido
 
 - Tests de contrato HTTP del cliente LLM contra un servidor local

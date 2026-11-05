@@ -61,3 +61,6 @@ temp/
 .coverage.*
 htmlcov/
 
+
+# Salida del navegador automatizado (Playwright MCP)
+.playwright-mcp/

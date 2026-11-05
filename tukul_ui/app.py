@@ -527,10 +527,12 @@ class TukulApp(tk.Tk):
         # El divisor es una señal de ajuste, no un borde de panel dominante.
         # `sashthickness` fija la zona sensible al arrastre: por debajo de 4 px
         # el agarre se vuelve incómodo, así que se mantiene fino pero usable.
+        # El sash es una pieza accionable (se arrastra): 1.4.11 le exige 3:1,
+        # así que usa `BORDE_CONTROL` y no la divisoria discreta.
         style.configure("TPanedwindow", background=es.BORDE)
-        style.configure("Sash", background=es.BORDE, bordercolor=es.BORDE,
-                        sashthickness=4, gripcount=0, lightcolor=es.BORDE,
-                        darkcolor=es.BORDE)
+        style.configure("Sash", background=es.BORDE_CONTROL, bordercolor=es.BORDE_CONTROL,
+                        sashthickness=4, gripcount=0, lightcolor=es.BORDE_CONTROL,
+                        darkcolor=es.BORDE_CONTROL)
         # Paneles sin marco: la separación la dan la superficie y el divisor.
         style.configure("TLabelframe", background=es.SUPERFICIE,
                         bordercolor=es.SUPERFICIE, relief="flat", borderwidth=0)
@@ -543,13 +545,16 @@ class TukulApp(tk.Tk):
         #   pulsado -> vuelve a la superficie base, con el borde en foco
         #   inhabilitado -> fondo hundido Y texto tenue (no solo color: el
         #                   contraste baja, y ttk además ignora el clic)
+        # El hover usa una superficie propia: usar BORDE obligaba a que esta
+        # divisoria fuera fondo de botón, y entonces su contraste quedaba
+        # atado al del texto (ver `borde`/`borde_control` en `estilo.py`).
         estados_fondo = [("disabled", es.SUPERFICIE), ("pressed", es.SUPERFICIE),
-                         ("active", es.BORDE)]
+                         ("active", es.SUPERFICIE_ACTIVA)]
         estados_texto = [("disabled", es.TEXTO_TENUE)]
         estados_borde = [("focus", es.FOCO), ("pressed", es.FOCO),
                          ("disabled", es.SUPERFICIE)]
         style.configure("TButton", background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                        bordercolor=es.BORDE, focuscolor=es.FOCO, relief="flat",
+                        bordercolor=es.BORDE_CONTROL, focuscolor=es.FOCO, relief="flat",
                         padding=(es.ESP["sm"], es.ESP["xs"] + 1))
         style.map("TButton", background=estados_fondo, foreground=estados_texto,
                   bordercolor=estados_borde)
@@ -562,7 +567,7 @@ class TukulApp(tk.Tk):
                   foreground=[("disabled", es.TEXTO_TENUE)],
                   bordercolor=[("focus", es.ACENTO_TEXTO), ("disabled", es.SUPERFICIE_ALTA)])
         style.configure("Guardar.TButton", background=es.SUPERFICIE_ALTA,
-                        foreground=es.TEXTO, bordercolor=es.BORDE, relief="flat",
+                        foreground=es.TEXTO, bordercolor=es.BORDE_CONTROL, relief="flat",
                         focuscolor=es.FOCO, font=es.fuente(negrita=True),
                         padding=(es.ESP["sm"], es.ESP["xs"] + 1))
         style.map("Guardar.TButton", background=estados_fondo, foreground=estados_texto,
@@ -603,8 +608,8 @@ class TukulApp(tk.Tk):
         # no heredan del estilo raíz y rompían el conjunto oscuro.
         for campo in ("TEntry", "TCombobox", "TSpinbox"):
             style.configure(campo, fieldbackground=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                            background=es.SUPERFICIE_ALTA, bordercolor=es.BORDE,
-                            lightcolor=es.BORDE, darkcolor=es.BORDE,
+                            background=es.SUPERFICIE_ALTA, bordercolor=es.BORDE_CONTROL,
+                            lightcolor=es.BORDE_CONTROL, darkcolor=es.BORDE_CONTROL,
                             arrowcolor=es.TEXTO_TENUE, insertcolor=es.ACENTO,
                             selectbackground=es.SELECCION, selectforeground=es.TEXTO)
             style.map(campo,
@@ -622,7 +627,7 @@ class TukulApp(tk.Tk):
         style.configure("Vertical.TScrollbar", background=es.SUPERFICIE_ALTA,
                         troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
                         arrowcolor=es.TEXTO_TENUE, relief="flat")
-        style.map("Vertical.TScrollbar", background=[("active", es.BORDE)])
+        style.map("Vertical.TScrollbar", background=[("active", es.BORDE_CONTROL)])
         style.configure("Horizontal.TScrollbar", background=es.SUPERFICIE_ALTA,
                         troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
                         arrowcolor=es.TEXTO_TENUE, relief="flat")
@@ -2506,7 +2511,7 @@ class TukulApp(tk.Tk):
             selectforeground=es.TEXTO,
             relief="flat",
             highlightthickness=1,
-            highlightbackground=es.BORDE,
+            highlightbackground=es.BORDE_CONTROL,
             highlightcolor=es.FOCO,
             borderwidth=0,
             font=es.fuente(),
@@ -2655,7 +2660,7 @@ class TukulApp(tk.Tk):
             foreground=es.TEXTO,
             selectbackground=es.SELECCION,
             selectforeground=es.TEXTO,
-            highlightbackground=es.BORDE,
+            highlightbackground=es.BORDE_CONTROL,
             highlightcolor=es.FOCO,
         )
 
@@ -2729,7 +2734,7 @@ class TukulApp(tk.Tk):
                              background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
                              selectbackground=es.SELECCION, selectforeground=es.TEXTO,
                              relief="flat", highlightthickness=1,
-                             highlightbackground=es.BORDE, highlightcolor=es.FOCO,
+                             highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
                              borderwidth=0, font=es.fuente(), activestyle="none")
         entries.pack(fill="both", expand=True)
 
@@ -2805,7 +2810,7 @@ class TukulApp(tk.Tk):
         dialog.configure(bg=es.SUPERFICIE)
         entries.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
                           selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-                          highlightbackground=es.BORDE, highlightcolor=es.FOCO)
+                          highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO)
 
     def save_document(self, save_as: bool = False)->bool:
         """Guarda el artículo en su ruta, o pide destino si no la tiene."""

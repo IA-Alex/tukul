@@ -38,7 +38,8 @@ HAY_DISPLAY = _hay_display()
 
 #: Tokens que toda paleta debe exponer (la estructura es el contrato).
 TOKENS = frozenset({
-    "fondo", "superficie", "superficie_alta", "borde", "foco",
+    "fondo", "superficie", "superficie_alta", "superficie_activa",
+    "borde", "borde_control", "foco",
     "acento", "acento_activo", "acento_texto", "texto", "texto_tenue",
     "seleccion", "estado_neutro", "estado_proceso", "estado_exito",
     "estado_error", "estado_aviso", "voz_usuario", "voz_asistente",
@@ -128,9 +129,9 @@ class TestPaletasYTokens(unittest.TestCase):
             p = es.PALETAS[tema]
             self.assertGreaterEqual(es.contraste(p["texto"], p["seleccion"]), 4.5,
                                     f"{tema}: texto sobre selección")
-            # El hover de los botones usa BORDE como fondo con el texto encima.
-            self.assertGreaterEqual(es.contraste(p["texto"], p["borde"]), 4.5,
-                                    f"{tema}: texto sobre borde (hover)")
+            # El hover es una superficie más, no el borde: texto normal encima.
+            self.assertGreaterEqual(es.contraste(p["texto"], p["superficie_activa"]), 4.5,
+                                    f"{tema}: texto sobre superficie activa (hover)")
 
 
 @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")

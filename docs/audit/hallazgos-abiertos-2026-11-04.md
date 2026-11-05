@@ -13,36 +13,22 @@ punto dice qué falta, qué evidencia lo sostiene y cuándo se puede cerrar.
   y cierre son la red de seguridad y deben pasar **sin cambios**.
 - **Cierre:** `app.py` < 2.300 líneas y cobertura del nuevo módulo ≥ 90 %.
 
-## M4 — Contraste no textual de los bordes (pendiente de decidir la paleta)
+## M4 — Contraste no textual de los bordes: RESUELTO (2026-11-04, segunda pasada)
 
-- **Qué falta:** el token `borde` no alcanza 3:1 (WCAG 1.4.11) contra ninguna capa
-  en ninguno de los dos temas:
-
-  | Tema  | fondo | superficie | superficie_alta |
-  |-------|-------|------------|-----------------|
-  | dark  | 2.95  | 2.32       | 1.97            |
-  | light | 2.33  | 2.02       | 2.46            |
-
-- **Por qué no se cambió:** `BORDE` hace tres trabajos a la vez en
-  `tukul_ui/app.py` (líneas 540-600): color de bordes y separadores, **fondo de
-  hover** de los botones (`("active", es.BORDE)`) y **fondo de la barra de
-  desplazamiento activa**. Aclararlo a `#86868A` (dark) / `#66666A` (light) lleva
-  los bordes a 3.26-5.48:1 y deja el hover legible, pero las líneas divisorias y
-  el sash pasan a ser tan visibles como el texto tenue: cambia el aspecto del
-  producto. Es una decisión de diseño, no de código.
-- **Evidencia:** `tests/test_accesibilidad.py` (`TestContrasteNoTextual`) mide los
-  seis pares y `test_la_deuda_del_borde_es_exactamente_la_declarada` falla si la
-  paleta cambia de cumplimiento, para que esta excepción no quede olvidada.
-  También se cubren ya con test: foco dentro de los diálogos al abrirlos, cierre
-  con Escape devolviendo el foco al editor, y `estado_accesible` para los seis
-  estados.
-- **Opciones:**
-  1. Separar tokens: `borde` (sutil, como hoy) y `borde_control` ≥ 3:1 para
-     scrollbar, sash y hover. Es el arreglo correcto y no toca el aspecto
-     divisorio.
-  2. Aclarar `borde` y aceptar divisorias más marcadas.
-- **Cierre:** la constante `_DEUDA_BORDE` de `tests/test_accesibilidad.py` queda
-  vacía y el test lo demuestra.
+- **Origen:** el token `borde` hacía tres trabajos a la vez (divisoria, fondo de
+  hover y fondo de scrollbar) y no alcanzaba 3:1 contra ninguna capa.
+- **Decisión de producto:** la paleta se rehízo a partir de la identidad del
+  nombre. Tukul es la casa redonda de barro y paja del sur de Etiopía; de ahí
+  salen las capas de barro cálido, el ocre de paja de las divisorias y el azul
+  de la luz de la puerta como único acento.
+- **Separación de tokens:** `borde` (divisoria y hover, ahora ≥ 3:1 contra las
+  tres capas) y `borde_control` (bordes de botones, campos, sash y barra de
+  desplazamiento, ≥ 3:1). El hover de los botones pasa a `superficie_activa`,
+  una superficie propia, para no depender del borde.
+- **Verificación:** `tests/test_accesibilidad.py` mide los dos bordes contra
+  todas las capas, el hover con texto normal y la identidad de la paleta (fondo
+  cálido, bordes ocres, acento frío). `tests/test_tema.py` exige los tokens
+  nuevos en las dos paletas.
 
 ## M5 — Release sin checksums ni SBOM
 

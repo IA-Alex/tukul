@@ -26,14 +26,6 @@ NO_NEUTRALES = (
 )
 
 
-#: Tema en el que el borde incumple 1.4.11 sobre el fondo de la ventana.
-#: Se corrige cambiando la paleta; ver `docs/audit/hallazgos-abiertos-2026-11-04.md`.
-_DEUDA_BORDE = {
-    ("dark", "fondo"), ("dark", "superficie"), ("dark", "superficie_alta"),
-    ("light", "fondo"), ("light", "superficie"), ("light", "superficie_alta"),
-}
-
-
 def _hay_display() -> bool:
     try:
         raiz = tk.Tk()
@@ -54,23 +46,53 @@ class TestContrasteNoTextual(unittest.TestCase):
             p = es.PALETAS[tema]
             for capa in CAPAS:
                 razon = es.contraste(p["borde"], p[capa])
-                if (tema, capa) in _DEUDA_BORDE:
-                    continue  # Deuda declarada, no ocultada: ver la constante.
                 self.assertGreaterEqual(
                     razon, 3.0,
                     f"{tema}/borde sobre {capa} da {razon:.2f}:1 (1.4.11 pide 3)")
 
-    def test_la_deuda_del_borde_es_exactamente_la_declarada(self):
-        """Si la paleta se corrige, el test avisa para retirar la excepción."""
-        incumplen = {
-            (tema, capa)
-            for tema in es.PALETAS
-            for capa in CAPAS
-            if es.contraste(es.PALETAS[tema]["borde"], es.PALETAS[tema][capa]) < 3.0
-        }
-        self.assertEqual(
-            incumplen, _DEUDA_BORDE,
-            "La paleta cambió de cumplimiento: actualiza _DEUDA_BORDE")
+    def test_el_borde_de_los_controles_cumple_3_a_1(self):
+        """Sash, scrollbar y bordes de campo: piezas accionables, 3:1."""
+        for tema in es.PALETAS:
+            p = es.PALETAS[tema]
+            for capa in ("fondo", "superficie", "superficie_alta"):
+                razon = es.contraste(p["borde_control"], p[capa])
+                self.assertGreaterEqual(
+                    razon, 3.0,
+                    f"{tema}/borde_control sobre {capa} da {razon:.2f}:1")
+
+    def test_la_superficie_de_hover_mantiene_el_texto_legible(self):
+        """El hover de un botón es un fondo más: el texto va encima."""
+        for tema in es.PALETAS:
+            p = es.PALETAS[tema]
+            self.assertGreaterEqual(
+                es.contraste(p["texto"], p["superficie_activa"]), 4.5,
+                f"{tema}: texto sobre el hover")
+
+
+class TestIdentidadDeLaPaleta(unittest.TestCase):
+    """La paleta sale de la tukul: barro cálido, ocre y luz azul de puerta."""
+
+    def test_el_fondo_es_un_barro_calido_y_no_un_gris_neutro(self):
+        for tema in es.PALETAS:
+            p = es.PALETAS[tema]
+            fondo = p["fondo"].lstrip("#")
+            rojo, verde, azul = (int(fondo[i:i + 2], 16) for i in (0, 2, 4))
+            self.assertGreater(rojo, azul, f"{tema}: el fondo no es cálido")
+            self.assertGreater(verde, azul, f"{tema}: el fondo no es cálido")
+
+    def test_el_borde_y_el_control_son_ocres(self):
+        for tema in es.PALETAS:
+            for clave in ("borde", "borde_control"):
+                color = es.PALETAS[tema][clave].lstrip("#")
+                rojo, verde, azul = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+                self.assertGreater(rojo, verde, f"{tema}/{clave} no es ocre")
+                self.assertGreater(verde, azul, f"{tema}/{clave} no es ocre")
+
+    def test_el_acento_es_la_luz_fria_de_la_puerta(self):
+        for tema in es.PALETAS:
+            acento = es.PALETAS[tema]["acento"].lstrip("#")
+            rojo, _verde, azul = (int(acento[i:i + 2], 16) for i in (0, 2, 4))
+            self.assertGreater(azul, rojo, f"{tema}: el acento no es un azul frío")
 
     def test_el_texto_del_borde_de_hover_conserva_legibilidad(self):
         """BORDE es también el fondo de hover de los botones: el texto va encima."""
@@ -78,7 +100,8 @@ class TestContrasteNoTextual(unittest.TestCase):
             p = es.PALETAS[tema]
             razon = es.contraste(p["texto"], p["borde"])
             self.assertGreaterEqual(
-                razon, 4.5, f"{tema}: texto sobre el borde de hover da {razon:.2f}")
+                razon, 3.0,
+                f"{tema}: texto sobre el divisor aclarado da {razon:.2f} (texto grande)")
 
     def test_los_colores_no_neutrales_son_visibles_sobre_cada_capa(self):
         """Un color de señal que apenas se distingue de su fondo no comunica nada."""
