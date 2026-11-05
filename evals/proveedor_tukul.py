@@ -10,7 +10,9 @@ Se ejecuta con el intérprete del proyecto (`.venv/bin/python`) porque necesita
 - `TUKUL_EVAL_API_KEY_ENV`   NOMBRE de la variable que contiene la key
                              (por defecto `DEEPINFRA_API_KEY`)
 
-Entrada JSON por stdin: {"vars": {...}}. Salida JSON por stdout:
+Entrada: el prompt renderizado llega como PRIMER ARGUMENTO (contrato de
+`exec:` de promptfoo) y, si no hay argumento, por stdin como JSON:
+{"vars": {...}}. Salida JSON por stdout:
 {"output": "<texto crudo del modelo>", "metadata": {...}}.
 
 Así el eval mide lo que la aplicación envía de verdad (`SYSTEM_PROMPT`,
@@ -73,9 +75,32 @@ def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     return str(contenido)
 
 
+def _leer_entrada(args: list[str]) -> dict:
+    """Devuelve `{"vars": ...}` desde el argumento de promptfoo o desde stdin.
+
+    Contrato de `exec:`: el prompt renderizado llega como primer argumento. En
+    este eval el prompt es `{{article}}`, así que ese argumento ES el artículo
+    y la configuración viaja por `options` (segundo argumento) y el entorno.
+    El modo stdin se conserva para poder probar el adaptador en seco.
+    """
+    if len(args) >= 2:
+        # (prompt, options_json, context_json)
+        try:
+            contexto = json.loads(args[2]) if len(args) >= 3 else {}
+        except json.JSONDecodeError:
+            contexto = {}
+        vars_ = dict(contexto.get("vars") or {})
+        vars_.setdefault("article", args[0])
+        return {"vars": vars_}
+    if len(args) == 1:
+        return {"vars": {"article": args[0]}}
+    entrada = json.load(sys.stdin)
+    return dict(entrada) if isinstance(entrada, dict) else {}
+
+
 def main() -> int:
     try:
-        peticion = json.load(sys.stdin)
+        peticion = _leer_entrada(sys.argv[1:])
     except json.JSONDecodeError:
         print(json.dumps({"error": "stdin debe ser JSON"}))
         return 1
