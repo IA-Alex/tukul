@@ -2184,6 +2184,7 @@ class TukulApp(tk.Tk):
     def show_findings(self,findings):
         """Abre el diálogo de hallazgos de una revisión (una sola ventana a la vez)."""
         # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.
+        self._close_review_dialogs()
         self.review_dialogs.append(show_review_dialog(self, findings))
 
     def _close_review_dialogs(self) -> None:
