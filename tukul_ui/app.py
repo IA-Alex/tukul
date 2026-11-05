@@ -1039,6 +1039,10 @@ class TukulApp(tk.Tk):
         self.input.bind("<Button-3>", self.text_menu)
         self.history.bind("<Button-3>", self.history_menu)
         self.history.bind("<Control-c>", lambda e: self.history.event_generate("<<Copy>>") or "break")
+        # Copiar el mensaje completo bajo el cursor, sin seleccionar: los chats
+        # suelen ofrecerlo, y en un panel de solo lectura seleccionar con el
+        # ratón no siempre deja el cursor donde se hizo clic.
+        self.history.bind("<Control-Shift-c>", self._on_copiar_mensaje_atajo)
 
         # Variables de estado que se vincularán dinámicamente
         self.estado_ayuda_var = tk.StringVar(value=EstadoUI.REPOSO.ayuda)
@@ -1401,24 +1405,50 @@ class TukulApp(tk.Tk):
         self._popup_efimero(menu, event)
         return "break"
 
+    def _rango_del_mensaje(self, indice: str) -> tuple[str, str] | None:
+        """Devuelve el mensaje (voz, cuerpo o nota) que contiene ese índice.
+
+        `tag_nextrange`/`tag_prevrange` devuelven el primer o último rango de la
+        etiqueta, no el que contiene la posición: con varios mensajes del mismo
+        tipo, copiar sobre uno devolvía siempre el más cercano al inicio. Se
+        recorre la lista completa y se comprueba la contención.
+        """
+        for etiqueta in ("cuerpo_usuario", "cuerpo_bot", "nota"):
+            rangos = self.history.tag_ranges(etiqueta)
+            for inicio, final in zip(rangos[::2], rangos[1::2], strict=False):
+                if (self.history.compare(indice, ">=", inicio)
+                        and self.history.compare(indice, "<", final)):
+                    return str(inicio), str(final)
+        return None
+
+    def _on_copiar_mensaje_atajo(self, _event=None) -> str:
+        """Atajo Ctrl+Mayús+C: copia el mensaje completo bajo el cursor."""
+        self._copiar_mensaje_en_cursor()
+        return "break"
+
+    def _copiar_mensaje_en_cursor(self) -> None:
+        """Copia el mensaje completo que hay bajo el cursor de inserción."""
+        class _Cursor:
+            def __init__(self, x: int, y: int) -> None:
+                self.x, self.y = x, y
+
+        bbox = self.history.bbox("insert")
+        x, y = (bbox[0] + 1, bbox[1] + 1) if bbox else (1, 1)
+        self._copiar_mensaje(_Cursor(x, y))
+
     def _copiar_mensaje(self, event) -> None:
         """Copia el mensaje que contiene al cursor (voz, cuerpo o nota)."""
-        indice = f"@{event.x},{event.y}"
-        for etiqueta in ("cuerpo_usuario", "cuerpo_bot", "nota"):
-            rango = self.history.tag_prevrange(etiqueta, f"{indice}+1c")
-            if not rango:
-                continue
-            inicio, final = rango
-            if self.history.compare(indice, "<", inicio) or self.history.compare(indice, ">", final):
-                continue
-            texto = self.history.get(inicio, final).strip()
-            if not texto:
-                continue
-            self.clipboard_clear()
-            self.clipboard_append(texto)
-            self.status.set("Mensaje copiado.")
+        rango = self._rango_del_mensaje(f"@{event.x},{event.y}")
+        if rango is None:
+            self.status.set("No hay mensaje aquí.")
             return
-        self.status.set("No hay mensaje aquí.")
+        texto = self.history.get(*rango).strip()
+        if not texto:
+            self.status.set("No hay mensaje aquí.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(texto)
+        self.status.set("Mensaje copiado.")
     def modified(self,_=None):
         """Marca la sesión como sucia al editar el documento."""
         if not self.editor.edit_modified(): return
