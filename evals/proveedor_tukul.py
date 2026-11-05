@@ -69,7 +69,8 @@ def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     )
     with urllib.request.urlopen(peticion, timeout=TIMEOUT) as respuesta:
         datos = json.loads(respuesta.read().decode("utf-8"))
-    return datos["choices"][0]["message"]["content"]
+    contenido = datos["choices"][0]["message"]["content"]
+    return str(contenido)
 
 
 def main() -> int:
