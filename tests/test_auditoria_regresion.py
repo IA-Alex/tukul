@@ -988,6 +988,65 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
         self.assertFalse(status.is_healthy, "Sin perfiles hay avisos")
         self.assertFalse(status.has_errors, "…pero nada roto: --health debe salir con 0")
 
+    def test_el_primer_arranque_indica_el_siguiente_paso(self):
+        """Los dos avisos de una instalación virgen se leen como un paso a dar.
+
+        Antes la salida decía `ISSUES` con dos ausencias técnicas y se leía
+        como «está roto». Ahora conserva el estado (aviso, no error) pero añade
+        el paso concreto y la ruta a la que copiar el config.
+        """
+        from tukul_core import health
+
+        with tempfile.TemporaryDirectory() as directory:
+            destino = Path(directory) / "nada" / "config.toml"
+            with patch.object(storage, "CONFIG_PATH", destino):
+                texto = health.status_string()
+
+        self.assertIn("ISSUES", texto)
+        self.assertIn("siguiente paso: copia tukul.example.toml", texto)
+        self.assertIn(str(destino), texto, "Debe nombrar la MISMA ruta que inspeccionó")
+        self.assertIn("tu API key", texto)
+
+    def test_una_instalacion_configurada_no_muestra_el_siguiente_paso(self):
+        from tukul_core import health
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text(
+                '[llm]\nactive_profile = "p"\n\n[profiles.p]\n'
+                'provider = "openai_compatible"\nendpoint = "https://x/v1"\n'
+                'model = "m"\napi_key_env = "K"\n',
+                encoding="utf-8",
+            )
+            with patch.object(storage, "CONFIG_PATH", config):
+                texto = health.status_string()
+
+        self.assertNotIn("siguiente paso", texto)
+        self.assertIn("1 perfil(es) habilitado(s)", texto)
+
+    def test_un_error_no_se_presenta_como_primer_arranque(self):
+        """Si algo está roto de verdad no se invita a «copia el ejemplo»."""
+        from tukul_core import health
+        from tukul_core.health import ComponentStatus, HealthStatus
+
+        status = HealthStatus(
+            is_healthy=False,
+            components={
+                "storage": (ComponentStatus.ERROR, "La carpeta de config es de solo lectura"),
+                "llm": (ComponentStatus.WARNING, "Ninguno configurado todavía"),
+            },
+            timestamp="2026-11-05T00:00:00",
+            config_path="/tmp/config.toml",
+        )
+        self.assertEqual(health._siguiente_paso(status), "")
+
+    def test_un_estado_sin_componentes_no_inventa_pista(self):
+        from tukul_core import health
+        from tukul_core.health import HealthStatus
+
+        status = HealthStatus(is_healthy=True, components={}, timestamp="2026-11-05T00:00:00")
+        self.assertEqual(health._siguiente_paso(status), "")
+
     def test_directorio_de_config_no_escribible_es_error(self):
         from tukul_core.health import ComponentStatus, check_health
 

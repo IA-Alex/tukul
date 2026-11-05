@@ -74,8 +74,31 @@ cuando lo que falta es un paso normal de configuración.
 único que confunde: el texto. La Opción B resuelve el mensaje creando un
 fichero que el usuario no pidió y que no elimina la necesidad de configuración.
 
-## Pendiente de aprobación
+## Estado
 
-No se ha modificado `tukul_core/health.py`. Si se aprueba la Opción A, el
-cambio se haría en un commit aparte (`docs(health)` + `fix(health)`) con sus
-pruebas ajustadas y el gate en verde.
+**Opción A aplicada** (2026-11-05), tras aprobación explícita:
+
+- `storage`: «Aún no existe (se crea al guardar la configuración)».
+- `llm`: «Ninguno configurado todavía (ver «siguiente paso»)».
+- Nueva línea `siguiente paso: copia tukul.example.toml a <ruta>, pon tu API
+  key y ejecuta --health otra vez`, que solo aparece cuando storage y llm
+  están ambos en WARNING y ningún componente en ERROR.
+- El estado global sigue en `ISSUES` y el código de salida sigue siendo 0: el
+  contrato no cambió. Solo cambió cómo se lee.
+
+Salida de una instalación virgen:
+
+```
+Salud: ISSUES (…)
+  config: /home/<usuario>/.config/tukul/config.toml
+  storage: ⚠️  Aún no existe (se crea al guardar la configuración)
+  llm: ⚠️  Ninguno configurado todavía (ver «siguiente paso»)
+  logging: ✓ OK (archivo: .../tukul.log)
+  siguiente paso: copia tukul.example.toml a /home/<usuario>/.config/tukul/config.toml, pon tu API key y ejecuta --health otra vez
+```
+
+Por qué no se eligió la Opción B: sembrar un config por defecto escribe en el
+disco del usuario sin pedirlo y el perfil sembrado seguiría deshabilitado (sin
+endpoint, modelo ni key), así que el aviso reaparecería con otro disfraz.
+
+La Opción A no modifica el modelo de estados ni el código de salida.

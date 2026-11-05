@@ -58,9 +58,11 @@ def _check_storage(profiles_error: Exception | None, config_path: Path) -> tuple
             raise profiles_error
         config_dir = config_path.parent
         if not config_dir.exists():
+            # Primer arranque normal, no un fallo: se redacta como el paso que
+            # el usuario ya dará al guardar, no como una ausencia técnica.
             return (
                 ComponentStatus.WARNING,
-                "La carpeta de config no existe (se creará al guardar)",
+                "Aún no existe (se crea al guardar la configuración)",
             )
         try:
             with tempfile.NamedTemporaryFile(
@@ -122,7 +124,11 @@ def check_health(config_path: Path | str | None = None) -> HealthStatus:
                 f"{enabled_count} perfil(es) habilitado(s)",
             )
         else:
-            components["llm"] = (ComponentStatus.WARNING, "Sin perfiles habilitados")
+            # Primer arranque: falta un paso de configuración, no hay un error.
+            components["llm"] = (
+                ComponentStatus.WARNING,
+                "Ninguno configurado todavía (ver «siguiente paso»)",
+            )
         # Campos descartados por tipo: el perfil arranca con los valores por
         # defecto y el usuario no tenía forma de saber por qué. Va dentro del
         # componente `llm` en vez de como componente propio: la clave "config"
@@ -190,4 +196,35 @@ def status_string(status: HealthStatus | None = None) -> str:
         lines.append(f"  config: {status.config_path}")
     for comp, (comp_status, message) in status.components.items():
         lines.append(f"  {comp}: {comp_status.value} {message}")
+    pista = _siguiente_paso(status)
+    if pista:
+        lines.append(pista)
     return "\n".join(lines)
+
+
+def _siguiente_paso(status: HealthStatus) -> str:
+    """Devuelve un «siguiente paso» cuando la instalación es de primer arranque.
+
+    Solo aparece si coinciden los dos avisos de una instalación virgen: sin
+    carpeta de config y sin perfiles. Un `ISSUES` con esas dos líneas se leía
+    como «está roto», cuando lo que falta es un paso normal de configuración.
+    Si los componentes no existen (estado construido a mano), no se inventa.
+    """
+    storage_estado = status.components.get("storage")
+    llm_estado = status.components.get("llm")
+    if storage_estado is None or llm_estado is None:
+        return ""
+    # Ambos en WARNING y ningún error es exactamente el primer arranque que
+    # describe `has_errors`: se decide por estado, no por el texto del mensaje.
+    primer_arranque = (
+        storage_estado[0] == ComponentStatus.WARNING
+        and llm_estado[0] == ComponentStatus.WARNING
+        and not status.has_errors
+    )
+    if not primer_arranque:
+        return ""
+    destino = status.config_path or "la ruta de config indicada arriba"
+    return (
+        f"  siguiente paso: copia tukul.example.toml a {destino}, "
+        "pon tu API key y ejecuta --health otra vez"
+    )
