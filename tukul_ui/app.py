@@ -47,6 +47,7 @@ from tukul_ui.document_manager import DocumentManager
 from tukul_ui.document_scope import DocumentScope
 from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from tukul_ui.llm_session_manager import LLMSessionManager
+from tukul_ui.request_lifecycle import RequestLifecycle
 from tukul_ui.worker_threads import WorkerThreads
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
@@ -1713,27 +1714,13 @@ class TukulApp(tk.Tk):
             self.show_error("Error interno", "No se pudo preparar la revisión. Inténtalo de nuevo.")
             return
 
-        # Sin asignar `llm.cancel_event`: `_cancel_active_request` ya marca
-        # ESTE evento directamente. Publicarlo en el manager hacía que una
-        # cancelación marcara el evento que hubiera en ese momento, no el de la
-        # petición cancelada.
-        def work():
-            """Transmite la revisión en segundo plano y publica eventos de UI."""
-            # La key se resuelve en el worker: el llavero no debe bloquear Tk.
-            api_key = self.key or self._esperar_key()
-            if not api_key:
-                self.control_queue.put_nowait(
-                    ("error", request_id, "No pude responder: falta la API key", []))
-                return
-            self.llm.stream_response(
-                profile, api_key, texto, "", conversacion,
-                on_chunk=lambda chunk: self.chunks.append(request_id, chunk),
-                on_error=lambda error: self.control_queue.put_nowait(("error", request_id, f"No pude responder: {error}", [])),
-                on_complete=lambda result, usage: self.control_queue.put_nowait(("complete", request_id, result, [], usage, "review")),
-                request_id=request_id,
-                cancel_event=cancel_event,
-            )
-        WorkerThreads.start(work)
+        # El ciclo de la petición vive en `RequestLifecycle`; aquí solo queda
+        # lo que es de la interfaz (validar tamaño y anunciar el estado).
+        self._ciclo_peticion().start(
+            request_id=request_id, profile=profile, article=texto, packet="",
+            conversation=conversacion, cancel_event=cancel_event,
+            request_type="review",
+        )
 
     def request(self, message: str, request_type: str = "normal"):
         """Envía una consulta sobre el artículo, sin explorar archivos locales.
@@ -1871,32 +1858,12 @@ class TukulApp(tk.Tk):
 
         # Snapshot in the UI thread: the worker must not read mutable session state.
         # IMPORTANTE: usar conversation_with_message que incluye el mensaje actual
-        # Sin asignar `llm.cancel_event`: `_cancel_active_request` ya marca
-        # ESTE evento directamente. Publicarlo en el manager hacía que una
-        # cancelación marcara el evento que hubiera en ese momento, no el de la
-        # petición cancelada.
-        def work():
-            """Ejecuta la petición HTTP en un hilo daemon y publica eventos de UI."""
-            # La key del llavero se resuelve DENTRO del worker: leerla aquí
-            # congelaba el hilo de Tk mientras D-Bus respondía. El envío real ya
-            # es asíncrono, así que probar la credencial en él es equivalente y
-            # no bloquea la interfaz.
-            api_key = self.key or self._esperar_key()
-            if not api_key:
-                self.control_queue.put_nowait(
-                    ("error", request_id, "No pude responder: falta la API key", files))
-                return
-            # Usar LLMSessionManager con error handling robusto
-            # Publicar eventos en queue para thread-safety (no self.after() desde thread)
-            self.llm.stream_response(
-                profile, api_key, selected, packet, conversation_with_message,
-                on_chunk=lambda chunk: self.chunks.append(request_id, chunk),
-                on_error=lambda error: self.control_queue.put_nowait(("error", request_id, f"No pude responder: {error}", files)),
-                on_complete=lambda result, usage: self.control_queue.put_nowait(("complete", request_id, result, files, usage, request_type)),
-                request_id=request_id,
-                cancel_event=cancel_event,
-            )
-        WorkerThreads.start(work)
+        # Snapshot en el hilo de UI: el worker no lee estado mutable de la sesión.
+        self._ciclo_peticion().start(
+            request_id=request_id, profile=profile, article=selected, packet=packet,
+            conversation=conversation_with_message, cancel_event=cancel_event,
+            request_type=request_type, files=files,
+        )
 
     def _pedir_aprobacion(self, request_id: int, files: list[str],
                           key: ContextApprovalKey, al_aceptar) -> None:
@@ -1927,6 +1894,20 @@ class TukulApp(tk.Tk):
             self.editor.focus_set()
 
         self.panel_asistente.show_approval(text, aceptar, rechazar)
+
+    def _ciclo_peticion(self) -> RequestLifecycle:
+        """Ciclo de petición con los canales de ESTA ventana.
+
+        Se construye por llamada (es barato): así los canales son los vivos
+        aunque un test los sustituya, y no hay estado duplicado que mantener.
+        """
+        return RequestLifecycle(
+            chunks=self.chunks,
+            publicar=self.control_queue.put_nowait,
+            session=self.llm,
+            arrancar=WorkerThreads.start,
+            esperar_key=lambda: self.key or self._esperar_key(),
+        )
 
     def _abort_request(self, request_id: int) -> None:
         """Descarta una petición antes de enviarla y libera la UI por completo.

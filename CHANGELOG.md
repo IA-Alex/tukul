@@ -17,6 +17,10 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Añadido
 
+- `tukul_ui/request_lifecycle.py`: el ciclo de una petición (arrancar el worker,
+  resolver la key dentro del hilo, publicar `complete`/`error`, cancelar) en un
+  solo sitio. `TukulApp` lo usa para el envío normal y la revisión en lugar de
+  repetir el bloque; cobertura del módulo 100 %.
 - `scripts/paleta_preview.py` genera la hoja de muestras de los dos temas
   (`docs/screenshots/paleta-tukul.png`), que el README enlaza. Un test falla si
   la paleta cambia sin regenerarla.
