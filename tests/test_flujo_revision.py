@@ -24,7 +24,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tukul_ui.app import REVIEW_PROMPT, TukulApp
+from tukul_core.prompting import REVIEW_PROMPT
+from tukul_ui.app import TukulApp
 from tukul_ui.estado import EstadoUI
 from tukul_ui.worker_threads import WorkerThreads
 
@@ -226,11 +227,32 @@ class TestFlujoDeRevision(unittest.TestCase):
         self._asentar()
 
         historial = self._historial()
-        self.assertIn("no devolvió una revisión utilizable", historial)
+        self.assertIn("respondió en prosa", historial,
+                      "La causa se nombra: no era falta de hallazgos")
         self.assertNotIn(basura, historial, "Ni la respuesta cruda ni el prompt")
         self.assertIs(self.app.estado_actual, EstadoUI.ERROR)
         self.assertFalse(self.app.session.request_active)
         self.assertEqual(self.app.review_dialogs, [], "No se abre un diálogo vacío")
+
+    def test_un_articulo_sin_hallazgos_no_es_un_error(self):
+        """Un `findings` vacío es un resultado correcto, no un fallo del modelo."""
+        with patch.object(self.app.llm, "stream_response", return_value=None):
+            self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
+            self._asentar()
+        request_id = self.app.generation_counter
+        limpio = json.dumps({"findings": []})
+
+        self.app.chunks.append(request_id, limpio)
+        self.app.control_queue.put_nowait(
+            ("complete", request_id, limpio, [], (None, None), "review"))
+        self.app.process_ui_events()
+        self._asentar()
+
+        historial = self._historial()
+        self.assertIn("no se encontraron hallazgos", historial)
+        self.assertIs(self.app.estado_actual, EstadoUI.EXITO)
+        self.assertFalse(self.app.session.request_active)
 
 
 @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
