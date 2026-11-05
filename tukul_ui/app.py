@@ -2358,7 +2358,14 @@ class TukulApp(tk.Tk):
         cache_path = FEED_CACHE_DIR / "feed_cache.json"
 
         def work() -> None:
-            """Ejecuta el pipeline fuera del hilo de Tk y publica el resultado."""
+            """Ejecuta el pipeline fuera del hilo de Tk y publica el resultado.
+
+            No llama a `logging` desde aquí: aunque el módulo de log ya exista,
+            formatear una excepción con `exc_info` durante una recolección de
+            basura en curso puede abortar el intérprete en CPython 3.13. El
+            detalle viaja al hilo de Tk, que lo registra con su contexto.
+            """
+            detalle: str | None = None
             try:
                 # Al cerrar (o al destruir la ventana en las pruebas), cualquier
                 # contacto con Tk desde aquí aborta el intérprete: el hilo
@@ -2368,23 +2375,15 @@ class TukulApp(tk.Tk):
                 publicado = self._ejecutar_pipeline_ideas(
                     dialog, profile, api_key, cache_path, on_done)
             except RuntimeError as error:
-                logger.error("IdeaGeneration: error de orquestación: %s", error)
                 publicado = False
-                self._publicar_error_ideas(dialog, str(error))
+                detalle = f"error de orquestación: {error}"
             except Exception as error:
-                logger.error("IdeaGeneration: error inesperado: %s", error, exc_info=True)
                 publicado = False
-                # Un hilo daemon que toca Tcl con la ventana ya destruida (o
-                # tras `destroy()` en un test) aborta el proceso entero:
-                # `RuntimeError: main thread is not in main loop`. `after` es
-                # el único punto de contacto con Tk, así que se protege.
-                if not self.closing:
-                    try:
-                        self._publicar_error_ideas(dialog, f"Error inesperado: {error}")
-                    except (RuntimeError, tk.TclError):
-                        logger.debug("La ventana ya no existe; error de ideas descartado")
+                detalle = f"Error inesperado: {type(error).__name__}: {error}"
+            if detalle is not None:
+                self._registrar_error_ideas(dialog, detalle)
             if not publicado:
-                logger.debug("Pipeline de ideas sin resultado que publicar")
+                pass  # Nada que publicar; el motivo ya viajó si lo hubo.
 
         WorkerThreads.start(work)
 
@@ -2435,6 +2434,15 @@ class TukulApp(tk.Tk):
         def _llm_callable(prompt: str) -> str:
             return LLMClient().complete(profile, api_key, prompt).content
         return _llm_callable
+
+    def _registrar_error_ideas(self, dialog, detalle: str) -> None:
+        """Lleva un fallo del pipeline al hilo de Tk: log y aviso, sin tocar Tcl aquí.
+
+        Se llama desde el worker. Registrar o programar `after()` desde ahí puede
+        abortar el intérprete, así que el mensaje se publica tal cual y lo
+        registra `_on_impact_suggestion_error`, ya en el hilo de Tk.
+        """
+        self._publicar_error_ideas(dialog, detalle)
 
     def _publicar_error_ideas(self, dialog, mensaje: str) -> None:
         """Publica un error del pipeline en el hilo de Tk.
@@ -2657,6 +2665,7 @@ class TukulApp(tk.Tk):
         self, dialog: tk.Toplevel, detail: str
     ) -> None:
         """Informa del fallo al generar la sugerencia."""
+        logger.error("IdeaGeneration: %s", detail)
         self.status.set("No se pudo generar la sugerencia de impacto.")
         if dialog.winfo_exists():
             messagebox.showerror(

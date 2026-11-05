@@ -34,6 +34,8 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   termina en cuanto se marca la cancelación.
 - Una respuesta que pide herramientas (`tool_calls`) se reconoce y se ignora con
   aviso en el log, en vez de llegar como texto vacío sin explicación.
+- El worker de ideas ya no escribe en el log: formatear una excepción desde ese
+  hilo durante la recolección de basura podía abortar el proceso entero.
 
 ### Corregido
 
