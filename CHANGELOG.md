@@ -17,6 +17,9 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Añadido
 
+- `scripts/paleta_preview.py` genera la hoja de muestras de los dos temas
+  (`docs/screenshots/paleta-tukul.png`), que el README enlaza. Un test falla si
+  la paleta cambia sin regenerarla.
 - Tests de contrato HTTP del cliente LLM contra un servidor local
   (`tests/test_llm_http_contract.py`): SSE real, `Retry-After`, 302 que no se
   sigue, techo de cuerpo y cabecera de credencial por protocolo.

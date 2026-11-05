@@ -4,6 +4,12 @@ Editor conversacional local para escribir y revisar artículos Markdown con un L
 
 ![Interfaz de Tukul: artículo a la izquierda y asistente a la derecha](docs/screenshots/tukul.png)
 
+La paleta sale de la *tukul*: barro cálido, ocre de paja y el azul de la luz
+que entra por la puerta como único acento. `scripts/paleta_preview.py` genera
+la hoja de muestras de los dos temas:
+
+![Sistema visual de Tukul en sus temas oscuro y claro](docs/screenshots/paleta-tukul.png)
+
 ## Instalar sin Python
 
 Para Linux x86_64 y Windows x86_64 se publican ejecutables standalone (sin Python instalado) en los Releases verificados por CI. macOS no es un target soportado actualmente. Ejecuta `--health` después de instalar.
