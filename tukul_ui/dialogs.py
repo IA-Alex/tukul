@@ -34,7 +34,34 @@ def _campo(frame, fila: int, name: str, variable) -> int:
                                                        padx=(0, es.ESP["md"]))
     ttk.Entry(frame, textvariable=variable, width=45).grid(
         row=fila, column=1, pady=es.ESP["xs"], sticky="ew")
+    if name == "api_key_env":
+        # El error real observado: la etiqueta «Variable de entorno con la key»
+        # comparte la palabra «key» con el campo de credencial, y la clave se
+        # pegaba aquí. Se dice qué va dentro sin esperar a que falle el envío.
+        ttk.Label(frame, text="Nombre de la variable, no la clave: p. ej. DEEPINFRA_API_KEY",
+                  style="Tenue.TLabel", wraplength=320).grid(
+            row=fila + 1, column=1, sticky="w", pady=(0, es.ESP["xs"]))
+        return fila + 2
     return fila + 1
+
+
+def validate_api_key_env(value: str) -> str:
+    """Rechaza una clave pegada en el campo que espera un nombre de variable.
+
+    El campo `api_key_env` se persiste en el TOML. Aceptar ahí una credencial la
+    escribe en claro y además deja el perfil buscando una variable que no existe,
+    con un fallo que solo aparecía al enviar el primer mensaje.
+    """
+    nombre = value.strip()
+    if not nombre:
+        return ""
+    if nombre.startswith("sk-") or " " in nombre or len(nombre) > 64:
+        raise LlmError(
+            "«Variable de entorno con la key» espera el NOMBRE de una variable "
+            "(por ejemplo DEEPINFRA_API_KEY), no la clave.\n\n"
+            "La clave va en el campo «API key»."
+        )
+    return nombre
 
 
 def _seccion(frame, fila: int, titulo: str, primera: bool = False) -> int:
@@ -254,6 +281,48 @@ def _bloque_credencial(frame, fila: int, key, remember) -> None:
         row=fila + 3, column=1, sticky="w")
 
 
+def _probar_conexion(app, dialogo, nombre: str, key_var, values) -> None:
+    """Prueba el perfil en segundo plano y dice la causa si falla.
+
+    Sin esto, un perfil con la clave rechazada se guardaba como válido y el
+    fallo aparecía al enviar el primer mensaje, donde ya no se sabía si el
+    problema era la clave, el modelo o la red. La prueba es una llamada mínima
+    (un token) y solo ocurre al pulsar el botón.
+    """
+    try:
+        perfil = _perfil_desde_formulario(nombre, values["provider"].get(), values)
+    except (ValueError, LlmError) as error:
+        messagebox.showerror("Configuración", str(error), parent=dialogo)
+        return
+    clave = key_var.get().strip() or app.session_keys.get(nombre, "") \
+        or (storage.load_key(nombre) if storage.credential_backend_disponible() else "")
+    if not clave:
+        messagebox.showwarning(
+            "Sin clave", "Escribe la API key para probar la conexión.", parent=dialogo)
+        return
+
+    def _avisar(texto: str, error: bool) -> None:
+        (messagebox.showerror if error else messagebox.showinfo)(
+            "Probar conexión" if not error else "La conexión falló", texto, parent=dialogo)
+
+    def _trabajo() -> None:
+        from tukul_core.llm import LLMClient
+
+        try:
+            # Consumir el stream entero: un 401 llega al abrir y un cuerpo
+            # truncado al recorrer los eventos, así que la prueba cubre ambos.
+            for _chunk in LLMClient().stream(perfil, clave, "Responde solo: ok"):
+                pass
+            resultado = (f"El proveedor respondió correctamente.\n\nModelo: {perfil.model}",
+                         False)
+        except LlmError as error:
+            resultado = (f"{error}\n\nRevisa la clave, el modelo y el endpoint:\n{perfil.endpoint}",
+                         True)
+        app.after(0, lambda: _avisar(*resultado))
+
+    threading.Thread(target=_trabajo, name="probar-conexion", daemon=True).start()
+
+
 def _persistir_credencial(app, nombre: str, entered: str, recordar: bool) -> None:
     """Aplica la decisión sobre la API key: guardar, solo sesión, o revocar.
 
@@ -271,6 +340,23 @@ def _persistir_credencial(app, nombre: str, entered: str, recordar: bool) -> Non
         storage.delete_key(nombre)
 
 
+def _validar_endpoint_completo(proveedor: str, endpoint: str) -> None:
+    """Avisa si el endpoint es la base del proveedor en vez de la ruta de chat.
+
+    DeepInfra publica `…/v1/openai` como base URL del SDK, y su propio `curl`
+    usa `…/v1/openai/chat/completions`. Tukul habla HTTP directo: la base sola
+    le obliga a adivinar la ruta. Se acepta, pero se dice qué falta.
+    """
+    if not endpoint or proveedor not in PROVIDERS:
+        return
+    esperado = provider_spec(proveedor).endpoint_hint
+    if esperado and esperado != endpoint and endpoint.rstrip("/") == esperado.rsplit("/chat", 1)[0]:
+        raise LlmError(
+            f"El endpoint es la base del proveedor, no la ruta de chat.\n\n"
+            f"Usa: {esperado}"
+        )
+
+
 def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
     """Construye el perfil desde el formulario y valida el endpoint.
 
@@ -282,7 +368,7 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
         provider=proveedor,
         endpoint=values["endpoint"].get().strip(),
         model=values["model"].get().strip(),
-        api_key_env=values["api_key_env"].get().strip(),
+        api_key_env=validate_api_key_env(values["api_key_env"].get()),
         max_total_model_tokens=int(values["max_total_model_tokens"].get()),
         max_output_tokens=int(values["max_output_tokens"].get()),
         max_context_chars=int(values["max_context_chars"].get()),
@@ -292,6 +378,7 @@ def _perfil_desde_formulario(nombre: str, proveedor: str, values) -> LlmProfile:
     )
     if perfil.endpoint:
         validate_endpoint(perfil.endpoint)
+        _validar_endpoint_completo(proveedor, perfil.endpoint)
     return perfil
 
 
@@ -518,6 +605,12 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
             fila = _campo(cuerpo, fila, name, values[name])
     api_key_row = fila
     _bloque_credencial(cuerpo, api_key_row, key, remember)
+    ttk.Button(
+        cuerpo, text="Probar conexión", style="Inactivo.TButton",
+        command=lambda: _probar_conexion(
+            app, dialog, selected.get(), key,
+            {**values, "provider": provider}),
+    ).grid(row=api_key_row + 4, column=1, sticky="w", pady=(es.ESP["sm"], 0))
 
     def save() -> None:
         """Persiste los perfiles editados y la credencial, y cierra el diálogo."""
