@@ -62,7 +62,7 @@ def bloque_tema(tema: str) -> str:
     <article style="background:{t["superficie_alta"]};border:1px solid {t["borde_control"]}">
       <h2 style="color:{t["texto"]}">Del tunkul al párrafo</h2>
       <p style="color:{t["texto"]}">El tambor maya de dos lengüetas suena en <em style="background:{t["seleccion"]}">el texto elegido</em> antes de cada corrección.</p>
-      <p style="color:{t["texto_tenue"]}">El ocre de la madera separa; el azul del acento señala la acción.</p>
+      <p style="color:{t["texto_tenue"]}">La fibra de bambú separa; el verde de la lengüeta señala la acción.</p>
       <p class="cita" style="border-left:3px solid {t["borde"]};color:{t["texto_tenue"]}">Divisoria discreta a <b>3:1</b> sobre cada capa.</p>
     </article>
     <aside style="background:{t["superficie"]};border:1px solid {t["borde"]}">
