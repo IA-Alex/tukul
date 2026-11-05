@@ -8,9 +8,11 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Cambiado
 
-- Paleta visual derivada de la tukul (casa redonda de barro y paja del sur de
-  Etiopía): capas de arcilla cálida, divisorias ocres y el azul de la luz de la
-  puerta como único acento. Solo cambia el color: comportamiento intacto.
+- Paleta visual derivada del *tunkul* maya, del que toma el nombre el
+  proyecto (Diccionario de americanismos, ASALE: tambor de percusión hecho de
+  un canuto de bambú cerrado por ambos extremos, con dos lengüetas talladas).
+  Capas de arcilla cálida, divisorias ocres y el azul de la luz como único
+  acento. Solo cambia el color: comportamiento intacto.
 - Nuevos tokens `borde_control` (bordes de controles, sash y scrollbar, ≥ 3:1
   según WCAG 1.4.11) y `superficie_activa` (hover de botones). `borde` queda
   como divisoria sutil, también ≥ 3:1 contra las tres capas.

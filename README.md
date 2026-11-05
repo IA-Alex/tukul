@@ -4,9 +4,12 @@ Editor conversacional local para escribir y revisar artículos Markdown con un L
 
 ![Interfaz de Tukul: artículo a la izquierda y asistente a la derecha](docs/screenshots/tukul.png)
 
-La paleta sale de la *tukul*: barro cálido, ocre de paja y el azul de la luz
-que entra por la puerta como único acento. `scripts/paleta_preview.py` genera
-la hoja de muestras de los dos temas:
+El nombre viene del *tunkul* maya: un tambor de percusión, un canuto de bambú
+cerrado por ambos extremos con dos lengüetas talladas que suenan a distinto
+tono (Diccionario de americanismos, ASALE). El sistema visual conserva la
+paleta actual —barro cálido, ocre de paja y el azul de la luz de la puerta
+como único acento—. `scripts/paleta_preview.py` genera la hoja de muestras de
+los dos temas:
 
 ![Sistema visual de Tukul en sus temas oscuro y claro](docs/screenshots/paleta-tukul.png)
 

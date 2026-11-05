@@ -1,10 +1,12 @@
-"""Sistema visual de Tukul: la casa redonda del sur de Etiopía.
+"""Sistema visual de Tukul: el tambor maya que da nombre al proyecto.
 
-El nombre es el de la *tukul* (también «tekul»): la casa redonda de paredes de
-barro y témpano, techo de paja cónica y anillo de madera de enset («falso
-plátano»), que Kambaata y otras gentes del sur de Etiopía construyen desde hace
-generaciones. Es un lugar para escribir a gusto: espacio cerrado, luz que entra
-por una sola puerta y una techumbre que reparte el calor.
+El nombre viene del *tunkul*: un instrumento de percusión maya hecho con un
+canuto de bambú cerrado por ambos extremos, con dos lengüetas talladas —una
+más gruesa que otra— que al golpearlas con un bolillo emiten dos tonos, uno
+más agudo que otro. Así lo recoge el Diccionario de americanismos (ASALE).
+
+El instrumento da nombre y metáfora: dos lengüetas, dos temas (oscuro y claro),
+una sola pieza de madera que suena igual golpeada por cualquier lado.
 
 De ahí sale la paleta, y solo la paleta: el comportamiento no cambia.
 

@@ -18,9 +18,11 @@ punto dice qué falta, qué evidencia lo sostiene y cuándo se puede cerrar.
 - **Origen:** el token `borde` hacía tres trabajos a la vez (divisoria, fondo de
   hover y fondo de scrollbar) y no alcanzaba 3:1 contra ninguna capa.
 - **Decisión de producto:** la paleta se rehízo a partir de la identidad del
-  nombre. Tukul es la casa redonda de barro y paja del sur de Etiopía; de ahí
-  salen las capas de barro cálido, el ocre de paja de las divisorias y el azul
-  de la luz de la puerta como único acento.
+  nombre. Tukul toma su nombre del *tunkul* maya: un tambor de percusión de
+  un canuto de bambú cerrado por ambos extremos, con dos lengüetas talladas que
+  emiten dos tonos (Diccionario de americanismos, ASALE). De ahí las capas de
+  arcilla cálida (la madera y el barro), el ocre de la cuerda y el azul como
+  único acento.
 - **Separación de tokens:** `borde` (divisoria y hover, ahora ≥ 3:1 contra las
   tres capas) y `borde_control` (bordes de botones, campos, sash y barra de
   desplazamiento, ≥ 3:1). El hover de los botones pasa a `superficie_activa`,
