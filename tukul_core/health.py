@@ -190,7 +190,16 @@ def status_string(status: HealthStatus | None = None) -> str:
     """
     if status is None:
         status = check_health()
-    lines = [f"Salud: {'OK' if status.is_healthy else 'ISSUES'} ({status.timestamp})"]
+    # El rótulo global no distingue «roto» de «falta configurar». Decir
+    # `ISSUES` en un primer arranque (avisos, sin errores) se leía como una
+    # instalación dañada, cuando solo falta un paso normal de configuración.
+    if status.is_healthy:
+        rotulo = "OK"
+    elif status.has_errors:
+        rotulo = "ISSUES"
+    else:
+        rotulo = "SIN CONFIGURAR (avisos, ningún error)" if _siguiente_paso(status) else "AVISOS"
+    lines = [f"Salud: {rotulo} ({status.timestamp})"]
     if status.config_path:
         # Decir qué archivo se inspeccionó es lo que hace auditable el resultado.
         lines.append(f"  config: {status.config_path}")

@@ -83,13 +83,16 @@ fichero que el usuario no pidió y que no elimina la necesidad de configuración
 - Nueva línea `siguiente paso: copia tukul.example.toml a <ruta>, pon tu API
   key y ejecuta --health otra vez`, que solo aparece cuando storage y llm
   están ambos en WARNING y ningún componente en ERROR.
-- El estado global sigue en `ISSUES` y el código de salida sigue siendo 0: el
-  contrato no cambió. Solo cambió cómo se lee.
+- El rótulo global ya no dice `ISSUES` en un primer arranque: dice
+  `SIN CONFIGURAR (avisos, ningún error)`. `ISSUES` queda reservado para
+  estados con algún componente en ERROR, y `AVISOS` para avisos sueltos que no
+  son primer arranque. El código de salida sigue siendo 0 en los tres casos:
+  el contrato de `has_errors` no cambió.
 
 Salida de una instalación virgen:
 
 ```
-Salud: ISSUES (…)
+Salud: SIN CONFIGURAR (avisos, ningún error) (…)
   config: /home/<usuario>/.config/tukul/config.toml
   storage: ⚠️  Aún no existe (se crea al guardar la configuración)
   llm: ⚠️  Ninguno configurado todavía (ver «siguiente paso»)

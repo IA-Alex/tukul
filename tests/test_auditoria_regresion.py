@@ -1002,7 +1002,8 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             with patch.object(storage, "CONFIG_PATH", destino):
                 texto = health.status_string()
 
-        self.assertIn("ISSUES", texto)
+        self.assertIn("SIN CONFIGURAR", texto)
+        self.assertNotIn("ISSUES", texto, "Un primer arranque no está «roto»")
         self.assertIn("siguiente paso: copia tukul.example.toml", texto)
         self.assertIn(str(destino), texto, "Debe nombrar la MISMA ruta que inspeccionó")
         self.assertIn("tu API key", texto)
@@ -1039,6 +1040,37 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
             config_path="/tmp/config.toml",
         )
         self.assertEqual(health._siguiente_paso(status), "")
+
+    def test_un_error_real_sigue_diciendo_issues(self):
+        """El rótulo distingue «roto» de «sin configurar»."""
+        from tukul_core import health
+        from tukul_core.health import ComponentStatus, HealthStatus
+
+        roto = HealthStatus(
+            is_healthy=False,
+            components={
+                "storage": (ComponentStatus.ERROR, "La carpeta de config es de solo lectura"),
+                "llm": (ComponentStatus.HEALTHY, "1 perfil(es) habilitado(s)"),
+            },
+            timestamp="2026-11-05T00:00:00",
+        )
+        self.assertIn("Salud: ISSUES", health.status_string(roto))
+
+    def test_avisos_sin_primer_arranque_se_rotulan_avisos(self):
+        from tukul_core import health
+        from tukul_core.health import ComponentStatus, HealthStatus
+
+        aviso_suelto = HealthStatus(
+            is_healthy=False,
+            components={
+                "storage": (ComponentStatus.HEALTHY, "OK"),
+                "llm": (ComponentStatus.WARNING, "Ninguno configurado todavía"),
+            },
+            timestamp="2026-11-05T00:00:00",
+        )
+        texto = health.status_string(aviso_suelto)
+        self.assertIn("Salud: AVISOS", texto)
+        self.assertNotIn("ISSUES", texto)
 
     def test_un_estado_sin_componentes_no_inventa_pista(self):
         from tukul_core import health
