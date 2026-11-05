@@ -286,10 +286,25 @@ def load_profiles(path: Path | str = CONFIG_PATH) -> tuple[dict[str, LlmProfile]
     return profiles, active
 
 
+def _parece_credencial(valor: str) -> bool:
+    """¿Este texto parece una clave y no un nombre de variable?
+
+    `api_key_env` debe contener un NOMBRE (`DEEPINFRA_API_KEY`). Si llega una
+    clave —por el diálogo, por una edición manual del TOML o por un script—
+    escribirla la deja en claro en el archivo. La defensa vive aquí, en el
+    único punto que persiste, no solo en el formulario.
+    """
+    return valor.strip().startswith("sk-") or " " in valor.strip() or "\n" in valor
+
+
 def save_profiles(
     profiles: dict[str, LlmProfile], active: str, path: Path | str = CONFIG_PATH
 ) -> None:
     """Save profiles to TOML file.
+
+    Una credencial nunca se persiste: si `api_key_env` parece una clave, se
+    omite del archivo (el perfil conserva el valor en memoria para esa sesión)
+    y se deja constancia en el log, sin repetir el secreto.
 
     Args:
         profiles: Dict of LLM profiles
@@ -303,7 +318,14 @@ def save_profiles(
     field_names = {field.name for field in dataclass_fields(LlmProfile) if field.name != "name"}
     payload: dict[str, Any] = {"llm": {"active_profile": active}, "profiles": {}}
     for name, profile in sorted(profiles.items()):
-        payload["profiles"][name] = {field: getattr(profile, field) for field in field_names}
+        datos = {field: getattr(profile, field) for field in field_names}
+        if isinstance(datos.get("api_key_env"), str) and _parece_credencial(datos["api_key_env"]):
+            logger.warning(
+                "El perfil '%s' trae una clave en api_key_env: no se guarda en el TOML.",
+                name,
+            )
+            datos["api_key_env"] = ""
+        payload["profiles"][name] = datos
     atomic_write(path, tomli_w.dumps(payload))
 
 
