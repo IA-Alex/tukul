@@ -62,6 +62,11 @@ class LLMSessionManager:
                 if collected is None:
                     return  # Cancelado a mitad: nadie espera callback.
                 result, usage = collected
+                # Cancelar antes del primer token produce un stream vacío
+                # legítimo. Sin esta comprobación la interfaz mostraba «El
+                # proveedor devolvió una respuesta vacía» al pulsar Cancelar.
+                if not result.strip() and cancel_event is not None and cancel_event.is_set():
+                    return
                 if not result.strip():
                     raise LlmError("El proveedor devolvió una respuesta vacía.")
 

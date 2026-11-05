@@ -71,6 +71,32 @@ class StreamResponseTests(unittest.TestCase):
         self.assertEqual(len(self.errores), 1)
         self.assertIn("respuesta vacía", self.errores[0])
 
+    def test_cancelado_antes_del_primer_chunk_no_reporta_respuesta_vacia(self):
+        """Cerrar antes del primer token es una cancelación, no un fallo.
+
+        Se observó contra el proveedor real: cancelar tras 300 ms dejaba a la
+        interfaz con «El proveedor devolvió una respuesta vacía». El stream no
+        había emitido ningún trozo, así que `_collect_stream` devolvía ("") en
+        lugar de None y la cancelación se confundía con una respuesta vacía.
+        """
+        import threading
+        from unittest.mock import MagicMock
+
+        evento = threading.Event()
+        respuesta = MagicMock()
+
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+            evento.set()  # se cancela ANTES de que llegue ningún trozo
+            respuesta.close()
+            return
+            yield  # pragma: no cover - hace del cuerpo un generador
+
+        with patch.object(LLMClient, "stream", flujo):
+            self._run(cancel_event=evento)
+
+        self.assertEqual(self.errores, [], "Cancelar no es un error del proveedor")
+        self.assertEqual(self.completados, [], "Tampoco hay nada que completar")
+
     def test_cancelado_a_mitad_de_stream_no_llama_ningun_callback(self):
         import threading
         evento = threading.Event()
