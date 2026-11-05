@@ -53,7 +53,14 @@ def _redactar(texto: str, clave: str) -> str:
 def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     cuerpo = json.dumps({
         "model": MODELO,
-        "temperature": 0.2,
+        # Temperatura 0: un eval que se lee como PASS/FAIL necesita que la
+        # única variable sea el prompt. Con 0.2 el mismo caso daba 7/8 y 8/8
+        # en ejecuciones distintas, y el fallo no distinguía un defecto del
+        # sistema de la aleatoriedad del modelo.
+        "temperature": 0,
+        # Semilla fija: además de temperature 0, acota el remuestreo del
+        # proveedor cuando lo soporta (DeepInfra lo ignora si no aplica).
+        "seed": 7,
         "max_tokens": 1024,
         "messages": [
             {"role": "system", "content": prompt_sistema},
