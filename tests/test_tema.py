@@ -177,12 +177,14 @@ class TestTemaEnVentanaReal(unittest.TestCase):
     # --- botón ----------------------------------------------------------
     def test_el_boton_cambia_su_etiqueta_y_tooltip_segun_el_tema(self):
         self.assertEqual(self.app.theme, "dark")
-        self.assertIn("Cambiar a claro", self.app.boton_tema.cget("text"))
+        # La etiqueta anuncia el tema de destino con una sola palabra; el
+        # tooltip explica el cambio completo.
+        self.assertIn("Claro", self.app.boton_tema.cget("text"))
         self.assertIn("claro", self.app.tooltip_tema.texto)
         self.app._cambiar_tema()
         self._asentar()
         self.assertEqual(self.app.theme, "light")
-        self.assertIn("Cambiar a oscuro", self.app.boton_tema.cget("text"))
+        self.assertIn("Oscuro", self.app.boton_tema.cget("text"))
         self.assertIn("oscuro", self.app.tooltip_tema.texto)
         self.assertIn("claro", self.app.status.get())
 
@@ -212,7 +214,7 @@ class TestTemaEnVentanaReal(unittest.TestCase):
             self.app._cambiar_tema()
             self._asentar()
         self.assertEqual(self.app.theme, "light")
-        self.assertIn("Cambiar a oscuro", self.app.boton_tema.cget("text"))
+        self.assertIn("Oscuro", self.app.boton_tema.cget("text"))
         self.assertIn("claro", self.app.status.get())
         self.app._cambiar_tema()
         self._asentar()

@@ -75,6 +75,14 @@ FEED_CACHE_DIR = Path.home() / ".local" / "state" / "tukul" / "feed_cache"
 # Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
 AUTOSAVE_INTERVAL_MS = 5000
 
+# Tamaño mínimo de la ventana. El ancho no es una preferencia estética: por
+# debajo de ~1100 px la barra superior no cabe (acciones + documento + estado +
+# configuración) y el nombre del artículo empezaba a desaparecer, que es justo
+# el dato que el usuario necesita para saber qué está editando. 1120 deja un
+# margen de 8 px sobre los 1112 que pide la barra con «Sin artículo abierto».
+ANCHO_MINIMO_VENTANA = 1120
+ALTO_MINIMO_VENTANA = 540
+
 
 def _aplicar_estado_ttk(widget: Any, disponible: bool) -> None:
     """Habilita o inhabita un widget ttk aceptando estados ya resueltos.
@@ -393,10 +401,10 @@ class TukulApp(tk.Tk):
         if ancho_pantalla > 100 and alto_pantalla > 100:
             ancho = min(int(ancho_pantalla * 0.8), 1400)
             alto = min(int(alto_pantalla * 0.8), 900)
-            self.minsize(min(720, ancho), min(540, alto))
+            self.minsize(min(ANCHO_MINIMO_VENTANA, ancho), min(ALTO_MINIMO_VENTANA, alto))
             self.geometry(f"{ancho}x{alto}")
         else:
-            self.minsize(720, 540)
+            self.minsize(ANCHO_MINIMO_VENTANA, ALTO_MINIMO_VENTANA)
             self.geometry("1180x760")
 
     def _ventana_mapeada(self) -> bool:
@@ -404,7 +412,7 @@ class TukulApp(tk.Tk):
 
         Antes de `update_idletasks`, `geometry()` devuelve el tamaño pedido
         (a menudo «1x1+0+0»), no el real. Persistir ese valor convertiría una
-        ventana que aún no se pintó en una miniatura de 720x540 al reabrir.
+        ventana que aún no se pintó en una miniatura de 1120x540 al reabrir.
         """
         try:
             return bool(self.winfo_ismapped() and self.winfo_width() > 1
@@ -445,8 +453,14 @@ class TukulApp(tk.Tk):
                              for valor in coincidencia.groups())
         # Mantiene un margen visible para que la barra del sistema y los
         # bordes no oculten la ventana completa en escritorios pequeños.
-        ancho = min(max(ancho, 720), max(720, pantalla_ancho - 32))
-        alto = min(max(alto, 540), max(540, pantalla_alto - 64))
+        # El suelo de ancho es el de la barra superior: por debajo, el nombre
+        # del artículo deja de verse aunque la ventana «quepa» en pantalla.
+        # Pero ese suelo no puede exceder la pantalla: en un portátil de
+        # 1024 px una ventana de 1120 quedaría cortada por el borde derecho.
+        suelo_ancho = min(ANCHO_MINIMO_VENTANA, max(1, pantalla_ancho - 32))
+        suelo_alto = min(ALTO_MINIMO_VENTANA, max(1, pantalla_alto - 64))
+        ancho = min(max(ancho, suelo_ancho), max(suelo_ancho, pantalla_ancho - 32))
+        alto = min(max(alto, suelo_alto), max(suelo_alto, pantalla_alto - 64))
         x = min(max(x, 0), max(0, pantalla_ancho - ancho))
         y = min(max(y, 0), max(0, pantalla_alto - alto))
         return f"{ancho}x{alto}+{x}+{y}"
@@ -522,6 +536,10 @@ class TukulApp(tk.Tk):
         # Franja inferior: continua, tenue y de una sola pieza.
         style.configure("Cabecera.TLabel", background=es.SUPERFICIE_ALTA,
                         foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
+        # Separador de la cabecera: divisoria fina que separa acciones de
+        # configuración. Usa `borde` (sutil), no `borde_control`: no se pulsa.
+        style.configure("Cabecera.TSeparator", background=es.BORDE)
+        style.map("Cabecera.TSeparator", background=[("!disabled", es.BORDE)])
         style.configure("Pie.TFrame", background=es.SUPERFICIE)
         style.configure("Pie.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO_TENUE,
                         font=es.fuente(es.TIPO_SM))
@@ -654,18 +672,18 @@ class TukulApp(tk.Tk):
         self._guardar_preferencia_tema()
 
     def _actualizar_boton_tema(self) -> None:
-        """Mantiene el botón coherente: la etiqueta anuncia la acción, no el color."""
-        if not hasattr(self, "boton_tema") or self.boton_tema is None:
+        """Mantiene el botón coherente: la etiqueta anuncia la acción, no el color.
+
+        La barra es la dueña del texto y del tooltip (así no hay dos fuentes de
+        verdad); aquí solo se le pide que se adapte al tema nuevo.
+        """
+        barra = getattr(self, "barra", None)
+        if barra is None:
             return
-        if self.theme == "light":
-            etiqueta = "☾  Cambiar a oscuro"
-            tooltip = "Cambiar a tema oscuro (actual: claro)"
-        else:
-            etiqueta = "☀  Cambiar a claro"
-            tooltip = "Cambiar a tema claro (actual: oscuro)"
-        self.boton_tema.config(text=etiqueta)
-        if getattr(self, "tooltip_tema", None) is not None:
-            self.tooltip_tema.set_texto(tooltip)
+        try:
+            barra.actualizar_estado(self.theme)
+        except (tk.TclError, AttributeError):
+            return
 
     def _sincronizar_estado_sync(self, estado: str) -> None:
         """Rótulo del documento: símbolo + texto + color, nunca solo color."""
@@ -1138,11 +1156,21 @@ class TukulApp(tk.Tk):
             self.status.set("Modo foco desactivado.")
 
     def _sincronizar_boton_panel(self) -> None:
-        """Mantiene el texto del botón coherente con la visibilidad del panel."""
+        """Mantiene el botón coherente con la visibilidad del panel.
+
+        El texto es fijo («Panel IA»): el nombre del control no cambia, solo su
+        estado. Quien dice qué hará (ocultar o mostrar) es el tooltip, porque
+        al variar el ancho del botón la barra completa se desplazaba cada vez
+        que se plegaba el panel.
+        """
         if self.asistente_visible:
-            self.boton_panel.config(text="◧  Ocultar panel IA  (F6)")
+            self.boton_panel.config(text="◧  Panel IA  (F6)")
         else:
-            self.boton_panel.config(text="◨  Mostrar panel IA  (F6)")
+            self.boton_panel.config(text="◨  Panel IA  (F6)")
+        tooltip = getattr(getattr(self, "barra", None), "tooltip_panel", None)
+        if tooltip is not None:
+            tooltip.set_texto("Ocultar el panel IA (F6)" if self.asistente_visible
+                              else "Mostrar el panel IA (F6)")
 
     def _ajustar_zoom(self, delta: float) -> None:
         """Sube o baja el cuerpo tipográfico, acotado y reaplicando el tema."""
@@ -2208,9 +2236,14 @@ class TukulApp(tk.Tk):
             self.load_document(next_path)
 
     def _update_references_button(self) -> None:
+        """Contexto: solo el número; las palabras se añaden cuando hay algo."""
         count = len(self.context_articles)
-        label = "artículo" if count == 1 else "artículos"
-        self.references_button.config(text=f"Contexto: {count} {label}")
+        if count == 0:
+            texto = "Contexto: 0"
+        else:
+            label = "artículo" if count == 1 else "artículos"
+            texto = f"Contexto: {count} {label}"
+        self.references_button.config(text=texto)
 
     def _upsert_context_article(self, article: ContextArticle) -> bool:
         """Añade o actualiza una instantánea, sin duplicarla en el contexto."""

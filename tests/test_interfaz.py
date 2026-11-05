@@ -13,12 +13,15 @@ import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
+from tkinter import font as tkfont
+from tkinter import ttk
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tukul_ui import estilo as es
 from tukul_ui.app import TukulApp
+from tukul_ui.components.top_bar import TopBar
 from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 
 
@@ -189,12 +192,16 @@ class TestVentanaReal(unittest.TestCase):
         self.app.toggle_asistente()
         self._asentar()
         self.assertFalse(self.app.asistente_visible)
-        self.assertIn("Mostrar", self.app.boton_panel.cget("text"))
+        # El texto es fijo («Panel IA»): no cambia para no desplazar la barra.
+        self.assertIn("Panel IA", self.app.boton_panel.cget("text"))
+        # Quien dice qué hará es el tooltip, y sí cambia.
+        self.assertIn("Mostrar", self.app.barra.tooltip_panel.texto)
 
         self.app.toggle_asistente()
         self._asentar()
         self.assertTrue(self.app.asistente_visible)
-        self.assertIn("Ocultar", self.app.boton_panel.cget("text"))
+        self.assertIn("Panel IA", self.app.boton_panel.cget("text"))
+        self.assertIn("Ocultar", self.app.barra.tooltip_panel.texto)
 
     def test_f6_pliega_el_asistente_desde_el_teclado(self):
         self.app.focus_force()
@@ -288,6 +295,79 @@ class TestVentanaReal(unittest.TestCase):
         texto = self.app.sync_label.cget("text")
         self.assertIn("Cambios sin guardar", texto)
         self.assertTrue(texto.strip().startswith("●"), "Debe llevar símbolo, no solo color")
+
+    def test_la_barra_dice_que_no_hay_articulo_abierto(self):
+        # Sin documento la zona central antes quedaba vacía y parecía un fallo;
+        # ahora lo dice con palabras.
+        self.assertIsNone(self.app.session.document_path)
+        self.assertEqual(self.app.barra.documento_var.get(), TopBar.TEXTO_SIN_DOCUMENTO)
+
+    def test_el_nombre_largo_se_recorta_en_la_barra(self):
+        nombre = "art" + "í" * 80 + ".md"
+        self.app.barra.actualizar_documento(nombre)
+        visible = self.app.barra.documento_var.get()
+        self.assertLessEqual(len(visible), 42)
+        self.assertTrue(visible.endswith("…"), "Un nombre largo se recorta, no se desborda")
+
+    def test_la_barra_agrupa_acciones_a_la_izquierda_y_configuracion_a_la_derecha(self):
+        self._asentar()
+        barra = self.app.barra
+        izq = barra.zona_izquierda
+        der = barra.zona_derecha
+        for control in (self.app.boton_menu, self.app.boton_guardar):
+            self.assertIs(control.master, izq, f"{control} es una acción sobre el archivo")
+        for control in (self.app.references_button, self.app.profile_chip,
+                        self.app.boton_tema, self.app.boton_panel):
+            self.assertIs(control.master, der, f"{control} es configuración, no acción")
+        # El documento y el estado van en el centro, en una celda propia: se
+        # estiran entre acciones y configuración sin pertenecer a ninguna.
+        self.assertIs(barra.documento_label.master, barra.zona_centro)
+        self.assertIs(barra.sync_label.master, barra.zona_centro)
+
+        # Y en la ventana ya asentada, las tres zonas no se pisan.
+        def fin(w):
+            return w.winfo_x() + w.winfo_width()
+
+        self.assertLessEqual(fin(izq), barra.zona_centro.winfo_x(),
+                             "El centro empieza donde acaban las acciones")
+        self.assertLessEqual(fin(barra.zona_centro), der.winfo_x(),
+                             "El centro no invade la configuración")
+
+    def test_el_estado_del_documento_no_es_un_control(self):
+        # Se veía como un botón apagado junto a uno accionable; es una etiqueta.
+        self.assertIsInstance(self.app.sync_label, ttk.Label)
+        self.assertFalse(hasattr(self.app.sync_label, "invoke"))
+
+    def test_el_chip_de_modelo_no_crece_con_el_nombre(self):
+        # Un id de modelo largo empujaba la barra por encima de la ventana.
+        nombre_largo = "proveedor/organizacion/modelo-super-largo-2026-01"
+        with patch.object(type(self.app), "profile") as perfil:
+            perfil.model = nombre_largo
+            texto = self.app.barra._texto_modelo()
+        self.assertTrue(texto.endswith("…"), "Un modelo largo se recorta")
+        fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
+        self.assertLessEqual(fuente.measure(texto), TopBar.ANCHO_MODELO,
+                             "El recorte se mide en píxeles, no en caracteres")
+
+    def test_el_boton_de_menu_no_hereda_el_ancho_del_desplegable(self):
+        # En `clam` el Menubutton se estira al ancho de su menú (11 entradas):
+        # 149 px para un icono. Con ancho fijo, la barra deja sitio al documento.
+        self._asentar()
+        self.assertLess(self.app.boton_menu.winfo_reqwidth(), 100)
+
+    def test_en_ventana_estrecha_cede_el_estado_y_no_el_documento(self):
+        # «Sin cambios» no aporta; el nombre sí: es lo único que responde
+        # «qué tengo abierto». Apretado, se retira primero el estado.
+        barra = self.app.barra
+        self.app.geometry("900x700")
+        self._asentar()
+        self.assertFalse(barra.sync_label.winfo_ismapped(),
+                         "Estrecho: el estado se retira para dejar sitio al nombre")
+
+        self.app.geometry("1300x700")
+        self._asentar()
+        self.assertTrue(barra.sync_label.winfo_ismapped(),
+                        "Ancho: el estado vuelve a mostrarse")
 
     def test_el_panel_vacio_orienta_al_abrir_un_articulo(self):
         self.app.load_document(self.documento)

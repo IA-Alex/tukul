@@ -223,7 +223,7 @@ class TestUxVentanaReal(unittest.TestCase):
     def test_cerrar_sin_mapear_no_pisa_la_geometria_guardada(self):
         """Sin ventana mapeada `geometry()` devuelve «1x1+0+0».
 
-        Guardarlo convertía la próxima apertura en una miniatura de 720x540.
+        Guardarlo convertía la próxima apertura en una miniatura de 1120x540.
         Cuando no hay medida real, se conserva la última geometría de disco.
         """
         storage.save_ui_state({"geometry": "1180x760+10+10"}, self.config)
@@ -235,7 +235,7 @@ class TestUxVentanaReal(unittest.TestCase):
         with patch.object(TukulApp, "_ventana_mapeada", return_value=True), \
                 patch.object(TukulApp, "geometry", return_value="1x1+0+0"):
             estado = self.app._snapshot_estado_ui()
-        self.assertEqual(estado["geometry"], "720x540+0+0",
+        self.assertEqual(estado["geometry"], "1120x540+0+0",
                          "Mapeada sí se sanea, aunque el valor sea mínimo")
 
     def test_geometria_invalida_abre_con_tamano_por_defecto(self):

@@ -612,12 +612,12 @@ class TestTamanoInicial(unittest.TestCase):
 
     def test_sin_pantalla_reportada_usa_el_tamano_por_defecto(self):
         minimos, geometrias = self._aplicar_con(0, 0)
-        self.assertEqual(minimos, [(720, 540)])
+        self.assertEqual(minimos, [(1120, 540)])
         self.assertEqual(geometrias, ["1180x760"])
 
     def test_con_pantalla_normal_ocupa_el_ochenta_por_ciento(self):
         minimos, geometrias = self._aplicar_con(1920, 1080)
-        self.assertEqual(minimos, [(720, 540)])
+        self.assertEqual(minimos, [(1120, 540)])
         self.assertEqual(geometrias, ["1400x864"])
 
 
@@ -994,7 +994,18 @@ class TestRestaurarGeometria(_BaseApp):
 
     def test_miniatura_guardada_se_agranda_al_sanear(self):
         """Línea 485 del saneador: 1x1 se eleva al mínimo legible."""
-        self.assertEqual(TukulApp._geometria_saneada("1x1+0+0", 1920, 1080), "720x540+0+0")
+        self.assertEqual(TukulApp._geometria_saneada("1x1+0+0", 1920, 1080), "1120x540+0+0")
+
+    def test_el_minimo_de_ancho_nunca_excede_la_pantalla(self):
+        """El suelo de la barra (1120) no puede dejar la ventana cortada.
+
+        En un portátil de 1024 px, subir detrás el mínimo ciego dejaba la
+        ventana más ancha que la pantalla y se perdía el borde derecho.
+        """
+        saneada = TukulApp._geometria_saneada("1x1+0+0", 1024, 768)
+        ancho = int(saneada.split("x")[0])
+        self.assertLess(ancho, 1024, "La ventana debe caber: cabe con margen")
+        self.assertEqual(saneada, "992x540+0+0")
 
 
 class TestHiloDeTk(unittest.TestCase):

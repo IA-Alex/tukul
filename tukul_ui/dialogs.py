@@ -532,6 +532,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
             app.profiles = working
             app.active_profile = active
             app.profile_chip.config(text=f"Modelo: {working[active].model or 'sin configurar'}")
+            app.barra.actualizar_modelo()
         except (OSError, RuntimeError) as error:
             messagebox.showerror(
                 "Error al guardar perfil",

@@ -8,6 +8,19 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Cambiado
 
+- **Barra superior reagrupada en tres zonas**: acciones sobre el archivo
+  (menú, Guardar), documento activo con su estado, y configuración tras un
+  separador fino (contexto, modelo, tema, panel). Desaparece la fila plana en
+  la que todo pesaba lo mismo y el nombre del artículo quedaba emparedado.
+- El **nombre del artículo se ve siempre**: sin documento dice «Sin artículo
+  abierto» en lugar de dejar un hueco vacío, y cuando falta sitio cede primero
+  el estado («Sin cambios») y luego se recorta el nombre, nunca al revés.
+- El **tamaño mínimo de la ventana sube a 1120×540**: por debajo, la barra no
+  cabe y el nombre del artículo desaparecía. En pantallas más estrechas el
+  suelo se recorta a la pantalla para no dejar la ventana cortada.
+- Textos de la barra sin relleno: `☀ Claro` / `☾ Oscuro`, `Contexto: 0` y
+  `Panel IA (F6)` con texto fijo. Lo que hace cada control vive en su tooltip,
+  y así el ancho de los botones no cambia con cada estado.
 - **Paleta rehecha** a partir del *tunkul* maya, del que toma el nombre el
   proyecto (Diccionario de americanismos, ASALE): madera quemada y médula de
   caña en las capas, fibra de bambú en los bordes y un verde de lengüeta como
@@ -37,6 +50,13 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- El botón de menú de la barra medía 149 px para un solo icono: en el tema
+  `clam`, un `Menubutton` se estira hasta el ancho de su desplegable y se comía
+  el hueco del nombre del artículo. Ahora tiene ancho fijo y el menú completo
+  sigue disponible al desplegarlo.
+- El chip del modelo crecía con el nombre del perfil y podía empujar la barra
+  por encima del ancho de la ventana. Se recorta por píxeles (no por
+  caracteres) y el nombre completo aparece en el tooltip.
 - `--health` y el log explican un campo de perfil ignorado por tipo, con perfil,
   campo y valor recibido. Antes el perfil arrancaba con los valores por defecto
   y nada lo indicaba. `4096.0` se acepta como `4096`; un booleano no se acepta
