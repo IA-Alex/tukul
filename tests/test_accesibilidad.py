@@ -70,9 +70,9 @@ class TestContrasteNoTextual(unittest.TestCase):
 
 
 class TestIdentidadDeLaPaleta(unittest.TestCase):
-    """La paleta sale de la tukul: barro cálido, ocre y luz azul de puerta."""
+    """Identidad del nombre: el tunkul maya (madera cálida, fibra y bambú)."""
 
-    def test_el_fondo_es_un_barro_calido_y_no_un_gris_neutro(self):
+    def test_el_fondo_es_calido_y_no_un_gris_neutro(self):
         for tema in es.PALETAS:
             p = es.PALETAS[tema]
             fondo = p["fondo"].lstrip("#")
@@ -80,7 +80,7 @@ class TestIdentidadDeLaPaleta(unittest.TestCase):
             self.assertGreater(rojo, azul, f"{tema}: el fondo no es cálido")
             self.assertGreater(verde, azul, f"{tema}: el fondo no es cálido")
 
-    def test_el_borde_y_el_control_son_ocres(self):
+    def test_el_borde_y_el_control_son_fibra_calida(self):
         for tema in es.PALETAS:
             for clave in ("borde", "borde_control"):
                 color = es.PALETAS[tema][clave].lstrip("#")
@@ -88,11 +88,19 @@ class TestIdentidadDeLaPaleta(unittest.TestCase):
                 self.assertGreater(rojo, verde, f"{tema}/{clave} no es ocre")
                 self.assertGreater(verde, azul, f"{tema}/{clave} no es ocre")
 
-    def test_el_acento_es_la_luz_fria_de_la_puerta(self):
+    def test_el_acento_es_el_verde_del_bambu_joven(self):
+        """El acento es el único tono frío de la paleta, y es verde.
+
+        Antes se exigía azul porque la narrativa era la casa etíope («la luz
+        de la puerta»). Con el nombre corregido al tunkul maya, el acento es
+        el verde de la lengüeta de bambú. Se conserva la propiedad que importa
+        —un único acento frío—, no el matiz concreto que la contaba.
+        """
         for tema in es.PALETAS:
             acento = es.PALETAS[tema]["acento"].lstrip("#")
-            rojo, _verde, azul = (int(acento[i:i + 2], 16) for i in (0, 2, 4))
-            self.assertGreater(azul, rojo, f"{tema}: el acento no es un azul frío")
+            rojo, verde, azul = (int(acento[i:i + 2], 16) for i in (0, 2, 4))
+            self.assertGreater(verde, rojo, f"{tema}: el acento no es verde")
+            self.assertGreater(verde, azul, f"{tema}: el acento no es verde")
 
     def test_el_texto_del_borde_de_hover_conserva_legibilidad(self):
         """BORDE es también el fondo de hover de los botones: el texto va encima."""

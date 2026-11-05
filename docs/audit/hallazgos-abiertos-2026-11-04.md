@@ -21,8 +21,8 @@ punto dice qué falta, qué evidencia lo sostiene y cuándo se puede cerrar.
   nombre. Tukul toma su nombre del *tunkul* maya: un tambor de percusión de
   un canuto de bambú cerrado por ambos extremos, con dos lengüetas talladas que
   emiten dos tonos (Diccionario de americanismos, ASALE). De ahí las capas de
-  arcilla cálida (la madera y el barro), el ocre de la cuerda y el azul como
-  único acento.
+  madera quemada y médula de caña, la fibra de bambú en los bordes y el verde
+  de la lengüeta como único acento.
 - **Separación de tokens:** `borde` (divisoria y hover, ahora ≥ 3:1 contra las
   tres capas) y `borde_control` (bordes de botones, campos, sash y barra de
   desplazamiento, ≥ 3:1). El hover de los botones pasa a `superficie_activa`,

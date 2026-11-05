@@ -6,10 +6,9 @@ Editor conversacional local para escribir y revisar artículos Markdown con un L
 
 El nombre viene del *tunkul* maya: un tambor de percusión, un canuto de bambú
 cerrado por ambos extremos con dos lengüetas talladas que suenan a distinto
-tono (Diccionario de americanismos, ASALE). El sistema visual conserva la
-paleta actual —barro cálido, ocre de paja y el azul de la luz de la puerta
-como único acento—. `scripts/paleta_preview.py` genera la hoja de muestras de
-los dos temas:
+tono (Diccionario de americanismos, ASALE). El sistema visual sale de ahí:
+madera cálida, fibra de bambú y un verde de lengüeta como único acento.
+`scripts/paleta_preview.py` genera la hoja de muestras de los dos temas:
 
 ![Sistema visual de Tukul en sus temas oscuro y claro](docs/screenshots/paleta-tukul.png)
 

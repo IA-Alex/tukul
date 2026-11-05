@@ -8,11 +8,12 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Cambiado
 
-- Paleta visual derivada del *tunkul* maya, del que toma el nombre el
-  proyecto (Diccionario de americanismos, ASALE: tambor de percusión hecho de
-  un canuto de bambú cerrado por ambos extremos, con dos lengüetas talladas).
-  Capas de arcilla cálida, divisorias ocres y el azul de la luz como único
-  acento. Solo cambia el color: comportamiento intacto.
+- **Paleta rehecha** a partir del *tunkul* maya, del que toma el nombre el
+  proyecto (Diccionario de americanismos, ASALE): madera quemada y médula de
+  caña en las capas, fibra de bambú en los bordes y un verde de lengüeta como
+  único acento, en lugar del ocre y el azul de la narrativa anterior. Cambian
+  los colores; el comportamiento y los tokens son los mismos. Contrastes
+  verificados (AA en texto, 3:1 en bordes) por `tests/test_accesibilidad.py`.
 - Nuevos tokens `borde_control` (bordes de controles, sash y scrollbar, ≥ 3:1
   según WCAG 1.4.11) y `superficie_activa` (hover de botones). `borde` queda
   como divisoria sutil, también ≥ 3:1 contra las tres capas.

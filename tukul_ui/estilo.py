@@ -10,14 +10,15 @@ una sola pieza de madera que suena igual golpeada por cualquier lado.
 
 De ahí sale la paleta, y solo la paleta: el comportamiento no cambia.
 
-- **Húmedo de arcilla y paja** (`fondo`, `superficie`, `superficie_alta`): el
-  barro seco y el interior sin luz.
-- **Anillo de enset y baldana**, un ocre cálido (matiz ≈40°), para el borde.
-- **Luz de puerta**: un azul de cielo alto, el único acento frío. Contrapunto
-  deliberado al ocre, como la puerta clara en un muro de barro.
-- **Ámbar de fuego** (`borde_control`): el color de la leña quemada, solo para
-  los controles que deben verse (separadores arrastrables, barra de
-  desplazamiento, bordes de campo).
+- **Madera y médula** (`fondo`, `superficie`, `superficie_alta`): la caña de
+  bambú, del tono quemado por el fuego a la médula clara de la lengüeta.
+- **Fibra de bambú**, un ocre apagado y cálido, para las divisorias (`borde`)
+  y algo más firme para los controles (`borde_control`).
+- **Lengüeta que vibra**: un verde de bambú joven, el único acento frío.
+  Es el sonido agudo de la lengüeta fina frente al grave de la gruesa, y no
+  un guiño a ninguna puerta.
+- **Dos lengüetas, dos temas**: oscuro y claro nacen del mismo instrumento,
+  como las dos incisiones que dan dos tonos al golpearlo.
 
 Reglas del sistema, deliberadamente estrechas para que la interfaz se lea como
 una sola pieza:
@@ -55,58 +56,59 @@ TEMAS_VALIDOS = frozenset({"dark", "light"})
 
 PALETAS: dict[str, dict[str, str]] = {
     "dark": {
-        # --- Capas: barro y sombra del interior de la tukul ---------------
-        "fondo": "#1A1611",           # noche: tierra sin luz
-        "superficie": "#2C261E",      # panel: barro seco
-        "superficie_alta": "#39322A", # campo: barro más claro al lado de la puerta
+        # --- Capas: madera del tunkul y sombra del interior --------------
+        "fondo": "#1A1410",           # madera sin luz
+        "superficie": "#292018",      # panel: madera al lado del fuego
+        "superficie_alta": "#3A2F22", # campo: madera clara de la lengüeta
         # --- Divisorias y controles ---------------------------------------
-        "borde": "#8F8575",           # ocre de paja: divisorias y hover (>=3:1)
-        # WCAG 1.4.11 exige 3:1 a los bordes de elementos accionables. El ocre
-        # de arriba se queda en 2.4-3.4:1 y además es el fondo del hover, así
-        # que los controles usan este ámbar de fuego (3.6:1 contra superficie).
-        "borde_control": "#9A907E",
-        "superficie_activa": "#3B352C",  # hover de botones y pestañas
-        "foco": "#9DBBFF",            # cielo alto: indicador de foco
-        # --- Acento: la luz que entra por la puerta ----------------------
-        "acento": "#7AA7FF",
-        "acento_activo": "#A5C4FF",
-        "acento_texto": "#10131A",
+        "borde": "#8E7A62",           # fibra de bambú seca (>=3:1 en las capas)
+        # WCAG 1.4.11 exige 3:1 a los bordes de elementos accionables; este
+        # tono sube algo más que `borde` para distinguirse sobre `superficie_alta`.
+        "borde_control": "#A08A72",
+        "superficie_activa": "#3E3225",  # hover: madera frotada
+        "foco": "#8FC0A9",            # brote de bambú: indicador de foco
+        # --- Acento: la lengüeta que vibra -------------------------------
+        # Es el verde del bambú joven: el único tono frío, como el sonido
+        # agudo de la lengüeta fina frente al grave de la gruesa.
+        "acento": "#7FB89A",
+        "acento_activo": "#A8D3BC",
+        "acento_texto": "#0E1411",
         # --- Texto -------------------------------------------------------
-        "texto": "#F4F1EA",           # cal con sol
-        "texto_tenue": "#C9C2B4",     # cal a media luz
-        "seleccion": "#3A5182",       # sombra azulada de la puerta
+        "texto": "#F3EDE2",           # médula clara de la caña
+        "texto_tenue": "#CDC1AE",     # fibra a media luz
+        "seleccion": "#3E5B4A",       # sombra verde entre las lengüetas
         # --- Señal de estado (funcional, no decorativa) ------------------
-        "estado_neutro": "#A9A296",
-        "estado_proceso": "#7FD6E0",
-        "estado_exito": "#8DE2B6",
-        "estado_error": "#E28D8D",
-        "estado_aviso": "#E2C88D",
+        "estado_neutro": "#AAA190",
+        "estado_proceso": "#86CBE0",
+        "estado_exito": "#8FDDAD",
+        "estado_error": "#E58F86",
+        "estado_aviso": "#E3C67F",
         # --- Rol conversacional -----------------------------------------
-        "voz_usuario": "#9FD0C9",
-        "voz_asistente": "#D4B5FF",
+        "voz_usuario": "#9AD0BB",
+        "voz_asistente": "#D3B3F0",
     },
     "light": {
-        # --- Capas: la tukul a mediodía --------------------------------
-        "fondo": "#F6F2E9",           # cal y arcilla al sol
-        "superficie": "#EAE4D8",      # pared a la sombra
-        "superficie_alta": "#FCFAF5", # hoja de papel sobre la mesa
-        "borde": "#7E7466",           # ocre de paja: divisorias y hover
-        "borde_control": "#757063",
-        "superficie_activa": "#D6D0C2",  # hover: el texto tenue baja a 5.6:1
-        "foco": "#1D4ED8",            # cielo alto sobre el papel
-        "acento": "#1D4ED8",
-        "acento_activo": "#1E40AF",
+        # --- Capas: caña al sol -------------------------------------------
+        "fondo": "#F7F3E8",           # médula de bambú a plena luz
+        "superficie": "#ECE5D5",      # caña a la sombra
+        "superficie_alta": "#FDFBF4", # hoja de papel sobre la mesa
+        "borde": "#7D6C57",           # fibra de bambú: divisorias y hover
+        "borde_control": "#766651",
+        "superficie_activa": "#D8CFBB",
+        "foco": "#0F6B4F",            # bambú joven
+        "acento": "#0F6B4F",
+        "acento_activo": "#0B5440",
         "acento_texto": "#FFFFFF",
-        "texto": "#201B14",           # tinta de brasa
-        "texto_tenue": "#4A4238",
-        "seleccion": "#B7C9FF",
-        "estado_neutro": "#52525B",
-        "estado_proceso": "#155E75",
-        "estado_exito": "#166534",
-        "estado_error": "#B91C1C",
-        "estado_aviso": "#92400E",
-        "voz_usuario": "#115E59",
-        "voz_asistente": "#6D28D9",
+        "texto": "#1E1811",           # veta oscura
+        "texto_tenue": "#473D30",
+        "seleccion": "#BBD9C2",
+        "estado_neutro": "#4F4A40",
+        "estado_proceso": "#0F5E70",
+        "estado_exito": "#146B3A",
+        "estado_error": "#A81E14",
+        "estado_aviso": "#8A4B08",
+        "voz_usuario": "#0E5C4E",
+        "voz_asistente": "#5B21A8",
     },
 }
 
