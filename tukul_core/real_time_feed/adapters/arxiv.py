@@ -11,11 +11,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 - solo para ET.ParseError; el parseo va por el ayudante seguro
 from datetime import UTC, datetime
 from typing import Any
 
-from tukul_core.http_safety import NO_REDIRECT_OPENER
+from tukul_core.http_safety import NO_REDIRECT_OPENER, xml_fromstring_seguro
 from tukul_core.models import FeedEntry
 
 from .base import SourceAdapter
@@ -96,9 +96,14 @@ class ArxivAdapter(SourceAdapter):
         return []
 
     def _parse_atom(self, body: bytes, category: str) -> list[dict]:
-        """Parsea respuesta Atom XML de arXiv."""
+        """Parsea respuesta Atom XML de arXiv.
+
+        El XML viene de una fuente remota: se parsea con el ayudante endurecido
+        contra XXE y expansión de entidades (`http_safety.xml_fromstring_seguro`),
+        no con `ET.fromstring` directo (bandit B314/B405).
+        """
         try:
-            root = ET.fromstring(body)
+            root = xml_fromstring_seguro(body)
         except ET.ParseError:
             return []
         entries: list[dict] = []
@@ -164,6 +169,6 @@ class ArxivAdapter(SourceAdapter):
     def _sleep(self, attempt: int) -> None:
         """Backoff exponencial con jitter (0-25 % aleatorio)."""
         delay = BACKOFF_BASE * (2 ** (attempt - 1))
-        jitter = delay * 0.25 * random.random()
+        jitter = delay * 0.25 * random.random()  # nosec B311 - jitter de backoff, no criptográfico
         delay = min(delay + jitter, BACKOFF_MAX * 1.25)
         time.sleep(delay)

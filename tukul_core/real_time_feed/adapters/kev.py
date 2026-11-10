@@ -124,6 +124,6 @@ class KevAdapter(SourceAdapter):
                     delay = min(int(retry_after), BACKOFF_MAX)
                 except (ValueError, TypeError):
                     pass
-        jitter = delay * 0.25 * random.random()
+        jitter = delay * 0.25 * random.random()  # nosec B311 - jitter de backoff, no criptográfico
         delay = min(delay + jitter, BACKOFF_MAX * 1.25)
         time.sleep(delay)
