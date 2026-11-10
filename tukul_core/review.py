@@ -100,6 +100,25 @@ def diagnose_findings(result: str) -> tuple[str, list[dict[str, str]]]:
     return "ok", validated
 
 
+def omitted_reasons(result: str) -> list[str]:
+    """Motivos que el modelo declara haber omitido a petición del usuario.
+
+    El campo ``omitted`` es opcional y solo aparece cuando el modelo respeta una
+    petición de omitir hallazgos (ver ``SYSTEM_PROMPT``). Sin esta función, una
+    revisión vacía por obediencia era indistinguible de un artículo sin errores:
+    ambas llegan como ``findings: []``. Se devuelve una lista vacía cuando no hay
+    JSON válido o cuando el campo está ausente o mal formado, de modo que el
+    comportamiento previo queda intacto.
+    """
+    causa, payload = _decode_payload(result)
+    if causa != "ok" or not isinstance(payload, dict):
+        return []
+    omitted = payload.get("omitted")
+    if not isinstance(omitted, list):
+        return []
+    return [str(motivo).strip() for motivo in omitted if str(motivo).strip()]
+
+
 def parse_findings(result: str) -> list[dict[str, str]]:
     """Extrae hallazgos válidos de la respuesta JSON del modelo con validación estricta."""
     return diagnose_findings(result)[1]
