@@ -411,7 +411,7 @@ class TestErrorDeGeneracionDeIdeas(unittest.TestCase):
         lo ejecuta aquí, de modo que un `NameError` en el lambda se ve de
         inmediato y no como un cuelgue silencioso.
         """
-        import tukul_ui.app as modulo
+        import tukul_ui.ideas as modulo
 
         # El worker corre en otro hilo y, correctamente, no programa `after`
         # desde ahí (eso aborta el intérprete en CPython 3.13). Aquí se simula
@@ -433,7 +433,9 @@ class TestErrorDeGeneracionDeIdeas(unittest.TestCase):
                 raise excepcion
 
         errores: list[tuple] = []
-        self.app._on_impact_suggestion_error = lambda *a, **k: errores.append(a)
+        # El controlador informa del error con su propio `_on_error`; se
+        # intercepta ahí, que es donde vive la publicación al usuario.
+        self.app._ideas._on_error = lambda *a, **k: errores.append(a)
 
         with patch.object(modulo, "FeedOrchestrator", _OrquestadorQueFalla), \
              patch.object(modulo.messagebox, "askyesno", return_value=True), \

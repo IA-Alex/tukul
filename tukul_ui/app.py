@@ -3,12 +3,10 @@ from __future__ import annotations
 import logging
 import os
 import queue
-import re
 import threading
 import time
 import tkinter as tk
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -17,10 +15,10 @@ from typing import Any
 from tukul_core import storage
 from tukul_core.autosave import clear_autosave, read_autosave, write_autosave
 from tukul_core.config_validator import validate_startup_config
-from tukul_core.impact_analyzer import (
-    CorrelationEngine,
-    IdeaGenerator,
-)
+
+# Re-exportados para los consumidores y tests que aún los parchean/importan
+# desde `tukul_ui.app`, aunque el pipeline vive ya en `tukul_ui.ideas`.
+from tukul_core.impact_analyzer import CorrelationEngine, IdeaGenerator  # noqa: F401
 from tukul_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 from tukul_core.logging_config import setup_logging
 from tukul_core.models import (
@@ -32,22 +30,28 @@ from tukul_core.models import (
     LlmProfile,
 )
 from tukul_core.prompting import REVIEW_PROMPT, build_editor_prompt, build_review_prompt
-from tukul_core.real_time_feed import FeedOrchestrator
+from tukul_core.real_time_feed import FeedOrchestrator  # noqa: F401
 from tukul_core.review import diagnose_findings, parse_findings
-from tukul_core.threat_feed import ThreatFeedError, build_threat_context
+
+# Re-exportados para los tests y consumidores que aún los parchean/importan
+# desde `tukul_ui.app`, aunque el fetch vive ya en `tukul_ui.contexto_dialogo`.
+from tukul_core.threat_feed import ThreatFeedError, build_threat_context  # noqa: F401
+from tukul_ui import contexto, ui_state, ventana
 from tukul_ui import estilo as es
-from tukul_ui import ui_state
 from tukul_ui.chunk_buffer import ChunkBuffer
 from tukul_ui.components.assistant_panel import AssistantPanel
 from tukul_ui.components.editor_panel import EditorPanel
 from tukul_ui.components.top_bar import TopBar
 from tukul_ui.context_approval import ContextApprovalCache, ContextApprovalKey
+from tukul_ui.contexto_dialogo import ContextController
 from tukul_ui.dialogs import show_review_dialog, show_settings_dialog
 from tukul_ui.document_manager import DocumentManager
 from tukul_ui.document_scope import DocumentScope
 from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
+from tukul_ui.ideas import IdeasController
 from tukul_ui.llm_session_manager import LLMSessionManager
 from tukul_ui.request_lifecycle import RequestLifecycle
+from tukul_ui.tema import aplicar_estilos
 from tukul_ui.worker_threads import WorkerThreads
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
@@ -80,8 +84,10 @@ AUTOSAVE_INTERVAL_MS = 5000
 # configuración) y el nombre del artículo empezaba a desaparecer, que es justo
 # el dato que el usuario necesita para saber qué está editando. 1120 deja un
 # margen de 8 px sobre los 1112 que pide la barra con «Sin artículo abierto».
-ANCHO_MINIMO_VENTANA = 1120
-ALTO_MINIMO_VENTANA = 540
+# Viven en `tukul_ui.ventana` (junto a la lógica que los usa) y se re-exportan
+# aquí para no romper a quien los importe desde `app`.
+ANCHO_MINIMO_VENTANA = ventana.ANCHO_MINIMO_VENTANA
+ALTO_MINIMO_VENTANA = ventana.ALTO_MINIMO_VENTANA
 
 
 def _aplicar_estado_ttk(widget: Any, disponible: bool) -> None:
@@ -141,13 +147,10 @@ def _widget_propio(dueno: object, nombre: str) -> Any:
         return None
 
 
-@dataclass(frozen=True)
-class ContextArticle:
-    """Instantánea explícita de un artículo que acompañará al artículo activo."""
-
-    source_id: str
-    label: str
-    content: str
+# `ContextArticle` vive en `tukul_ui.contexto` (módulo neutral, sin la ventana)
+# para que el controlador de ideas pueda importarlo sin ciclos. Se re-exporta
+# aquí: `from tukul_ui.app import ContextArticle` sigue funcionando.
+ContextArticle = contexto.ContextArticle
 
 logger = setup_logging()
 
@@ -414,66 +417,26 @@ class TukulApp(tk.Tk):
         except tk.TclError:
             return False
 
-    # Geometría «ancho x alto ±x ±y». El signo va DENTRO del grupo para que las
-    # dos negaciones se elijan por separado: Tk las escribe de verdad como
-    # «1920x1011+-61+-23» cuando la ventana queda a la izquierda o por encima del
-    # origen del escritorio. Un patrón que solo admitiera «[+-]\d+» no casa con
-    # «+-61» y la lectura descartaba la geometría guardada, abriendo con el
-    # tamaño por defecto en lugar de donde la persona dejó la ventana.
-    PATRON_GEOMETRIA = re.compile(r"(\d+)x(\d+)([+-]-?\d+)([+-]-?\d+)")
+    # La lógica de saneado vive en `tukul_ui.ventana` (funciones puras, probadas
+    # sin montar la ventana). Estas delegaciones conservan la API histórica de
+    # `TukulApp` para no romper a los consumidores ni a los tests existentes.
+    PATRON_GEOMETRIA = ventana.PATRON_GEOMETRIA
 
     @classmethod
     def _geometria_saneada(cls, guardada: object, pantalla_ancho: int,
                            pantalla_alto: int) -> str | None:
-        """Normaliza y acota una geometría; None si no es utilizable.
-
-        Devuelve siempre el formato canónico «AxA+x+y» (coordenadas no
-        negativas), de modo que lo restaurado y lo que se escribe en
-        `estado.json` comparten una única representación. Una geometría de otro
-        monitor, de otra resolución o de una sesión remota puede no caber en el
-        escritorio actual; Tk la aceptaría, pero dejaría controles fuera del
-        viewport. Ante valores no utilizables o pantallas sin dimensiones se
-        descarta sin lanzar excepciones.
-        """
-        if not isinstance(guardada, str):
-            return None
-        if pantalla_ancho <= 0 or pantalla_alto <= 0:
-            return None
-        coincidencia = cls.PATRON_GEOMETRIA.fullmatch(guardada.strip())
-        if coincidencia is None:
-            return None
-
-        ancho, alto, x, y = (int(valor.replace("+-", "-"))
-                             for valor in coincidencia.groups())
-        # Mantiene un margen visible para que la barra del sistema y los
-        # bordes no oculten la ventana completa en escritorios pequeños.
-        # El suelo de ancho es el de la barra superior: por debajo, el nombre
-        # del artículo deja de verse aunque la ventana «quepa» en pantalla.
-        # Pero ese suelo no puede exceder la pantalla: en un portátil de
-        # 1024 px una ventana de 1120 quedaría cortada por el borde derecho.
-        suelo_ancho = min(ANCHO_MINIMO_VENTANA, max(1, pantalla_ancho - 32))
-        suelo_alto = min(ALTO_MINIMO_VENTANA, max(1, pantalla_alto - 64))
-        ancho = min(max(ancho, suelo_ancho), max(suelo_ancho, pantalla_ancho - 32))
-        alto = min(max(alto, suelo_alto), max(suelo_alto, pantalla_alto - 64))
-        x = min(max(x, 0), max(0, pantalla_ancho - ancho))
-        y = min(max(y, 0), max(0, pantalla_alto - alto))
-        return f"{ancho}x{alto}+{x}+{y}"
+        """Delega en `ventana.geometria_saneada` (ver ahí las reglas)."""
+        return ventana.geometria_saneada(guardada, pantalla_ancho, pantalla_alto)
 
     @staticmethod
     def _zoom_validado(valor: object) -> float:
-        """Convierte el zoom persistido a un factor acotado; 1.0 ante basura."""
-        try:
-            zoom = float(valor)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            return 1.0
-        return max(es.ZOOM_MIN, min(es.ZOOM_MAX, zoom))
+        """Delega en `ventana.zoom_validado`."""
+        return ventana.zoom_validado(valor)
 
     @staticmethod
     def _recientes_validados(valor: object) -> list[str]:
-        """Filtra la lista de recientes persistida a rutas útiles, con tope."""
-        if not isinstance(valor, list):
-            return []
-        return [ruta for ruta in valor if isinstance(ruta, str) and ruta][:10]
+        """Delega en `ventana.recientes_validados`."""
+        return ventana.recientes_validados(valor)
 
     def _restaurar_geometria(self) -> None:
         """Restaura la geometría sin permitir que la ventana desaparezca.
@@ -503,149 +466,11 @@ class TukulApp(tk.Tk):
     def _theme(self) -> None:
         """Aplica el sistema visual del tema activo: un fondo, dos superficies.
 
-        Los estilos ttk se repintan en bloque; los widgets Tk con colores
-        directos se reconfiguran en `_reaplicar_estilos_widgets` sin destruir
-        ni recrear nada.
+        Los estilos ttk se repintan en bloque (`tukul_ui.tema`); los widgets Tk
+        con colores directos se reconfiguran en `_reaplicar_estilos_widgets` sin
+        destruir ni recrear nada.
         """
-        es.aplicar_tema(self.theme)
-        self.configure(bg=es.FONDO)
-        style = ttk.Style(self)
-        try: style.theme_use("clam")
-        except tk.TclError: pass
-
-        style.configure(".", background=es.FONDO, foreground=es.TEXTO, font=es.fuente(),
-                        focuscolor=es.FOCO)
-        style.configure("TFrame", background=es.FONDO)
-        style.configure("Cabecera.TFrame", background=es.SUPERFICIE_ALTA)
-        style.configure("Superficie.TFrame", background=es.SUPERFICIE)
-        style.configure("Alta.TFrame", background=es.SUPERFICIE_ALTA)
-        style.configure("TLabel", background=es.FONDO, foreground=es.TEXTO)
-        style.configure("Superficie.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO)
-        style.configure("Tenue.TLabel", background=es.FONDO, foreground=es.TEXTO_TENUE,
-                        font=es.fuente(es.TIPO_SM))
-        style.configure("TenueSuperficie.TLabel", background=es.SUPERFICIE,
-                        foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
-        style.configure("Titulo.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO,
-                        font=es.fuente(negrita=True))
-        # Franja inferior: continua, tenue y de una sola pieza.
-        style.configure("Cabecera.TLabel", background=es.SUPERFICIE_ALTA,
-                        foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
-        # Separador de la cabecera: divisoria fina que separa acciones de
-        # configuración. Usa `borde` (sutil), no `borde_control`: no se pulsa.
-        style.configure("Cabecera.TSeparator", background=es.BORDE)
-        style.map("Cabecera.TSeparator", background=[("!disabled", es.BORDE)])
-        style.configure("Pie.TFrame", background=es.SUPERFICIE)
-        style.configure("Pie.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO_TENUE,
-                        font=es.fuente(es.TIPO_SM))
-        # El divisor es una señal de ajuste, no un borde de panel dominante.
-        # `sashthickness` fija la zona sensible al arrastre: por debajo de 4 px
-        # el agarre se vuelve incómodo, así que se mantiene fino pero usable.
-        # El sash es una pieza accionable (se arrastra): 1.4.11 le exige 3:1,
-        # así que usa `BORDE_CONTROL` y no la divisoria discreta.
-        style.configure("TPanedwindow", background=es.BORDE)
-        style.configure("Sash", background=es.BORDE_CONTROL, bordercolor=es.BORDE_CONTROL,
-                        sashthickness=4, gripcount=0, lightcolor=es.BORDE_CONTROL,
-                        darkcolor=es.BORDE_CONTROL)
-        # Paneles sin marco: la separación la dan la superficie y el divisor.
-        style.configure("TLabelframe", background=es.SUPERFICIE,
-                        bordercolor=es.SUPERFICIE, relief="flat", borderwidth=0)
-        style.configure("TLabelframe.Label", background=es.SUPERFICIE,
-                        foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM, negrita=True))
-
-        # Estados unificados de los controles. Cuatro señales, siempre las mismas:
-        #   reposo  -> superficie elevada
-        #   hover   -> un escalón más claro (borde)
-        #   pulsado -> vuelve a la superficie base, con el borde en foco
-        #   inhabilitado -> fondo hundido Y texto tenue (no solo color: el
-        #                   contraste baja, y ttk además ignora el clic)
-        # El hover usa una superficie propia: usar BORDE obligaba a que esta
-        # divisoria fuera fondo de botón, y entonces su contraste quedaba
-        # atado al del texto (ver `borde`/`borde_control` en `estilo.py`).
-        estados_fondo = [("disabled", es.SUPERFICIE), ("pressed", es.SUPERFICIE),
-                         ("active", es.SUPERFICIE_ACTIVA)]
-        estados_texto = [("disabled", es.TEXTO_TENUE)]
-        estados_borde = [("focus", es.FOCO), ("pressed", es.FOCO),
-                         ("disabled", es.SUPERFICIE)]
-        style.configure("TButton", background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                        bordercolor=es.BORDE_CONTROL, focuscolor=es.FOCO, relief="flat",
-                        padding=(es.ESP["sm"], es.ESP["xs"] + 1))
-        style.map("TButton", background=estados_fondo, foreground=estados_texto,
-                  bordercolor=estados_borde)
-        style.configure("Primaria.TButton", background=es.ACENTO, foreground=es.ACENTO_TEXTO,
-                        bordercolor=es.ACENTO, focuscolor=es.ACENTO_TEXTO, relief="flat",
-                        font=es.fuente(negrita=True), padding=(es.ESP["md"], es.ESP["xs"] + 2))
-        style.map("Primaria.TButton",
-                  background=[("disabled", es.SUPERFICIE_ALTA), ("pressed", es.ACENTO),
-                              ("active", es.ACENTO_ACTIVO)],
-                  foreground=[("disabled", es.TEXTO_TENUE)],
-                  bordercolor=[("focus", es.ACENTO_TEXTO), ("disabled", es.SUPERFICIE_ALTA)])
-        style.configure("Guardar.TButton", background=es.SUPERFICIE_ALTA,
-                        foreground=es.TEXTO, bordercolor=es.BORDE_CONTROL, relief="flat",
-                        focuscolor=es.FOCO, font=es.fuente(negrita=True),
-                        padding=(es.ESP["sm"], es.ESP["xs"] + 1))
-        style.map("Guardar.TButton", background=estados_fondo, foreground=estados_texto,
-                  bordercolor=estados_borde)
-        # «Cancelar» en reposo: se queda visible (así se descubre la salida)
-        # pero sin relieve ni borde, como una palabra y no como un botón
-        # apagado. Deshabilitado no dice «Revisar está roto»: dice «aquí no hay
-        # nada que cancelar». Al haber una consulta vuelve el botón normal.
-        style.configure("Inactivo.TButton", background=es.SUPERFICIE,
-                        foreground=es.TEXTO_TENUE, bordercolor=es.SUPERFICIE,
-                        lightcolor=es.SUPERFICIE, darkcolor=es.SUPERFICIE,
-                        relief="flat", focuscolor=es.SUPERFICIE,
-                        font=es.fuente(es.TIPO_MD),
-                        padding=(es.ESP["sm"], es.ESP["xs"] + 1))
-        style.map("Inactivo.TButton",
-                  background=[("disabled", es.SUPERFICIE)],
-                  foreground=[("disabled", es.TEXTO_TENUE)],
-                  bordercolor=[("disabled", es.SUPERFICIE)],
-                  lightcolor=[("disabled", es.SUPERFICIE)],
-                  darkcolor=[("disabled", es.SUPERFICIE)])
-        style.configure("Plana.TButton", background=es.SUPERFICIE, foreground=es.TEXTO_TENUE,
-                        bordercolor=es.SUPERFICIE, relief="flat", focuscolor=es.FOCO,
-                        font=es.fuente(es.TIPO_SM), padding=(es.ESP["sm"], es.ESP["xs"]))
-        style.map("Plana.TButton",
-                  background=[("disabled", es.SUPERFICIE), ("pressed", es.SUPERFICIE),
-                              ("active", es.SUPERFICIE_ALTA)],
-                  foreground=[("disabled", es.BORDE), ("active", es.TEXTO)],
-                  bordercolor=[("focus", es.FOCO)])
-        style.configure("TMenubutton", background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                        focuscolor=es.FOCO, relief="flat",
-                        padding=(es.ESP["sm"], es.ESP["xs"] + 1))
-        style.map("TMenubutton", background=estados_fondo, foreground=estados_texto)
-        style.configure("TCheckbutton", background=es.SUPERFICIE, foreground=es.TEXTO,
-                        focuscolor=es.FOCO)
-        style.map("TCheckbutton", background=[("active", es.SUPERFICIE)],
-                  foreground=estados_texto)
-        # Los campos de los diálogos salían en blanco: ttk.Entry y ttk.Combobox
-        # no heredan del estilo raíz y rompían el conjunto oscuro.
-        for campo in ("TEntry", "TCombobox", "TSpinbox"):
-            style.configure(campo, fieldbackground=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                            background=es.SUPERFICIE_ALTA, bordercolor=es.BORDE_CONTROL,
-                            lightcolor=es.BORDE_CONTROL, darkcolor=es.BORDE_CONTROL,
-                            arrowcolor=es.TEXTO_TENUE, insertcolor=es.ACENTO,
-                            selectbackground=es.SELECCION, selectforeground=es.TEXTO)
-            style.map(campo,
-                      fieldbackground=[("readonly", es.SUPERFICIE_ALTA),
-                                       ("disabled", es.SUPERFICIE)],
-                      foreground=[("disabled", es.TEXTO_TENUE)],
-                      bordercolor=[("focus", es.FOCO)])
-        # El desplegable del Combobox es un Listbox de Tk: solo obedece a la
-        # base de datos de opciones.
-        self.option_add("*TCombobox*Listbox.background", es.SUPERFICIE_ALTA)
-        self.option_add("*TCombobox*Listbox.foreground", es.TEXTO)
-        self.option_add("*TCombobox*Listbox.selectBackground", es.SELECCION)
-        self.option_add("*TCombobox*Listbox.selectForeground", es.TEXTO)
-        # Las barras de desplazamiento por defecto son claras y rompen el conjunto.
-        style.configure("Vertical.TScrollbar", background=es.SUPERFICIE_ALTA,
-                        troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
-                        arrowcolor=es.TEXTO_TENUE, relief="flat")
-        style.map("Vertical.TScrollbar", background=[("active", es.BORDE_CONTROL)])
-        style.configure("Horizontal.TScrollbar", background=es.SUPERFICIE_ALTA,
-                        troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
-                        arrowcolor=es.TEXTO_TENUE, relief="flat")
-        self._reaplicar_estilos_widgets()
-
+        aplicar_estilos(self, self.theme, self._reaplicar_estilos_widgets)
     def _cambiar_tema(self) -> None:
         """Alterna entre oscuro y claro desde el botón de la barra."""
         self._aplicar_tema("light" if self.theme == "dark" else "dark")
@@ -2271,15 +2096,27 @@ class TukulApp(tk.Tk):
             # se decide qué archivo abrir.
             self.load_document(next_path)
 
+    # ─── Contexto de artículos y fuente CVE (pipeline en `tukul_ui.contexto_dialogo`) ──
+    # La ventana sigue siendo la dueña de `context_articles`; aquí solo se
+    # conserva una fachada que mantiene la API histórica y delega en el controlador.
+
+    @property
+    def _contexto(self) -> ContextController:
+        """Controlador de contexto, creado perezosamente y reutilizado."""
+        ctrl = getattr(self, "_contexto_ctrl", None)
+        if ctrl is None:
+            ctrl = ContextController(
+                self,
+                threat_feed_hours=THREAT_FEED_HOURS,
+                threat_feed_source_id=THREAT_FEED_SOURCE_ID,
+                max_indexed_file_bytes=MAX_INDEXED_FILE_BYTES,
+            )
+            self._contexto_ctrl = ctrl
+        return ctrl
+
     def _update_references_button(self) -> None:
-        """Contexto: solo el número; las palabras se añaden cuando hay algo."""
-        count = len(self.context_articles)
-        if count == 0:
-            texto = "Contexto: 0"
-        else:
-            label = "artículo" if count == 1 else "artículos"
-            texto = f"Contexto: {count} {label}"
-        self.references_button.config(text=texto)
+        """Delega en `ContextController.update_references_button`."""
+        self._contexto.update_references_button()
 
     def _upsert_context_article(self, article: ContextArticle) -> bool:
         """Añade o actualiza una instantánea, sin duplicarla en el contexto."""
@@ -2293,14 +2130,8 @@ class TukulApp(tk.Tk):
         return True
 
     def _add_current_article_to_context(self) -> bool:
-        """Guarda el texto visible como contexto antes de abrir o editar otro."""
-        content = self.editor.get("1.0", "end-1c")
-        if not content.strip():
-            return False
-        path = self.session.document_path
-        label = path.name if path else "Artículo sin guardar"
-        source_id = f"article:{path.resolve()}" if path else "article:sin-ruta"
-        return self._upsert_context_article(ContextArticle(source_id, label, content))
+        """Delega en `ContextController.add_current_article_to_context`."""
+        return self._contexto.add_current_article_to_context()
 
     def _authorize_context_articles(self) -> None:
         """Autoriza el conjunto actual para el destinatario activo, una sola vez."""
@@ -2308,559 +2139,92 @@ class TukulApp(tk.Tk):
         self.approved_contexts.remember_for(self.profile, packet, files)
 
     def _fetch_threat_feed(self, dialog: tk.Toplevel, on_done: Callable[[], None]) -> None:
-        """Consulta NVD/EPSS/KEV en segundo plano y añade el resultado como contexto.
-
-        La red la inicia Tukul (no el proveedor LLM), por eso el disparo es
-        una acción de UI explícita y nunca automático: ver `docs/SECURITY.md`.
-        `build_threat_context` degrada por fuente y solo lanza si fallan las tres.
-        El paquete resultante entra como una instantánea de contexto más y pasa
-        por `ContextApprovalCache` antes de llegar a cualquier prompt.
-        """
-        if not messagebox.askyesno(
-            "Añadir CVEs recientes al contexto",
-            "Tukul consultará ahora tres fuentes públicas de vulnerabilidades "
-            "(NVD, EPSS de FIRST.org y el catálogo CISA KEV) para construir un "
-            f"resumen de los CVE de las últimas {THREAT_FEED_HOURS} h.\n\n"
-            "Es una conexión saliente iniciada por la aplicación. El resultado se "
-            "trata como contexto no confiable y se autoriza como cualquier otro "
-            "artículo de contexto.\n\n¿Continuar?",
-            parent=dialog,
-        ):
-            return
-        self.status.set("Consultando fuentes de amenazas (CVE)…")
-
-        def work() -> None:
-            """Ejecuta el fetch HTTP fuera del hilo de Tk y devuelve el control por `after`."""
-            detail: str | None = None
-            try:
-                packet, files = build_threat_context(hours=THREAT_FEED_HOURS)
-            except ThreatFeedError as error:
-                detail = str(error)
-            except Exception as error:
-                # El hilo daemon no debe morir en silencio: se registra y se
-                # reporta como fallo del fetch, igual que un ThreatFeedError.
-                logger.error("Fallo inesperado en la fuente de amenazas: %s", error, exc_info=True)
-                detail = str(error)
-            if self.closing:
-                return  # La ventana ya se está destruyendo: no tocar Tcl.
-            if detail is not None:
-                message = detail
-                self.after(0, lambda: self._on_threat_feed_error(dialog, message))
-                return
-            self.after(0, lambda: self._on_threat_feed_ready(packet, files, on_done))
-
-        WorkerThreads.start(work)
+        """Delega en `ContextController.fetch_threat_feed`."""
+        self._contexto.fetch_threat_feed(dialog, on_done)
 
     def _on_threat_feed_error(self, dialog: tk.Toplevel, detail: str) -> None:
-        """Informa del fallo del fetch sin tumbar el diálogo de contexto."""
-        self.status.set("No se pudo obtener el contexto de amenazas.")
-        if dialog.winfo_exists():
-            messagebox.showerror(
-                "Fuente de amenazas no disponible",
-                f"No se pudo construir el contexto de CVE:\n\n{detail}",
-                parent=dialog,
-            )
+        """Delega en `ContextController.on_threat_feed_error`."""
+        self._contexto.on_threat_feed_error(dialog, detail)
 
-    def _on_threat_feed_ready(
-        self, packet: str, files: list[str], on_done: Callable[[], None]
-    ) -> None:
-        """Añade el paquete de amenazas como instantánea de contexto ya autorizada."""
-        label = f"CVEs recientes ({', '.join(files)})" if files else "CVEs recientes"
-        self._upsert_context_article(ContextArticle(THREAT_FEED_SOURCE_ID, label, packet))
-        self._authorize_context_articles()
-        self.status.set("Contexto de CVEs recientes añadido y autorizado.")
-        on_done()
+    def _on_threat_feed_ready(self, packet: str, files: list[str],
+                              on_done: Callable[[], None]) -> None:
+        """Delega en `ContextController.on_threat_feed_ready`."""
+        self._contexto.on_threat_feed_ready(packet, files, on_done)
+
 
     # ─── Sugerencia de impacto ─────────────────────────────────────────────────
 
-    def _fetch_impact_suggestion(
-        self, dialog: tk.Toplevel, on_done: Callable[[], None]
-    ) -> None:
-        """Orquesta el pipeline de correlación e ideas en segundo plano.
+    # ─── Ideas de artículo (pipeline extraído a `tukul_ui.ideas`) ───────────
+    # El controlador recibe esta app por inyección; aquí solo se conserva una
+    # fachada que mantiene la API histórica para no romper a los consumidores.
 
-        1. FeedOrchestrator.fetch_all() → obtiene datos de fuentes
-        2. CorrelationEngine.correlate() → cruza entradas por CVE, tópicos, keywords
-        3. IdeaGenerator.generate() → genera ideas de artículo desde correlaciones
-        4. Muestra un diálogo con las ideas para que el usuario seleccione una.
+    @property
+    def _ideas(self) -> IdeasController:
+        """Controlador de ideas, creado perezosamente y reutilizado."""
+        ctrl = getattr(self, "_ideas_ctrl", None)
+        if ctrl is None:
+            ctrl = IdeasController(self, FEED_CACHE_DIR, THREAT_FEED_HOURS)
+            self._ideas_ctrl = ctrl
+        return ctrl
 
-        El LLM es opcional: si está configurado, enriquece las ideas. Si no,
-        las ideas son completamente basadas en reglas.
-        """
-        if not self.profile.enabled or not self.key:
-            messagebox.showinfo(
-                "LLM no configurado",
-                "Configura un perfil LLM y una API key para generar sugerencias.",
-                parent=dialog,
-            )
-            return
-
-        if not messagebox.askyesno(
-            "Generar ideas de artículo",
-            "Tukul consultará fuentes oficiales (NVD, EPSS, KEV, MITRE ATT&CK, arXiv) "
-            "y correlacionará las entradas para generar ideas de artículo. "
-            "El resultado se mostrará para que selecciones la que quieras desarrollar.\n\n"
-            "Es una conexión saliente iniciada por la aplicación. "
-            "¿Continuar?",
-            parent=dialog,
-        ):
-            return
-
-        self.status.set("Generando ideas de artículo…")
-
-        # Capturar perfil y key en el hilo de UI para evitar condiciones de carrera
-        profile = self.profile
-        api_key = self.key
-        cache_path = FEED_CACHE_DIR / "feed_cache.json"
-
-        def work() -> None:
-            """Ejecuta el pipeline fuera del hilo de Tk y publica el resultado.
-
-            No llama a `logging` desde aquí: aunque el módulo de log ya exista,
-            formatear una excepción con `exc_info` durante una recolección de
-            basura en curso puede abortar el intérprete en CPython 3.13. El
-            detalle viaja al hilo de Tk, que lo registra con su contexto.
-            """
-            detalle: str | None = None
-            try:
-                # Al cerrar (o al destruir la ventana en las pruebas), cualquier
-                # contacto con Tk desde aquí aborta el intérprete: el hilo
-                # arranca tarde, ya sin interfaz, y no hay a quién responder.
-                if self.closing:
-                    return
-                publicado = self._ejecutar_pipeline_ideas(
-                    dialog, profile, api_key, cache_path, on_done)
-            except RuntimeError as error:
-                publicado = False
-                detalle = f"error de orquestación: {error}"
-            except Exception as error:
-                publicado = False
-                detalle = f"Error inesperado: {type(error).__name__}: {error}"
-            if detalle is not None:
-                self._registrar_error_ideas(dialog, detalle)
-            if not publicado:
-                pass  # Nada que publicar; el motivo ya viajó si lo hubo.
-
-        WorkerThreads.start(work)
+    def _fetch_impact_suggestion(self, dialog: tk.Toplevel,
+                                 on_done: Callable[[], None]) -> None:
+        """Delega en `IdeasController.fetch_suggestion`."""
+        self._ideas.fetch_suggestion(dialog, on_done)
 
     def _ejecutar_pipeline_ideas(self, dialog, profile, api_key, cache_path,
                                  on_done: Callable[[], None]) -> bool:
-        """Feed → correlación → ideas. Devuelve False si no hay nada que mostrar.
-
-        Se ejecuta en el worker; cualquier callback de UI se programa con
-        `_publicar_en_ui`, nunca se toca Tk desde aquí.
-        """
-        orchestrator = FeedOrchestrator(
-            cache_path=cache_path,
-            ttl_minutes=15,
-            on_progress=lambda msg: logger.info("IdeaGeneration: %s", msg),
-        )
-        entries = orchestrator.fetch_all(hours=THREAT_FEED_HOURS)
-        if not entries:
-            self._publicar_error_ideas(dialog, "No se obtuvieron entradas de las fuentes.")
-            return False
-
-        correlations = CorrelationEngine().correlate(entries)
-        if not correlations:
-            self._publicar_error_ideas(
-                dialog, "No se encontraron correlaciones entre las fuentes.")
-            return False
-
-        ideas = IdeaGenerator(self._llm_de_ideas(profile, api_key)).generate(
-            correlations, entries)
-        if not ideas:
-            self._publicar_error_ideas(
-                dialog, "No se pudieron generar ideas a partir de las correlaciones.")
-            return False
-
-        self.after(
-            0,
-            lambda: self._show_idea_selection_dialog(
-                dialog, ideas, entries, correlations, on_done),
-        )
-        return True
+        """Delega en el pipeline del controlador (se ejecuta en el worker)."""
+        return self._ideas._ejecutar_pipeline(dialog, profile, api_key, cache_path, on_done)
 
     @staticmethod
     def _llm_de_ideas(profile, api_key) -> Callable[[str], str] | None:
-        """Callable del LLM para enriquecer ideas, o None sin credenciales."""
-        if not (profile.enabled and api_key):
-            return None
-        from tukul_core.llm import LLMClient  # import diferido: solo si se usa
-
-        def _llm_callable(prompt: str) -> str:
-            return LLMClient().complete(profile, api_key, prompt).content
-        return _llm_callable
+        """Delega en `IdeasController._llm_de_ideas`."""
+        return IdeasController._llm_de_ideas(profile, api_key)
 
     def _registrar_error_ideas(self, dialog, detalle: str) -> None:
-        """Lleva un fallo del pipeline al hilo de Tk: log y aviso, sin tocar Tcl aquí.
-
-        Se llama desde el worker. Registrar o programar `after()` desde ahí puede
-        abortar el intérprete, así que el mensaje se publica tal cual y lo
-        registra `_on_impact_suggestion_error`, ya en el hilo de Tk.
-        """
-        self._publicar_error_ideas(dialog, detalle)
+        """Delega en el controlador (publica el error en el hilo de Tk)."""
+        self._ideas._registrar_error(dialog, detalle)
 
     def _publicar_error_ideas(self, dialog, mensaje: str) -> None:
-        """Publica un error del pipeline en el hilo de Tk.
+        """Delega en el controlador."""
+        self._ideas._publicar_error(dialog, mensaje)
 
-        Se llama desde el worker de ideas, que es daemon y puede llegar aquí
-        cuando la ventana ya no existe. `after()` desde otro hilo aborta el
-        proceso en CPython 3.13, así que fuera del hilo de Tk solo se registra.
-        """
-        if not _en_el_hilo_de_tk(self):
-            logger.warning("IdeaGeneration: la interfaz ya no está disponible: %s", mensaje)
-            return
-        try:
-            self.after(0, lambda: self._on_impact_suggestion_error(dialog, mensaje))
-        except (RuntimeError, tk.TclError):
-            logger.debug("Ventana destruida; error de ideas descartado")
+    def _show_idea_selection_dialog(self, parent_dialog: tk.Toplevel,
+                                    ideas: list[ArticleIdea],
+                                    all_entries: list[FeedEntry],
+                                    correlations: list[CorrelationGroup],
+                                    on_done: Callable[[], None]) -> None:
+        """Delega en `IdeasController.show_selection_dialog`."""
+        self._ideas.show_selection_dialog(
+            parent_dialog, ideas, all_entries, correlations, on_done)
 
-    def _show_idea_selection_dialog(
-        self,
-        parent_dialog: tk.Toplevel,
-        ideas: list[ArticleIdea],
-        all_entries: list[FeedEntry],
-        correlations: list[CorrelationGroup],
-        on_done: Callable[[], None],
-    ) -> None:
-        """Muestra un diálogo con las ideas generadas para que el usuario seleccione una.
+    def _reaplicar_tema_ideas(self, dialog: tk.Toplevel, idea_listbox: tk.Listbox,
+                              preview: ttk.Label) -> None:
+        """Delega en `IdeasController._reaplicar_tema`."""
+        self._ideas._reaplicar_tema(dialog, idea_listbox, preview)
 
-        Al seleccionar una idea, se añade como ContextArticle con trazabilidad
-        a las fuentes que la respaldan.
-        """
-        dialog = tk.Toplevel(parent_dialog)
-        dialog.title("Ideas de art\u00edculo generadas")
-        dialog.transient(parent_dialog)
-        dialog.configure(bg=es.SUPERFICIE)
-        dialog.minsize(520, 340)
-        dialog.geometry(es.tamano_ventana(640, 480, self.winfo_screenwidth(),
-                                          self.winfo_screenheight(), minimo=(520, 340)))
+    def _on_impact_suggestion_error(self, dialog: tk.Toplevel, detail: str) -> None:
+        """Delega en `IdeasController._on_error`."""
+        self._ideas._on_error(dialog, detail)
 
-        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
-        frame.pack(fill="both", expand=True)
-
-        ttk.Label(
-            frame,
-            text=f"Se generaron {len(ideas)} ideas a partir de las fuentes consultadas. "
-                 "Selecciona una para desarrollarla como art\u00edculo.",
-            style="TenueSuperficie.TLabel",
-            wraplength=580,
-            justify="left",
-        ).pack(anchor="w", pady=(0, es.ESP["sm"]))
-
-        list_frame = ttk.Frame(frame, style="Superficie.TFrame")
-        list_frame.pack(fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
-        idea_listbox = tk.Listbox(
-            list_frame,
-            selectmode="single",
-            exportselection=False,
-            background=es.SUPERFICIE_ALTA,
-            foreground=es.TEXTO,
-            selectbackground=es.SELECCION,
-            selectforeground=es.TEXTO,
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=es.BORDE_CONTROL,
-            highlightcolor=es.FOCO,
-            borderwidth=0,
-            font=es.fuente(),
-            activestyle="none",
-            yscrollcommand=scrollbar.set,
-        )
-        scrollbar.config(command=idea_listbox.yview)
-        scrollbar.pack(side="right", fill="y")
-        idea_listbox.pack(side="left", fill="both", expand=True)
-
-        for idx, idea in enumerate(ideas, 1):
-            urgency_icon = {
-                "inmediata": "\U0001f534",
-                "alta": "\U0001f7e0",
-                "media": "\U0001f7e1",
-                "baja": "\U0001f7e2",
-            }.get(idea.urgency, "\u26aa")
-            audience_label = {
-                "directivos": "\U0001f454",
-                "tecnicos": "\U0001f4bb",
-                "publico general": "\U0001f465",
-            }.get(idea.target_audience, "\U0001f464")
-            confidence_pct = int(idea.confidence * 100)
-            display = (
-                f"{idx:2d}. [{urgency_icon}{audience_label}] "
-                f"{idea.title[:80]} "
-                f"({confidence_pct}% confianza)"
-            )
-            idea_listbox.insert("end", display)
-
-        # Vista previa de la idea seleccionada
-        preview_frame = ttk.Frame(frame, style="Superficie.TFrame")
-        preview_frame.pack(fill="x", pady=(es.ESP["sm"], 0))
-
-        preview_label = ttk.Label(
-            preview_frame,
-            text="Selecciona una idea para ver los detalles",
-            style="TenueSuperficie.TLabel",
-            wraplength=580,
-            justify="left",
-        )
-        preview_label.pack(anchor="w")
-
-        def on_select(_event: object = None) -> None:
-            """Muestra la vista previa de la idea seleccionada."""
-            selection = idea_listbox.curselection()
-            if not selection:
-                return
-            idx = selection[0]
-            idea = ideas[idx]
-            corr = next(
-                (c for c in correlations if c.id == idea.correlation_id),
-                None,
-            )
-            sources_str = ", ".join(corr.sources) if corr else "\u2014"
-            preview_label.config(
-                text=(
-                    f"T\u00edtulo: {idea.title}\n"
-                    f"Audiencia: {idea.target_audience}  |  "
-                    f"Urgencia: {idea.urgency}  |  "
-                    f"Confianza: {int(idea.confidence * 100)}%\n"
-                    f"Fuentes: {sources_str}\n\n"
-                    f"\u00c1ngulo: {idea.angle[:200]}\n\n"
-                    f"Razonamiento: {idea.reasoning[:200]}"
-                )
-            )
-
-        idea_listbox.bind("<<ListboxSelect>>", on_select)
-
-        # Botones de acci\u00f3n
-        actions = ttk.Frame(frame, style="Superficie.TFrame")
-        actions.pack(fill="x", pady=(es.ESP["lg"], 0))
-
-        def accept_idea() -> None:
-            """A\u00f1ade la idea seleccionada como ContextArticle y cierra el di\u00e1logo."""
-            selection = idea_listbox.curselection()
-            if not selection:
-                messagebox.showinfo(
-                    "Seleccionar idea",
-                    "Selecciona una idea de la lista antes de continuar.",
-                    parent=dialog,
-                )
-                return
-            idx = selection[0]
-            idea = ideas[idx]
-
-            corr = next(
-                (c for c in correlations if c.id == idea.correlation_id),
-                None,
-            )
-            sources_detail = ""
-            if corr:
-                sources_detail = (
-                    f"\n\n**Correlaci\u00f3n:** {corr.summary}\n"
-                    f"**Relevancia:** {corr.relevance_score}\n"
-                    f"**Fuentes:** {', '.join(corr.sources)}"
-                )
-
-            content = (
-                f"## Idea: {idea.title}\n\n"
-                f"**Audiencia:** {idea.target_audience}  |  "
-                f"**Urgencia:** {idea.urgency}  |  "
-                f"**Confianza:** {int(idea.confidence * 100)}%\n\n"
-                f"### \u00c1ngulo narrativo\n{idea.angle}\n\n"
-                f"### Por qu\u00e9 ahora\n{idea.reasoning}"
-                f"{sources_detail}"
-            )
-
-            article = ContextArticle(
-                source_id=idea.id,
-                label=f"Idea: {idea.title[:50]}",
-                content=content,
-            )
-            self._upsert_context_article(article)
-            self._authorize_context_articles()
-            self.append("Tukul", content, es_respuesta=False)
-            self.status.set(f"Idea seleccionada: {idea.title}")
-            dialog.destroy()
-            on_done()
-
-        ttk.Button(
-            actions, text="Desarrollar esta idea",
-            style="Primaria.TButton", command=accept_idea
-        ).pack(side="right")
-        ttk.Button(
-            actions, text="Cancelar",
-            command=dialog.destroy,
-        ).pack(side="right", padx=(0, es.ESP["sm"]))
-
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        dialog.bind("<Return>", lambda _event: accept_idea())
-        idea_listbox.focus_set()
-
-        self._registrar_reaplicar_tema(
-            dialog,
-            lambda: self._reaplicar_tema_ideas(dialog, idea_listbox, preview_label),
-        )
-
-    def _reaplicar_tema_ideas(
-        self, dialog: tk.Toplevel, idea_listbox: tk.Listbox, preview: ttk.Label
-    ) -> None:
-        """Repinta el di\u00e1logo de ideas al cambiar de tema."""
-        dialog.configure(bg=es.SUPERFICIE)
-        idea_listbox.configure(
-            background=es.SUPERFICIE_ALTA,
-            foreground=es.TEXTO,
-            selectbackground=es.SELECCION,
-            selectforeground=es.TEXTO,
-            highlightbackground=es.BORDE_CONTROL,
-            highlightcolor=es.FOCO,
-        )
-
-
-
-    def _on_impact_suggestion_error(
-        self, dialog: tk.Toplevel, detail: str
-    ) -> None:
-        """Informa del fallo al generar la sugerencia."""
-        logger.error("IdeaGeneration: %s", detail)
-        self.status.set("No se pudo generar la sugerencia de impacto.")
-        if dialog.winfo_exists():
-            messagebox.showerror(
-                "Sugerencia no disponible",
-                f"No se pudo generar la sugerencia de impacto:\n\n{detail}",
-                parent=dialog,
-            )
 
     def _ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
-        """La autorización ocurre al añadir contexto, nunca al enviar después."""
-        if not labels:
-            return False
-        return messagebox.askyesno(
-            "Autorizar artículos de contexto",
-            "Se conservarán y podrán enviarse a "
-            f"{self.profile.provider}/{self.profile.model} durante esta sesión:\n\n"
-            + ", ".join(labels),
-            parent=parent,
-        )
+        """Delega en `ContextController.ask_to_authorize_articles`."""
+        return self._contexto.ask_to_authorize_articles(labels, parent)
 
     def _add_references(self, paths: tuple[str, ...] | list[str]) -> int:
-        """Añade instantáneas de archivos de contexto sin alterar el editor."""
-        added = 0
-        for raw_path in paths:
-            try:
-                path = Path(raw_path).resolve()
-            except OSError:
-                continue
-            if not path.is_file() or path.suffix.lower() not in {".md", ".txt"}:
-                continue
-            try:
-                with path.open("rb") as source:
-                    content = source.read(MAX_INDEXED_FILE_BYTES).decode("utf-8", errors="replace")
-            except OSError:
-                continue
-            if self._upsert_context_article(ContextArticle(f"article:{path}", path.name, content)):
-                added += 1
-        return added
+        """Delega en `ContextController.add_references`."""
+        return self._contexto.add_references(paths)
 
     def manage_references(self) -> None:
-        """Permite conservar artículos previos al cambiar el artículo activo."""
-        dialog = tk.Toplevel(self)
-        dialog.title("Contexto de artículos")
-        dialog.transient(self)
-        dialog.configure(bg=es.SUPERFICIE)
-        dialog.minsize(460, 280)
-        dialog.geometry(es.tamano_ventana(580, 360, self.winfo_screenwidth(),
-                                          self.winfo_screenheight(), minimo=(460, 280)))
-        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Artículos de contexto", style="Titulo.TLabel").pack(anchor="w")
-        ttk.Label(frame, text=("El artículo de la izquierda es el activo. Añade aquí artículos previos (.md o .txt) "
-                               "o un resumen de CVEs recientes: se conservan al abrir otro artículo y se autorizan al añadirlos. "
-                               "«Añadir CVEs recientes» abre una conexión saliente a NVD/EPSS/CISA KEV."),
-                  style="TenueSuperficie.TLabel", wraplength=520, justify="left").pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
-        # La fila de acciones se reserva ANTES de la lista expansible: con pack,
-        # lo colocado después es lo que se recorta al estrechar la ventana.
-        actions = ttk.Frame(frame, style="Superficie.TFrame")
-        actions.pack(side="bottom", fill="x", pady=(es.ESP["lg"], 0))
-        entries = tk.Listbox(frame, selectmode="extended", exportselection=False,
-                             background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                             selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-                             relief="flat", highlightthickness=1,
-                             highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
-                             borderwidth=0, font=es.fuente(), activestyle="none")
-        entries.pack(fill="both", expand=True)
-
-        def refresh() -> None:
-            """Recarga la lista de artículos de contexto desde la sesión."""
-            entries.delete(0, "end")
-            for article in self.context_articles:
-                entries.insert("end", article.label)
-
-        def add() -> None:
-            """Añade artículos de contexto elegidos por el usuario, con autorización."""
-            paths = filedialog.askopenfilenames(
-                parent=dialog, title="Añadir artículos al contexto",
-                filetypes=[("Artículos", "*.md *.txt"), ("Todos los archivos", "*.*")],
-            )
-            # Tk declara una cadena vacía al cancelar, aunque normalmente devuelve
-            # una tupla. No iterar esa cadena evita tratar cada carácter como ruta.
-            selected_paths = paths if isinstance(paths, tuple) else ()
-            labels = [Path(path).name for path in selected_paths]
-            if not self._ask_to_authorize_articles(labels, dialog):
-                return
-            count = self._add_references(selected_paths)
-            self._authorize_context_articles()
-            refresh()
-            if count:
-                self.status.set(f"{count} artículo(s) añadido(s) al contexto.")
-
-        def remove() -> None:
-            """Elimina los artículos de contexto seleccionados en la lista."""
-            selected = list(entries.curselection())
-            if not selected:
-                return
-            self.context_articles = [article for index, article in enumerate(self.context_articles)
-                                     if index not in selected]
-            self._update_references_button()
-            refresh()
-            self.status.set("Contexto de artículos actualizado.")
-
-        # Acción primaria a la derecha, como en el resto de diálogos.
-        def add_current() -> None:
-            """Añade el artículo activo como contexto."""
-            path = self.session.document_path
-            label = path.name if path else "Artículo sin guardar"
-            if not self._ask_to_authorize_articles([label], dialog):
-                return
-            added = self._add_current_article_to_context()
-            self._authorize_context_articles()
-            refresh()
-            self.status.set("Artículo activo añadido al contexto." if added
-                            else "Artículo activo actualizado en el contexto.")
-
-        ttk.Button(actions, text="Añadir artículos…", style="Primaria.TButton",
-                   command=add).pack(side="right")
-        ttk.Button(actions, text="Quitar seleccionadas", command=remove).pack(
-            side="right", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Añadir artículo activo", command=add_current).pack(
-            side="left", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Añadir CVEs recientes…",
-                   command=lambda: self._fetch_threat_feed(dialog, refresh)).pack(
-            side="left", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Generar sugerencia de impacto…",
-                   command=lambda: self._fetch_impact_suggestion(dialog, refresh)).pack(
-            side="left", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        refresh()
-        self._registrar_reaplicar_tema(dialog,
-                                       lambda: self._reaplicar_tema_contexto(dialog, entries))
-        entries.focus_set()
+        """Delega en `ContextController.manage_references`."""
+        self._contexto.manage_references()
 
     def _reaplicar_tema_contexto(self, dialog: tk.Toplevel, entries: tk.Listbox) -> None:
-        """Repinta el diálogo de contexto al cambiar de tema, sin perder la lista."""
-        dialog.configure(bg=es.SUPERFICIE)
-        entries.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                          selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-                          highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO)
+        """Delega en `ContextController.reaplicar_tema_contexto`."""
+        self._contexto.reaplicar_tema_contexto(dialog, entries)
+
 
     def save_document(self, save_as: bool = False)->bool:
         """Guarda el artículo en su ruta, o pide destino si no la tiene."""

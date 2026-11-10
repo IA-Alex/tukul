@@ -16,12 +16,13 @@ como error al llamador sin reenviar jamás cabeceras ni cambiar de origen.
 from __future__ import annotations
 
 import urllib.request
+from typing import Any
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Nunca sigue redirecciones HTTP(S)."""
 
-    def redirect_request(self, *args, **kwargs):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         """Rechaza el seguimiento: devuelve None para que el 3xx llegue como error."""
         return None
 

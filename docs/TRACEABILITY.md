@@ -15,5 +15,6 @@
 | health check | ARCHITECTURE | `health.py`, CLI | `TestSaludDeLaInstalacion` | OPERATIONS | — |
 | perfil con campos ignorados | CONFIGURATION | `storage.load_profiles`, `DISCARDED_PROFILE_FIELDS`, `health.check_health` | `tests/test_diagnostico_perfiles.py` | CONFIGURATION, OPERATIONS | — |
 | fuente de amenazas (CVE) | SECURITY / ARCHITECTURE | `threat_feed.py`, adaptadores `real_time_feed`, `http_safety` | `test_threat_feed.py`, `test_threat_feed_ui.py`, `test_real_time_feed.py` | SECURITY, ARCHITECTURE | SECURITY |
+| sugerencias de impacto (fuentes en tiempo real) | ADR-0003 / ARCHITECTURE | `real_time_feed` (`FeedOrchestrator`, `FeedCache`, `FeedNormalizer`, adaptadores), `impact_analyzer` (`CorrelationEngine`, `IdeaGenerator`), `http_safety` | `test_real_time_feed.py`, `test_correlation_engine.py`, `test_idea_generator.py`, `test_mitre_attack_adapter.py` | ARCHITECTURE, OPERATIONS | SECURITY |
 | size/token limits | CONFIGURATION | models, prompting, llm, app | core/regression tests | OPERATIONS | SECURITY |
 | configuration parsing | CONFIGURATION | `storage.load_profiles` | `TestPerfilesInvalidos` | OPERATIONS | SECURITY |

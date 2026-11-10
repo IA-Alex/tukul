@@ -36,6 +36,14 @@ Paquete con submodulos:
 
 ### 2. Nuevo módulo `tukul_core/impact_analyzer.py`
 
+> **Nota de vigencia (2026-11-10):** el pipeline Fogg aquí descrito
+> (`FoggEngine` → `ConflictDetector` → `SuggestionGenerator` → `PostValidator`)
+> **se retiró** en 0.4.0. La UI nunca lo consumió: terminó usando solo
+> `CorrelationEngine` + `IdeaGenerator` (sección 4 de esta ADR). La decisión
+> original se conserva como registro histórico; la arquitectura vigente está en
+> `docs/ARCHITECTURE.md`. Los tipos `FoggAnalysis`, `SourceConflict` y
+> `ConsumerSuggestion` permanecen en `models.py`.
+
 - **`FoggEngine`**: aplica Fogg Behavior Model (Motivación + Habilidad +
   Desencadenante) sobre `FeedEntry[]`.
 - **`ConflictDetector`**: detecta contradicciones entre fuentes oficiales.

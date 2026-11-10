@@ -93,7 +93,26 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish GitHub Release with the three binaries
+      # Integridad verificable del release: sin esto, el usuario descarga un
+      # binario opaco y no puede comprobar que llegó íntegro. `SHA256SUMS` se
+      # verifica con `sha256sum -c`; el SBOM (CycloneDX) permite inspeccionar el
+      # contenido del binario empaquetado por PyInstaller.
+      - name: Generate checksums and SBOM
+        run: |
+          cd dist
+          sha256sum tukul-* > SHA256SUMS
+          cat SHA256SUMS
+          cd ..
+          pip install --quiet "cyclonedx-bom>=4.0"
+          # El SBOM es best-effort: si la herramienta falla, el release sigue
+          # siendo válido con los checksums, que son el contrato verificable.
+          cyclonedx-py environment -o dist/sbom.cdx.json --output-format json || true
+          if [ ! -s dist/sbom.cdx.json ]; then
+            echo "::warning::No se pudo generar el SBOM; se publica solo SHA256SUMS."
+            rm -f dist/sbom.cdx.json
+          fi
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*

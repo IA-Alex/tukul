@@ -50,7 +50,7 @@ class ChatMessage:
     role: str
     content: str
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Valida tipos y valores permitidos en runtime."""
         # Validar que role y content sean strings
         if not isinstance(self.role, str):

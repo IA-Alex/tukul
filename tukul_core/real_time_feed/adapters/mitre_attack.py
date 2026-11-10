@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from tukul_core.http_safety import NO_REDIRECT_OPENER
 from tukul_core.models import FeedEntry
@@ -141,7 +142,7 @@ class MitreAttackAdapter(SourceAdapter):
             ))
         return entries
 
-    def _read_bounded(self, response) -> bytes:
+    def _read_bounded(self, response: Any) -> bytes:
         chunks: list[bytes] = []
         total = 0
         while True:

@@ -113,18 +113,103 @@ class TestRespuestaConToolCalls(unittest.TestCase):
 
 
 class TestConfirmacionUnicaDelDialogoDeIdeas(unittest.TestCase):
-    """El diálogo de ideas pedía la misma confirmación dos veces."""
+    """El diálogo de ideas pedía la misma confirmación dos veces.
 
-    def test_solo_hay_una_confirmacion_y_un_aviso_en_la_fuente(self):
+    Antes se verificaba inspeccionando el texto fuente de `app.py`; al mover el
+    pipeline a `tukul_ui.ideas` esa comprobación se vuelve de comportamiento:
+    se ejercita `fetch_suggestion` con un host mínimo y se cuenta cuántas veces
+    se pide confirmación. Es más fuerte (mide la ejecución, no el texto) y no se
+    rompe por mover o reformatear el código.
+    """
+
+    class _HostDoble:
+        """Host mínimo: solo lo que `IdeasController` declara en su Protocol."""
+
+        def __init__(self, *, habilitado: bool, key: str) -> None:
+            from tukul_ui.estado import EstadoUI
+
+            class _Status:
+                def __init__(self) -> None:
+                    self.mensajes: list[str] = []
+
+                def set(self, texto: str, _detalle: str = "") -> None:
+                    self.mensajes.append(texto)
+
+            self._habilitado = habilitado
+            self._key = key
+            self.closing = False
+            self.status = _Status()
+            self._estado = EstadoUI  # referencia para tipado, no se usa
+
+        @property
+        def profile(self):
+            from tukul_core.llm import LlmProfile
+
+            # `enabled` se deriva de provider/endpoint/model.
+            provider = "openai_compatible" if self._habilitado else "disabled"
+            return LlmProfile(provider=provider, endpoint="http://127.0.0.1:1/v1", model="m")
+
+        @property
+        def key(self) -> str:
+            return self._key
+
+        def after(self, _ms, _func=None):
+            return "after-id"
+
+        def winfo_screenwidth(self) -> int:
+            return 1920
+
+        def winfo_screenheight(self) -> int:
+            return 1080
+
+        def append(self, *_a, **_k) -> None:
+            pass
+
+        def _upsert_context_article(self, _article) -> bool:
+            return True
+
+        def _authorize_context_articles(self) -> None:
+            pass
+
+        def _registrar_reaplicar_tema(self, _ancla, _reaplicar) -> None:
+            pass
+
+    def _controller(self, *, habilitado: bool = True, key: str = "k"):
         from pathlib import Path
 
-        fuente = (Path(__file__).parent.parent / "tukul_ui" / "app.py").read_text(
-            encoding="utf-8")
-        inicio = fuente.index("def _fetch_impact_suggestion(")
-        fin = fuente.index("def _ejecutar_pipeline_ideas(")
-        cuerpo = fuente[inicio:fin]
-        self.assertEqual(cuerpo.count("messagebox.askyesno("), 1)
-        self.assertEqual(cuerpo.count("messagebox.showinfo("), 1)
+        from tukul_ui.ideas import IdeasController
+
+        host = self._HostDoble(habilitado=habilitado, key=key)
+        return IdeasController(host, Path("/tmp"), 24), host
+
+    def test_sin_llm_avisa_una_vez_y_no_arranca_worker(self):
+        """Sin perfil habilitado ni key: un solo aviso, sin consultar fuentes."""
+        ctrl, _host = self._controller(habilitado=False, key="")
+        with patch("tukul_ui.ideas.messagebox.showinfo") as aviso, \
+             patch("tukul_ui.ideas.messagebox.askyesno") as confirmar, \
+             patch("tukul_ui.ideas.WorkerThreads.start") as arrancar:
+            ctrl.fetch_suggestion(dialog=None, on_done=lambda: None)
+        self.assertEqual(aviso.call_count, 1)
+        self.assertEqual(confirmar.call_count, 0)
+        arrancar.assert_not_called()
+
+    def test_una_sola_confirmacion_antes_de_generar(self):
+        """Con credenciales: exactamente una confirmación, y arranca el worker."""
+        ctrl, _host = self._controller(habilitado=True, key="k")
+        with patch("tukul_ui.ideas.messagebox.showinfo") as aviso, \
+             patch("tukul_ui.ideas.messagebox.askyesno", return_value=False) as confirmar, \
+             patch("tukul_ui.ideas.WorkerThreads.start") as arrancar:
+            ctrl.fetch_suggestion(dialog=None, on_done=lambda: None)
+        self.assertEqual(confirmar.call_count, 1, "Debe confirmar una sola vez.")
+        self.assertEqual(aviso.call_count, 0)
+        arrancar.assert_not_called()  # el usuario canceló la confirmación
+
+    def test_confirmar_arranca_el_pipeline_una_vez(self):
+        ctrl, _host = self._controller(habilitado=True, key="k")
+        with patch("tukul_ui.ideas.messagebox.askyesno", return_value=True), \
+             patch("tukul_ui.ideas.WorkerThreads.start") as arrancar:
+            ctrl.fetch_suggestion(dialog=None, on_done=lambda: None)
+        arrancar.assert_called_once()
 
 
 if __name__ == "__main__":

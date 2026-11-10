@@ -5,9 +5,8 @@ Cubre:
   ConsumerSuggestion)
 - FeedCache (TTL, persistencia, desalojo)
 - FeedNormalizer (deduplicación, filtrado, enriquecimiento)
-- FoggEngine (análisis con datos insuficientes, casos borde)
-- ConflictDetector (sin contradicciones, con contradicciones)
-- PostValidator (psicofancia, validaciones vacías, casos válidos)
+- CorrelationEngine e IdeaGenerator (correlación determinista y reglas)
+- Adaptadores: contrato de red
 """
 
 from __future__ import annotations
@@ -20,12 +19,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tukul_core.impact_analyzer import (
-    ConflictDetector,
-    FoggEngine,
-    PostValidator,
-    SuggestionGenerator,
-)
 from tukul_core.models import (
     ConsumerSuggestion,
     FeedEntry,
@@ -40,6 +33,16 @@ from tukul_core.real_time_feed.adapters.arxiv import (
     MAX_ATTEMPTS,
     NO_REDIRECT_OPENER,
     ArxivAdapter,
+)
+from tukul_core.real_time_feed.adapters.epss import (
+    EPSS_ENDPOINT,
+    EpssAdapter,
+)
+from tukul_core.real_time_feed.adapters.epss import (
+    MAX_ATTEMPTS as MAX_ATTEMPTS_EPSS,
+)
+from tukul_core.real_time_feed.adapters.epss import (
+    NO_REDIRECT_OPENER as NO_REDIRECT_OPENER_EPSS,
 )
 
 # ─── Tests de dataclasses ──────────────────────────────────────────────────
@@ -277,209 +280,6 @@ class TestFeedNormalizer:
         filtered = n.filter_by_topics(entries, {"ciberseguridad"})
         assert len(filtered) == 1
         assert filtered[0].source == "nvd"
-# ─── Tests de FoggEngine ───────────────────────────────────────────────────
-
-class TestFoggEngine:
-    def test_empty_entries(self):
-        engine = FoggEngine()
-        result = engine.analyze([])
-        assert result.motivation == {}
-        assert result.ability == {}
-        assert result.triggers == ()
-
-    def test_high_severity(self):
-        engine = FoggEngine()
-        now = datetime.now(UTC)
-        entries = [FeedEntry(source_id="nvd:CVE-1", source="nvd",
-                             title="CVE-1", description="d", url="u",
-                             published=now, severity=9.8)]
-        result = engine.analyze(entries)
-        assert result.motivation.get("urgencia", 0) == pytest.approx(0.98, rel=0.01)
-
-    def test_kev_tag_triggers_exploitacion_activa(self):
-        engine = FoggEngine()
-        now = datetime.now(UTC)
-        entries = [FeedEntry(source_id="kev:CVE-1", source="kev",
-                             title="KEV CVE-1", description="d", url="u",
-                             published=now,
-                             tags=frozenset({"kev", "cve", "explotacion_activa"}))]
-        result = engine.analyze(entries)
-        assert result.motivation.get("explotacion_activa", 0) == 0.9
-        assert "Explotación activa confirmada por CISA" in result.triggers
-
-    def test_patch_available_in_ability(self):
-        engine = FoggEngine()
-        now = datetime.now(UTC)
-        entries = [FeedEntry(source_id="nvd:CVE-1", source="nvd",
-                             title="CVE-1", description="d", url="u",
-                             published=now, severity=5.0,
-                             raw_references=("https://example.com/patch",))]
-        result = engine.analyze(entries)
-        assert result.ability.get("parche_disponible", 0) == 0.8
-
-
-# ─── Tests de ConflictDetector ─────────────────────────────────────────────
-
-class TestConflictDetector:
-    def test_no_conflicts(self):
-        detector = ConflictDetector()
-        now = datetime.now(UTC)
-        entries = [FeedEntry(source_id="nvd:CVE-1", source="nvd",
-                             title="CVE-1", description="d", url="u",
-                             published=now, severity=5.0)]
-        assert detector.detect(entries) == []
-
-    def test_severity_conflict(self):
-        detector = ConflictDetector()
-        now = datetime.now(UTC)
-        entries = [
-            FeedEntry(source_id="nvd:CVE-1", source="nvd", title="CVE-1",
-                      description="d", url="u", published=now, severity=2.0),
-            FeedEntry(source_id="epss:CVE-1", source="epss", title="EPSS CVE-1",
-                      description="d", url="u", published=now, severity=9.5),
-        ]
-        conflicts = detector.detect(entries)
-        assert len(conflicts) == 1
-        assert "nvd" in conflicts[0].sources
-        assert "epss" in conflicts[0].sources
-        assert conflicts[0].field == "severity"
-
-    def test_kev_without_nvd(self):
-        detector = ConflictDetector()
-        now = datetime.now(UTC)
-        entries = [
-            FeedEntry(source_id="kev:CVE-1", source="kev", title="KEV CVE-1",
-                      description="d", url="u", published=now),
-            FeedEntry(source_id="epss:CVE-1", source="epss", title="EPSS CVE-1",
-                      description="d", url="u", published=now),
-        ]
-        conflicts = detector.detect(entries)
-        assert len(conflicts) == 1
-        assert conflicts[0].severity == "warning"
-
-    def test_no_conflict_when_similar_scores(self):
-        detector = ConflictDetector()
-        now = datetime.now(UTC)
-        entries = [
-            FeedEntry(source_id="nvd:CVE-1", source="nvd", title="CVE-1",
-                      description="d", url="u", published=now, severity=7.0),
-            FeedEntry(source_id="epss:CVE-1", source="epss", title="EPSS CVE-1",
-                      description="d", url="u", published=now, severity=6.0),
-        ]
-        assert len(detector.detect(entries)) == 0
-# ─── Tests de PostValidator ────────────────────────────────────────────────
-
-class TestPostValidator:
-    def test_valid_suggestion(self):
-        validator = PostValidator()
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        cs = ConsumerSuggestion(
-            id="s:1", source_entries=("nvd:CVE-1",),
-            title="Vulnerabilidad crítica en sistema X",
-            rationale="Parche disponible, explotación activa.",
-            fogg=fogg,
-            suggested_article_focus="Actualización inmediata",
-            target_audience="tecnicos",
-            impact_level="alto",
-            uncertainty="Alta certidumbre",
-        )
-        assert validator.is_valid(cs)
-
-    def test_psycho_fantasy_detected(self):
-        validator = PostValidator()
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        cs = ConsumerSuggestion(
-            id="s:1", source_entries=("nvd:CVE-1",),
-            title="Los hackers están en tu casa",
-            rationale="R", fogg=fogg,
-            suggested_article_focus="F",
-            target_audience="publico general",
-            impact_level="alto", uncertainty="U",
-        )
-        issues = validator.validate(cs)
-        assert any("Psicofancia" in i for i in issues)
-
-    def test_empty_validation_detected(self):
-        validator = PostValidator()
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        cs = ConsumerSuggestion(
-            id="s:1", source_entries=("nvd:CVE-1",),
-            title="Buena idea revisar esto",
-            rationale="Es correcto actualizar",
-            fogg=fogg,
-            suggested_article_focus="F",
-            target_audience="publico general",
-            impact_level="bajo", uncertainty="U",
-        )
-        issues = validator.validate(cs)
-        assert any("Validación vacía" in i for i in issues)
-
-    def test_invalid_impact_level(self):
-        validator = PostValidator()
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        cs = ConsumerSuggestion(
-            id="s:1", source_entries=("nvd:CVE-1",),
-            title="T", rationale="R", fogg=fogg,
-            suggested_article_focus="F",
-            target_audience="publico general",
-            impact_level="extremadamente_alto",
-            uncertainty="U",
-        )
-        issues = validator.validate(cs)
-        assert any("Nivel de impacto inválido" in i for i in issues)
-
-    def test_no_source_entries(self):
-        validator = PostValidator()
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        cs = ConsumerSuggestion(
-            id="s:1", source_entries=(), title="T",
-            rationale="R", fogg=fogg,
-            suggested_article_focus="F",
-            target_audience="tecnicos",
-            impact_level="bajo", uncertainty="U",
-        )
-        issues = validator.validate(cs)
-        assert any("no tiene entradas de fuentes" in i for i in issues)
-
-
-# ─── Tests de SuggestionGenerator ──────────────────────────────────────────
-
-class TestSuggestionGenerator:
-    def test_generate_llm_failure(self):
-        mock_llm = MagicMock(side_effect=RuntimeError("LLM falló"))
-        gen = SuggestionGenerator(mock_llm)
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        assert gen.generate([], fogg, []) is None
-
-    def test_generate_parse_invalid_json(self):
-        mock_llm = MagicMock(return_value="esto no es json")
-        gen = SuggestionGenerator(mock_llm)
-        fogg = FoggAnalysis(motivation={}, ability={}, triggers=())
-        assert gen.generate([], fogg, []) is None
-
-    def test_generate_success(self):
-        valid_json = json.dumps({
-            "title": "Vuln crítica",
-            "rationale": "Parche disponible",
-            "suggested_article_focus": "Actualización urgente",
-            "target_audience": "tecnicos",
-            "impact_level": "alto",
-            "uncertainty": "Alta",
-        })
-        mock_llm = MagicMock(return_value=valid_json)
-        gen = SuggestionGenerator(mock_llm)
-        now = datetime.now(UTC)
-        entries = [FeedEntry(source_id="nvd:CVE-1", source="nvd",
-                             title="CVE-1", description="d", url="u",
-                             published=now, severity=9.0)]
-        fogg = FoggAnalysis(motivation={"urgencia": 0.9},
-                            ability={"parche_disponible": 0.8},
-                            triggers=("alerta",))
-        result = gen.generate(entries, fogg, [])
-        assert result is not None
-        assert result.title == "Vuln crítica"
-        assert result.target_audience == "tecnicos"
-        assert result.impact_level == "alto"
 
 
 # ─── Tests de adaptadores: contrato de red ─────────────────────────────────
@@ -553,6 +353,75 @@ class TestArxivAdapterFetch:
         assert abrir.call_count == MAX_ATTEMPTS, (
             "Los HTTPError se reintentan hasta agotar MAX_ATTEMPTS antes de fallar."
         )
+
+    def test_metadatos_de_fuente(self):
+        """`source_id`/`label` identifican la fuente ante el orquestador."""
+        assert ArxivAdapter.source_id() == "arxiv"
+        assert "arXiv" in ArxivAdapter.label()
+
+    def test_un_error_de_red_se_reintenta_y_luego_se_propaga(self):
+        """URLError (DNS caído, conexión rechazada) agota intentos y falla claro."""
+        import urllib.error
+
+        error = urllib.error.URLError("name resolution failed")
+        with patch.object(NO_REDIRECT_OPENER, "open", side_effect=error) as abrir:
+            with patch.object(ArxivAdapter, "_sleep", return_value=None):
+                with pytest.raises(Exception, match="No se pudo conectar con arXiv"):
+                    ArxivAdapter()._fetch_category("cs.CR", 24)
+        assert abrir.call_count == MAX_ATTEMPTS
+
+    def test_timeout_agota_intentos_con_mensaje_legible(self):
+        """TimeoutError también entra en el bucle de reintento y no cuela vacío."""
+        with patch.object(NO_REDIRECT_OPENER, "open", side_effect=TimeoutError("tardó")):
+            with patch.object(ArxivAdapter, "_sleep", return_value=None):
+                with pytest.raises(Exception, match="No se pudo conectar con arXiv"):
+                    ArxivAdapter()._fetch_category("cs.CR", 24)
+
+    def test_atom_malformado_devuelve_vacio_sin_lanzar(self):
+        """Un cuerpo que no es XML válido no rompe el pipeline: degrada a []."""
+        assert ArxivAdapter()._parse_atom(b"<feed><entry", "cs.CR") == []
+
+    def test_entry_sin_titulo_o_id_se_descarta(self):
+        """Entradas sin título o sin id no producen FeedEntry parcial."""
+        atom = (
+            b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+            b"<entry><title>Sin id</title></entry>"
+            b"<entry><id>http://arxiv.org/abs/2</id></entry>"
+            b"</feed>"
+        )
+        assert ArxivAdapter()._parse_atom(atom, "cs.CR") == []
+
+    def test_respuesta_sobredimensionada_se_rechaza(self):
+        """El techo de bytes corta una respuesta que intenta agotar memoria."""
+        from tukul_core.real_time_feed.adapters.arxiv import MAX_RESPONSE_BYTES
+
+        respuesta = MagicMock()
+        respuesta.read.side_effect = [b"x" * (MAX_RESPONSE_BYTES + 1)]
+        with pytest.raises(RuntimeError, match="supera límite"):
+            ArxivAdapter()._read_bounded(respuesta)
+
+    def test_normalize_convierte_y_tolera_fecha_invalida(self):
+        """`normalize` produce FeedEntry y cae a `now` si la fecha es inválida."""
+        crudo = [{
+            "id": "http://arxiv.org/abs/1", "title": "Paper", "summary": "s",
+            "published": "no-es-una-fecha", "category": "cs.AI",
+        }]
+        entradas = ArxivAdapter().normalize(crudo)
+        assert len(entradas) == 1
+        assert entradas[0].source == "arxiv"
+        assert "inteligencia_artificial" in entradas[0].topics
+
+    def test_sleep_aplica_backoff_con_jitter_acotado(self):
+        """El backoff nunca supera `BACKOFF_MAX * 1.25`, aun con jitter máximo."""
+        from tukul_core.real_time_feed.adapters.arxiv import BACKOFF_MAX
+
+        capturado: list[float] = []
+        with patch("tukul_core.real_time_feed.adapters.arxiv.time.sleep",
+                   side_effect=lambda s: capturado.append(s)), \
+             patch("tukul_core.real_time_feed.adapters.arxiv.random.random",
+                   return_value=1.0):
+            ArxivAdapter()._sleep(1)
+        assert capturado and capturado[0] <= BACKOFF_MAX * 1.25
 
 
 # ─── Tests de FeedOrchestrator ─────────────────────────────────────────────
@@ -702,3 +571,96 @@ class TestFeedOrchestrator:
         o.fetch_all(sources=["x"])
         o.invalidate_cache("x")
         o.invalidate_cache()  # total
+
+
+# ─── Tests de EpssAdapter: contrato de red y normalización ─────────────────
+# EPSS enriquece NVD con la probabilidad de explotación. Sus rutas de error
+# (429 con Retry-After, límite de bytes, score no numérico) son las que más
+# importan: un score mal parseado se colaría como 0.0 silencioso.
+
+class TestEpssAdapter:
+    def test_metadatos_de_fuente(self):
+        assert EpssAdapter.source_id() == "epss"
+        assert "EPSS" in EpssAdapter.label()
+
+    def test_429_se_reintenta_hasta_agotar(self):
+        """429 es reintentable: agota MAX_ATTEMPTS y luego propaga error."""
+        import urllib.error
+        from email.message import Message
+
+        error = urllib.error.HTTPError(
+            EPSS_ENDPOINT, 429, "Too Many Requests", Message(), None
+        )
+        with patch.object(NO_REDIRECT_OPENER_EPSS, "open", side_effect=error) as abrir:
+            with patch.object(EpssAdapter, "_sleep", return_value=None):
+                with pytest.raises(RuntimeError, match="429"):
+                    EpssAdapter().fetch(24)
+        assert abrir.call_count == MAX_ATTEMPTS_EPSS
+
+    def test_error_no_reintentable_falla_de_inmediato(self):
+        """Un 404 no se reintenta: es un error de contrato, no de carga."""
+        import urllib.error
+        from email.message import Message
+
+        error = urllib.error.HTTPError(
+            EPSS_ENDPOINT, 404, "Not Found", Message(), None
+        )
+        with patch.object(NO_REDIRECT_OPENER_EPSS, "open", side_effect=error) as abrir:
+            with pytest.raises(RuntimeError, match="404"):
+                EpssAdapter().fetch(24)
+        assert abrir.call_count == 1, "404 no es reintentable."
+
+    def test_url_con_cve_ids_filtra_por_cve(self):
+        """Con `cve_ids` la URL lleva los parámetros cve y no la fecha."""
+        respuesta = MagicMock()
+        respuesta.read.side_effect = [b'{"data": []}', b""]
+        urls: list[str] = []
+
+        def _open(request, timeout=None):
+            urls.append(request.full_url)
+            return respuesta
+
+        with patch.object(NO_REDIRECT_OPENER_EPSS, "open", side_effect=_open):
+            EpssAdapter().fetch(24, cve_ids=["CVE-2026-0001"])
+
+        assert "cve=CVE-2026-0001" in urls[0]
+        assert "date=" not in urls[0]
+
+    def test_respuesta_sobredimensionada_se_rechaza(self):
+        from tukul_core.real_time_feed.adapters.epss import MAX_RESPONSE_BYTES
+
+        respuesta = MagicMock()
+        respuesta.read.side_effect = [b"x" * (MAX_RESPONSE_BYTES + 1)]
+        with pytest.raises(RuntimeError, match="supera el límite"):
+            EpssAdapter()._read_bounded(respuesta)
+
+    def test_normalize_omite_cve_vacio_y_tolera_score_invalido(self):
+        """Sin CVE se descarta; un score no numérico cae a 0.0 sin romper."""
+        entradas = EpssAdapter().normalize([
+            {"epss": "0.5"},                       # sin cve → descartado
+            {"cve": "CVE-2026-0002", "epss": "no-es-numero"},  # score inválido
+            {"cve": "CVE-2026-0003", "epss": "0.95"},          # alta probabilidad
+        ])
+        assert [e.source_id for e in entradas] == [
+            "epss:CVE-2026-0002", "epss:CVE-2026-0003",
+        ]
+        assert entradas[0].severity == 0.0
+        assert "alta_probabilidad_explotacion" in entradas[1].tags
+
+    def test_sleep_respeta_retry_after_y_lo_acota(self):
+        """`Retry-After` se respeta pero nunca por encima de BACKOFF_MAX."""
+        import urllib.error
+        from email.message import Message
+
+        from tukul_core.real_time_feed.adapters.epss import BACKOFF_MAX
+
+        error = urllib.error.HTTPError(
+            EPSS_ENDPOINT, 429, "slow", {"Retry-After": "999"}, None
+        )
+        capturado: list[float] = []
+        with patch("tukul_core.real_time_feed.adapters.epss.time.sleep",
+                   side_effect=lambda s: capturado.append(s)), \
+             patch("tukul_core.real_time_feed.adapters.epss.random.random",
+                   return_value=1.0):
+            EpssAdapter()._sleep(error, 1)
+        assert capturado and capturado[0] <= BACKOFF_MAX * 1.25

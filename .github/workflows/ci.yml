@@ -21,6 +21,16 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
+      # Primer paso deliberado: si el job nunca obtiene runner, GitHub lo deja
+      # con `steps: []` y falla en ~2 s sin ningún log. Ese patrón (repo privado,
+      # `runner_name` vacío) es un bloqueo de minutos de Actions de la cuenta, no
+      # un fallo de código; este paso lo hace visible en cuanto haya runner.
+      - name: Runner asignado (traza de ejecución)
+        run: |
+          echo "runner.os=${{ runner.os }} runner.arch=${{ runner.arch }}"
+          echo "python solicitado=${{ matrix.python-version }}"
+          uname -a
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Python ${{ matrix.python-version }}

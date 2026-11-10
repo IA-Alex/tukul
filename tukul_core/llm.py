@@ -6,8 +6,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import IO
+from typing import IO, Any
 
 from .http_safety import NO_REDIRECT_OPENER
 from .logging_config import setup_logging
@@ -203,7 +204,7 @@ class LLMClient:
                 pass
         return min(BACKOFF_BASE_SECONDS * (2.0 ** (attempt - 1)), BACKOFF_MAX_SECONDS)
 
-    def _open_with_retry(self, request, cancel_event: threading.Event | None = None):
+    def _open_with_retry(self, request: urllib.request.Request, cancel_event: threading.Event | None = None) -> Any:
         """Abre la conexión HTTP reintentando solo errores transitorios.
 
         Devuelve la respuesta abierta, o None si se canceló durante una espera.
@@ -264,7 +265,7 @@ class LLMClient:
         return urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
 
     @staticmethod
-    def _declared_too_large(response, max_bytes: int) -> bool:
+    def _declared_too_large(response: Any, max_bytes: int) -> bool:
         """True si `Content-Length` ya anuncia un cuerpo por encima del techo."""
         headers = getattr(response, "headers", None)
         declared = headers.get("Content-Length") if headers is not None else None
@@ -276,7 +277,7 @@ class LLMClient:
             return False  # Malformado: el techo se aplica al leer.
 
     @staticmethod
-    def _read_capped(read, max_bytes: int) -> bytes:
+    def _read_capped(read: Any, max_bytes: int) -> bytes:
         """Lee por tramos, drenando (sin acumular) lo que excede el techo.
 
         Al superar el techo no se corta la lectura: se drena el resto y después
@@ -301,7 +302,7 @@ class LLMClient:
         return b"".join(chunks)
 
     @staticmethod
-    def _read_bounded(response, max_output_tokens: int) -> bytes:
+    def _read_bounded(response: Any, max_output_tokens: int) -> bytes:
         """Lee una respuesta completa (no streaming) con techo de memoria.
 
         Content-Length se prevalida contra el máximo derivado de
@@ -328,7 +329,7 @@ class LLMClient:
         return LLMClient._read_capped(read, max_bytes)
 
     @staticmethod
-    def _iter_lines(response):
+    def _iter_lines(response: Any) -> Iterator[bytes]:
         """Itera líneas SSE con techo de memoria por línea.
 
         Cae a la iteración simple cuando el objeto de respuesta no expone
@@ -378,7 +379,7 @@ class LLMClient:
         input_tokens, output_tokens = self._usage(event)
         return StreamChunk(content, input_tokens, output_tokens, llamadas)
 
-    def _consume_sse(self, profile: LlmProfile, response, cancel_event: threading.Event | None):
+    def _consume_sse(self, profile: LlmProfile, response: Any, cancel_event: threading.Event | None) -> Iterator[StreamChunk]:
         """Traduce el cuerpo SSE en StreamChunk, saltando líneas ilegibles."""
         for raw in self._iter_lines(response):
             if cancel_event is not None and cancel_event.is_set():
@@ -401,7 +402,7 @@ class LLMClient:
             if chunk.content or chunk.input_tokens is not None or chunk.output_tokens is not None:
                 yield chunk
 
-    def stream(self, profile: LlmProfile, api_key: str, prompt: str, request_id: int | None = None, cancel_event: threading.Event | None = None):
+    def stream(self, profile: LlmProfile, api_key: str, prompt: str, request_id: int | None = None, cancel_event: threading.Event | None = None) -> Iterator[StreamChunk]:
         """Abre la respuesta del proveedor en streaming y emite sus eventos SSE.
 
         La cancelación es cooperativa (`cancel_event`) y los reintentos solo

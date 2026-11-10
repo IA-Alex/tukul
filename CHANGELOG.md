@@ -4,7 +4,11 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-10
+
+Esta versión cierra la auditoría arquitectónica del 2026-11-10: retira código
+muerto, documenta el subsistema de fuentes en tiempo real y sube la cobertura
+de los adaptadores de red.
 
 ### Cambiado
 
@@ -37,6 +41,22 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   resolver la key dentro del hilo, publicar `complete`/`error`, cancelar) en un
   solo sitio. `TukulApp` lo usa para el envío normal y la revisión en lugar de
   repetir el bloque; cobertura del módulo 100 %.
+- `tukul_ui/tema.py`: el sistema ttk completo (estilos, mapas de estado y
+  opciones derivadas del tema) en una función `aplicar_estilos`. `TukulApp._theme`
+  pasa de ~145 líneas a una delegación. Cobertura 97 %.
+- `tukul_ui/ventana.py`: el saneado puro del estado de ventana (geometría, zoom
+  y recientes). `TukulApp` delega en él conservando su API; cobertura 100 %.
+- `tukul_ui/ideas.py`: el pipeline completo de ideas (consulta de fuentes,
+  correlación, generación, diálogo de selección y su reaplicación de tema),
+  extraído de `TukulApp` a un controlador que recibe la ventana por inyección
+  (`IdeasHost`). `TukulApp` conserva una fachada con la API histórica.
+- `tukul_ui/contexto.py`: `ContextArticle` en un módulo neutral, para que los
+  controladores lo importen sin ciclos con `app.py` (que lo re-exporta).
+- `tukul_ui/contexto_dialogo.py`: el diálogo «Contexto de artículos» y la
+  fuente de amenazas (consulta NVD/EPSS/KEV en hilo daemon, upsert y
+  autorización del contexto, reaplicación de tema), extraídos de `TukulApp` a
+  un controlador con la ventana inyectada (`ContextHost`). `TukulApp` conserva
+  la fachada y sigue siendo el dueño de `context_articles`.
 - `scripts/paleta_preview.py` genera la hoja de muestras de los dos temas
   (`docs/screenshots/paleta-tukul.png`), que el README enlaza. Un test falla si
   la paleta cambia sin regenerarla.
@@ -47,6 +67,16 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   en el cierre y se vacía en el hijo de un `fork()`.
 - Paridad verificada entre `scripts/quality-gate.sh` y CI
   (`tests/test_quality_gate_parity.py`).
+
+### Eliminado
+
+- Las clases históricas del pipeline Fogg (`FoggEngine`, `ConflictDetector`,
+  `SuggestionGenerator`, `PostValidator`): la interfaz nunca las consumió y solo
+  las sostenía su propio test. `impact_analyzer.py` queda con `CorrelationEngine`
+  e `IdeaGenerator`, que son los que usa el diálogo de contexto. Los modelos
+  (`FoggAnalysis`, `SourceConflict`, `ConsumerSuggestion`) siguen en `models.py`.
+- `tukul_ui/ui_state_manager.py`: módulo huérfano sin importadores; el estado de
+  interfaz ya vive en `storage.load/save_ui_state` y `tukul_ui/ui_state.py`.
 
 ### Corregido
 
@@ -75,9 +105,6 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   aviso en el log, en vez de llegar como texto vacío sin explicación.
 - El worker de ideas ya no escribe en el log: formatear una excepción desde ese
   hilo durante la recolección de basura podía abortar el proceso entero.
-
-### Corregido
-
 - Reabrir el documento activo (por ejemplo desde «Recientes») durante una
   consulta borraba la respuesta: la conversación guardada se sustituía por la
   de una sesión recién creada, así que el texto se veía en pantalla pero no
@@ -164,6 +191,25 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   con un tope de espera. Antes podía congelar la interfaz al enviar o al abrir
   «Configurar modelo».
 - Se retira `copy_response()`, que no tenía ninguna llamada.
+- `docs/ARCHITECTURE.md` documenta el subsistema de fuentes en tiempo real
+  (`real_time_feed` + `impact_analyzer`): sus componentes, la degradación
+  granular por fuente, el transporte sin redirects y el diagrama del pipeline.
+  Antes la doc normativa describía un sistema más pequeño que el real.
+- `docs/TRACEABILITY.md` gana la fila de «sugerencias de impacto», la capacidad
+  con superficie de red propia que estaba sin trazar.
+- Cobertura de los adaptadores de red: `arxiv` pasa de 68 % a 99 % y `epss` de
+  72 % a 86 %, con tests de las rutas de error (URLError/TimeoutError con
+  reintento, `Retry-After` acotado, techo de bytes y parseo tolerante de fecha
+  y score).
+- `WorkerThreads.vivos()` poda los hilos ya terminados del registro. Antes el
+  set conservaba una referencia por cada worker que la sesión hubiera arrancado
+  (memoria que solo crecía en uso prolongado) y, en la suite, un doble inyectado
+  por una prueba quedaba «vivo» para las siguientes: una comprobación legítima
+  de «no hay hilos al cerrar» fallaba según el orden de ejecución. Se añade
+  `WorkerThreads.reset()` y una fixture autouse que aísla el registro entre
+  pruebas. Regresión cubierta en `tests/test_worker_threads.py`.
+
+### Añadido
 
 ### Añadido
 

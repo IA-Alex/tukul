@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tukul_core import storage
 from tukul_ui import app as modulo_app
+from tukul_ui import contexto_dialogo as modulo_contexto
+from tukul_ui import ideas as modulo_ideas
 from tukul_ui.app import TukulApp
 from tukul_ui.estado import EstadoUI
 
@@ -679,9 +681,10 @@ class TestDialogoDeContexto(_BaseApp):
         lista = self._descendientes(dialogo, tk.Listbox)[0]
         boton_anadir = next(b for b in self._descendientes(dialogo, ttk.Button)
                             if b.cget("text") == "Añadir artículos…")
-        with patch.object(modulo_app.filedialog, "askopenfilenames",
+        with patch.object(modulo_contexto.filedialog, "askopenfilenames",
                           return_value=(str(extra),)) , \
-                patch.object(self.app, "_ask_to_authorize_articles", return_value=True):
+                patch.object(type(self.app._contexto), "ask_to_authorize_articles",
+                             return_value=True):
             boton_anadir.invoke()
             self._asentar()
         self.assertEqual(lista.size(), 1)
@@ -696,9 +699,10 @@ class TestDialogoDeContexto(_BaseApp):
         lista = self._descendientes(dialogo, tk.Listbox)[0]
         boton_anadir = next(b for b in self._descendientes(dialogo, ttk.Button)
                             if b.cget("text") == "Añadir artículos…")
-        with patch.object(modulo_app.filedialog, "askopenfilenames",
+        with patch.object(modulo_contexto.filedialog, "askopenfilenames",
                           return_value=(str(extra),)), \
-                patch.object(self.app, "_ask_to_authorize_articles", return_value=False):
+                patch.object(type(self.app._contexto), "ask_to_authorize_articles",
+                             return_value=False):
             boton_anadir.invoke()
             self._asentar()
         self.assertEqual(lista.size(), 0)
@@ -751,7 +755,10 @@ class TestPipelineDeIdeas(_BaseApp):
         return padre
 
     def _pipeline(self, padre: tk.Toplevel):
-        with patch.object(modulo_app, "FeedOrchestrator", _OrquestadorConDatos), \
+        # Los colaboradores del pipeline viven ahora en `tukul_ui.ideas`; se
+        # parchean ahí, no en `app`. `_llm_de_ideas` sigue siendo fachada de la
+        # app y la usa el controlador a través de ella.
+        with patch.object(modulo_ideas, "FeedOrchestrator", _OrquestadorConDatos), \
                 patch.object(modulo_app, "FEED_CACHE_DIR", self.raiz), \
                 patch.object(self.app, "_llm_de_ideas", return_value=None):
             publicado = self.app._ejecutar_pipeline_ideas(
@@ -775,8 +782,8 @@ class TestPipelineDeIdeas(_BaseApp):
 
     def test_sin_correlaciones_avisa_y_no_abre_dialogo(self):
         padre = self._dialogo_padre()
-        with patch.object(modulo_app, "CorrelationEngine") as motor, \
-                patch.object(self.app, "_publicar_error_ideas") as publicar:
+        with patch.object(modulo_ideas, "CorrelationEngine") as motor, \
+                patch.object(type(self.app._ideas), "_publicar_error") as publicar:
             motor.return_value.correlate.return_value = []
             publicado = self._pipeline(padre)
         self.assertFalse(publicado)
@@ -786,7 +793,7 @@ class TestPipelineDeIdeas(_BaseApp):
 
     def test_una_correlacion_abre_el_dialogo_de_seleccion(self):
         padre = self._dialogo_padre()
-        with patch.object(self.app, "_show_idea_selection_dialog") as dialogo:
+        with patch.object(type(self.app._ideas), "show_selection_dialog") as dialogo:
             publicado = self._pipeline(padre)
         self.assertTrue(publicado)
         dialogo.assert_called_once()
@@ -824,7 +831,7 @@ class TestPipelineDeIdeas(_BaseApp):
         modal = self._abrir_dialogo_de_ideas(padre)
         boton = next(b for b in self._todos(modal, ttk.Button)
                      if b.cget("text") == "Desarrollar esta idea")
-        with patch.object(modulo_app.messagebox, "showinfo") as aviso:
+        with patch.object(modulo_ideas.messagebox, "showinfo") as aviso:
             boton.invoke()
         aviso.assert_called_once()
         self.assertTrue(modal.winfo_exists())
@@ -869,22 +876,23 @@ class TestAccionesDeContexto(_BaseApp):
     """Autorizar sin artículos no pregunta; un fallo de la fuente no muere en silencio."""
 
     def test_autorizar_sin_etiquetas_no_pregunta(self):
-        with patch.object(modulo_app.messagebox, "askyesno") as preguntar:
+        with patch.object(modulo_contexto.messagebox, "askyesno") as preguntar:
             self.assertFalse(self.app._ask_to_authorize_articles([], self.app))
         preguntar.assert_not_called()
 
     def test_un_fallo_inesperado_de_la_fuente_de_amenazas_se_reporta(self):
-        """Línea 2270: el hilo daemon no muere callado ante un error ajeno."""
+        """El hilo daemon no muere callado ante un error ajeno (no-ThreatFeedError)."""
         recibidos: list = []
-        with patch.object(modulo_app, "build_threat_context", side_effect=ValueError("json roto")), \
-                patch.object(self.app, "_on_threat_feed_error",
+        with patch.object(modulo_contexto, "build_threat_context",
+                          side_effect=ValueError("json roto")), \
+                patch.object(type(self.app._contexto), "on_threat_feed_error",
                              side_effect=lambda *a: recibidos.append(a)), \
-                patch.object(modulo_app.messagebox, "askyesno", return_value=True), \
+                patch.object(modulo_contexto.messagebox, "askyesno", return_value=True), \
                 patch.object(self.app, "after",
                              side_effect=lambda ms, f=None, *a: (f(*a) if f else None) or "id"):
             self.app._fetch_threat_feed(self.app, lambda: None)
             self._asentar(50)
-            modulo_app.WorkerThreads.esperar(5)
+            modulo_contexto.WorkerThreads.esperar(5)
         self._asentar()
         self.assertTrue(recibidos, "El fallo debe llegar al hilo de Tk")
         self.assertIn("json roto", recibidos[0][1])

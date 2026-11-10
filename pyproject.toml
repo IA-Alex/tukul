@@ -1,6 +1,6 @@
 [project]
 name = "tukul"
-version = "0.3.2"
+version = "0.4.0"
 description = "Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -127,6 +127,15 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
+
+# El core ya tiene anotaciones completas; la capa UI todavía no (60 defs sin
+# anotar en app.py/dialogs.py/components). Exigir firmas tipadas en todo el
+# proyecto hoy obligaría a un refactor masivo fuera del alcance de esta
+# reparación, así que la regla se activa por módulo y se extenderá a `tukul_ui`
+# cuando su extracción se complete.
+[[tool.mypy.overrides]]
+module = ["tukul_core.*"]
+disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

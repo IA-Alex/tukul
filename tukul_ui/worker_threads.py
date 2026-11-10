@@ -38,9 +38,17 @@ class WorkerThreads:
 
     @staticmethod
     def vivos() -> list[threading.Thread]:
-        """Trabajadores aún en ejecución (datos para el aviso de cierre)."""
+        """Trabajadores aún en ejecución (datos para el aviso de cierre).
+
+        Poda los que ya terminaron: sin esto, el registro conserva una
+        referencia por cada worker que la sesión haya arrancado (memoria que
+        crece sin techo en uso prolongado) y una prueba que pregunte «¿hay
+        hilos vivos?» vería dobles ya muertos de pruebas anteriores.
+        """
         with _lock:
-            return [hilo for hilo in _workers if hilo.is_alive()]
+            _workers.intersection_update(
+                hilo for hilo in _workers if hilo.is_alive())
+            return list(_workers)
 
     @staticmethod
     def esperar(timeout: float) -> list[threading.Thread]:
@@ -63,6 +71,18 @@ class WorkerThreads:
         global _lock
         _workers.clear()
         _lock = threading.Lock()
+
+    @staticmethod
+    def reset() -> None:
+        """Vacía el registro. Solo para pruebas: aísla el estado global.
+
+        El registro es estado de módulo; sin vaciarlo, los dobles de worker que
+        una prueba inyecta (parcheando `threading.Thread`) quedan «vivos» para
+        las siguientes y una comprobación legítima de «no hay hilos» falla por
+        contaminación de orden de ejecución.
+        """
+        with _lock:
+            _workers.clear()
 
 
 # Se registra a nivel de módulo, no en una función de arranque: un `fork()` sin

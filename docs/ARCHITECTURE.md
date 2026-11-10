@@ -26,12 +26,53 @@ Actores: usuario local, proveedor LLM configurado y sistema operativo/servicios 
 | `LLMSessionManager` | Orquesta prompt, streaming, callbacks y cancelación | perfil, key, contexto; chunks/control | request en curso | `LLMClient`, prompting | límite de respuesta, error del proveedor |
 | `LLMClient` | HTTP, adaptadores y parsing de respuestas | `LlmProfile`, prompt; `LlmResponse`/chunks | conexiones activas por request ID | `urllib`, proveedor | timeout, HTTP, JSON/SSE malformado |
 | `ChunkBuffer` | Coalesce de texto sin bloquear la cola de control | fragmentos; texto agrupado | buffer protegido por lock | threading | texto pendiente descartado al cancelar |
+| `tukul_ui.tema` | Aplica el sistema ttk (estilos, mapas de estado, opciones) por tema | raíz Tk, nombre de tema; estilos aplicados | ninguno | ttk, `estilo` | tema inválido (se usa el validado) |
+| `tukul_ui.ventana` | Saneado puro del estado de ventana (geometría, zoom, recientes) | valores persistidos; valores acotados | ninguno | `estilo` | entrada corrupta → valor por defecto |
 | `control_queue` | Entrega de `complete`/`error` | eventos de ciclo de vida | propiedad de la UI | `queue.Queue` | evento malformado, manejador defectuoso |
 | Adaptadores de proveedor | Traducen OpenAI-compatible, Anthropic y Gemini | prompt/key; protocolo externo | ninguno persistente | HTTP | respuesta incompatible |
 | `storage` | Config, estado UI, credenciales, proyectos y escritura atómica | TOML/JSON/rutas | archivos locales y keyring | filesystem, `tomli-w`, keyring opcional | corrupción, permisos, keyring no disponible |
 | `autosave` | Respaldo periódico del artículo sucio | ruta/contenido; `.md` | archivo en estado del usuario | storage | directorio no escribible |
 | `logging_config` | Log JSON rotativo y consola | eventos internos | handlers y archivos rotativos | logging | destino no escribible |
 | `health` | Diagnóstico sin abrir la ventana | ruta config; `HealthStatus` | ninguno | storage/logging | aviso o error de almacenamiento |
+| `threat_feed` | Construye el contexto CVE desde NVD/EPSS/KEV | ventana temporal; paquete de texto + rutas | caché en disco opcional | `urllib`, `http_safety`, adaptadores | una o más fuentes caídas (degrada); las tres fallan → `ThreatFeedError` |
+| `real_time_feed.FeedOrchestrator` | Consulta paralela de fuentes oficiales y normalización | fuentes, ventana; `FeedEntry[]` ordenadas | `FeedCache` con TTL | adaptadores, `http_safety`, threading | fuente aislada caída (degrada); todas fallan → `RuntimeError` |
+| `real_time_feed.adapters` | Traducen cada fuente oficial al modelo común | parámetros de consulta; `FeedEntry` | ninguno persistente | `urllib`, `http_safety` | timeout, HTTP, payload/XML/STIX malformado |
+| `impact_analyzer.CorrelationEngine` | Cruza entradas entre fuentes por CVE, tópicos y keywords | `FeedEntry[]`; `CorrelationGroup[]` | ninguno (puro) | `models` | sin correlaciones → lista vacía |
+| `impact_analyzer.IdeaGenerator` | Genera ideas de artículo desde correlaciones | correlaciones, LLM opcional; `ArticleIdea[]` | ninguno | `models`, LLM opcional | enriquecimiento LLM ausente → solo reglas deterministas |
+| `tukul_ui.ideas.IdeasController` | Orquesta el pipeline de ideas y el diálogo de selección | ventana (`IdeasHost`), diálogo; `ContextArticle` aprobado | ninguno | `FeedOrchestrator`, `CorrelationEngine`, `IdeaGenerator`, `WorkerThreads` | fuente caída (degrada); sin ideas/correlaciones → aviso; ventana cerrada → solo log |
+| `tukul_ui.contexto` | Tipo `ContextArticle` (módulo neutral, sin la ventana) | — | ninguno | — | — |
+| `tukul_ui.contexto_dialogo.ContextController` | Diálogo de contexto y fetch de amenazas (NVD/EPSS/KEV) | ventana (`ContextHost`), diálogo; `ContextArticle` en el contexto | ninguno | `threat_feed`, `ContextArticle`, `WorkerThreads` | fuente caída → `ThreatFeedError`; ventana cerrada → no toca Tcl |
+
+## Fuente de contexto en tiempo real e ideas (ADR-0003)
+
+`tukul_core/real_time_feed/` y `tukul_core/impact_analyzer.py` forman el
+subsistema de consulta a fuentes oficiales y generación de ideas. La UI lo
+expone desde el diálogo de contexto (**"Generar sugerencia de impacto…"**),
+nunca de forma automática. El pipeline es:
+
+```mermaid
+flowchart LR
+  UI[Diálogo de contexto<br/>acción explícita] --> FO[FeedOrchestrator<br/>fetch paralelo]
+  FO --> AD[adaptadores<br/>NVD · EPSS · KEV · MITRE ATT&CK · arXiv]
+  AD --> NET[Red saliente<br/>iniciada por la app]
+  AD --> NORM[FeedNormalizer<br/>dedup + enriquecimiento]
+  NORM --> CORR[CorrelationEngine<br/>determinista, sin LLM]
+  CORR --> IDE[IdeaGenerator<br/>reglas + LLM opcional]
+  IDE --> CA[ContextApprovalCache<br/>existente]
+  CA -->|aprobado| LS[LLMSessionManager]
+```
+
+- **Degradación granular:** si una fuente falla, el resultado se construye con
+  las restantes; solo si fallan todas se propaga error. Es el mismo patrón que
+  `threat_feed`.
+- **Transporte compartido:** todas las consultas usan `http_safety.NO_REDIRECT_OPENER`
+  (3xx no seguido) y comparten el guard de esquema. La superficie de red es
+  iniciada por la app tras una acción explícita del usuario.
+- **Determinismo primero:** `CorrelationEngine` no usa LLM; el LLM solo
+  enriquece ideas en `IdeaGenerator` y su ausencia no rompe el pipeline.
+- **Caché:** `FeedCache` con TTL (por defecto 15 min) en
+  `~/.local/state/tukul/feed_cache`. El detalle de diseño está en
+  [ADR-0003](decisions/ADR-0003-real-time-query-and-impact-suggestions.md).
 
 ## Request lifecycle y concurrencia
 

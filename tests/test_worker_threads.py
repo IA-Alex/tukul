@@ -59,6 +59,44 @@ class TestRegistroDeWorkers:
         assert all(not hilo.is_alive() for hilo in hilos)
         assert not set(hilos) & set(WorkerThreads.vivos())
 
+    def test_los_hilos_terminados_no_se_acumulan_en_el_registro(self):
+        """Regresión: `_workers` crecía sin techo con cada worker terminado.
+
+        `vivos()` los filtraba al devolver, pero el set conservaba la
+        referencia para siempre: en una sesión larga, memoria que solo crece.
+        Ahora `vivos()` poda los terminados.
+        """
+        import tukul_ui.worker_threads as modulo
+
+        for _ in range(5):
+            WorkerThreads.start(lambda: None)
+        WorkerThreads.esperar(5)
+        # Tras drenar todos, el registro no debe conservar referencias muertas.
+        assert modulo._workers == set(), (
+            "Los hilos terminados deben podarse del registro, no solo filtrarse."
+        )
+
+    def test_reset_aisla_el_estado_global_entre_pruebas(self):
+        """Regresión del flake: un doble inyectado contaminaba la prueba siguiente.
+
+        Varias pruebas parchean `threading.Thread` con un doble; queda
+        registrado y, como `MagicMock.is_alive()` es verdadero, sobrevivía a su
+        prueba. Una comprobación posterior de «no hay hilos vivos» fallaba
+        según el orden. `reset()` corta esa contaminación.
+        """
+        from unittest.mock import MagicMock
+
+        doble = MagicMock()
+        doble.is_alive.return_value = True
+        import tukul_ui.worker_threads as modulo
+
+        with modulo._lock:
+            modulo._workers.add(doble)
+        assert doble in WorkerThreads.vivos()
+
+        WorkerThreads.reset()
+        assert WorkerThreads.vivos() == []
+
     def test_el_hijo_de_un_fork_no_hereda_hilos_muertos(self):
         """Tras `fork()` el niño solo tiene un hilo: el registro debe vaciarse."""
         import os

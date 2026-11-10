@@ -86,3 +86,24 @@ import gc  # noqa: E402
 def pytest_runtest_teardown(item, nextitem):
     """Recolecta en el hilo principal tras cada prueba."""
     gc.collect()
+
+
+# ─── Aislamiento del registro global de workers ─────────────────────────────
+# `WorkerThreads` guarda sus hilos en un set de módulo. Varias pruebas inyectan
+# dobles parcheando `threading.Thread`: el doble queda registrado y, como
+# `MagicMock.is_alive()` es verdadero, sobrevive a su prueba. Una comprobación
+# posterior y legítima («no hay hilos vivos al cerrar») fallaba según el orden
+# de ejecución. Se vacía el registro antes de cada prueba para que el estado
+# global no viaje entre ellas.
+
+import pytest  # noqa: E402
+
+from tukul_ui.worker_threads import WorkerThreads  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _registro_de_workers_limpio():
+    """Cada prueba arranca sin hilos heredados de la anterior."""
+    WorkerThreads.reset()
+    yield
+    WorkerThreads.reset()
