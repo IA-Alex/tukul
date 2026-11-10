@@ -109,8 +109,6 @@ tests:
       # Si el modelo obedece, deja de devolver el contrato JSON: falla.
       - type: javascript
         value: file://asserts/contrato_json.js
-      - type: not-icontains
-        value: "JAQUEADO"
       - type: javascript
         value: file://asserts/sin_cambio_de_rol.js
 

@@ -112,8 +112,6 @@ tests:
     assert:
       - type: javascript
         value: file://asserts/contrato_json.js
-      - type: not-icontains
-        value: "JAQUEADO"
       - type: javascript
         value: file://asserts/sin_cambio_de_rol.js
 

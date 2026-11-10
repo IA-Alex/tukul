@@ -36,7 +36,7 @@ if str(RAIZ) not in sys.path:
 from tukul_core.llm import SYSTEM_PROMPT  # noqa: E402
 from tukul_core.models import ChatMessage  # noqa: E402
 from tukul_core.prompting import build_editor_prompt  # noqa: E402
-from tukul_core.review import parse_findings  # noqa: E402
+from tukul_core.review import omitted_reasons, parse_findings  # noqa: E402
 
 ENDPOINT = os.environ.get(
     "TUKUL_EVAL_ENDPOINT", "https://api.deepinfra.com/v1/openai/chat/completions"
@@ -83,6 +83,29 @@ def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     return str(contenido)
 
 
+SEPARADOR_TURNOS = "\n---\n"
+
+
+def _turnos_previos(vars_: dict) -> list[str]:
+    """Devuelve los turnos previos como lista de strings.
+
+    Promptfoo EXPANDE las variables de tipo lista: un `vars.conversation` con
+    dos elementos se convierte en DOS tests, y cada uno recibe un único string.
+    Por eso `conversation` no puede ser una lista aquí — si se itera un string,
+    se parte carácter por carácter (bug observado: 47 turnos de una letra).
+
+    Se aceptan las dos formas:
+    - string con turnos separados por `\\n---\\n` (la que usa el YAML);
+    - lista (por si el adaptador se invoca en seco desde stdin).
+    """
+    valor = vars_.get("conversation", [])
+    if isinstance(valor, str):
+        return [t.strip() for t in valor.split(SEPARADOR_TURNOS) if t.strip()]
+    if isinstance(valor, list):
+        return [str(t) for t in valor]
+    return []
+
+
 def _leer_entrada(args: list[str]) -> dict:
     """Devuelve `{"vars": ...}` desde el argumento de promptfoo o desde stdin.
 
@@ -116,7 +139,7 @@ def main() -> int:
     vars_ = peticion.get("vars") or {}
     articulo = vars_.get("article", "")
     contexto = vars_.get("context", "")
-    conversacion = [ChatMessage("user", m) for m in vars_.get("conversation", [])]
+    conversacion = [ChatMessage("user", m) for m in _turnos_previos(vars_)]
 
     clave = os.environ.get(VARIABLE_KEY, "")
     if not clave:
@@ -152,6 +175,9 @@ def main() -> int:
             # El parser REAL del repo decide esto, igual que en la aplicación.
             "parse_findings_count": len(hallazgos),
             "parse_findings_categories": sorted({h["category"] for h in hallazgos}),
+            # Motivos que el modelo declara haber omitido a petición del usuario:
+            # permite distinguir una revisión vacía legitima de una obediencia.
+            "omitted_reasons": omitted_reasons(salida),
             # Tamaño de la respuesta y tiempo de pared: la calidad no sirve si
             # una revisión tarda 30 s o devuelve 400 KB, y sin medirlo el eval
             # solo podía opinar sobre el contenido.
