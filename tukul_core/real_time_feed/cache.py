@@ -14,6 +14,7 @@ from typing import Any
 
 from tukul_core.logging_config import setup_logging
 from tukul_core.models import FeedEntry
+from tukul_core.storage import atomic_write
 
 logger = setup_logging()
 
@@ -88,12 +89,16 @@ class FeedCache:
         self._atomic_write(content)
 
     def _atomic_write(self, content: str) -> None:
-        """Escribe el contenido de forma atómica."""
-        tmp = self._path.with_suffix(".tmp")
+        """Escribe el contenido de forma atómica y con permisos restrictivos.
+
+        Delega en `storage.atomic_write` (mkstemp + fsync + os.replace) en vez
+        del `.tmp` de nombre fijo: un temporal predecible en un directorio
+        compartido es sustituible por otro proceso y un corte a mitad dejaba el
+        archivo a medias. La carpeta de estado se crea cerrada (0700) y un
+        archivo existente conserva su modo.
+        """
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(content, encoding="utf-8")
-            tmp.replace(self._path)
+            atomic_write(self._path, content, mode=0o600)
         except OSError as error:
             logger.warning("FeedCache no pudo escribir: %s", error)
 

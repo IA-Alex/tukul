@@ -1008,6 +1008,32 @@ class TestSaludDeLaInstalacion(unittest.TestCase):
         self.assertIn(str(destino), texto, "Debe nombrar la MISMA ruta que inspeccionó")
         self.assertIn("tu API key", texto)
 
+    def test_el_diagnostico_no_deja_archivos_en_la_carpeta_de_config(self):
+        """`--health` no crea artefactos en el directorio del usuario.
+
+        Hallazgo DF-004: `_check_storage` probaba la escritura con un
+        NamedTemporaryFile DENTRO de la carpeta de config. Ahora comprueba el
+        permiso sin crear nada.
+        """
+        from tukul_core import health
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text(
+                '[llm]\nactive_profile = "p"\n\n[profiles.p]\n'
+                'provider = "openai_compatible"\nendpoint = "https://x/v1"\n'
+                'model = "m"\napi_key_env = "K"\n',
+                encoding="utf-8",
+            )
+            con_permiso = Path(directory).stat().st_mode
+            with patch.object(storage, "CONFIG_PATH", config):
+                estado, detalle = health._check_storage(None, config)
+
+            self.assertEqual(estado, health.ComponentStatus.HEALTHY, detalle)
+            # Lo único en la carpeta es el config que creamos nosotros.
+            assert [p.name for p in Path(directory).iterdir()] == ["config.toml"]
+            assert Path(directory).stat().st_mode == con_permiso
+
     def test_una_instalacion_configurada_no_muestra_el_siguiente_paso(self):
         from tukul_core import health
 

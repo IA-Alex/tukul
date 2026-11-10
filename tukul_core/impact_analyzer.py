@@ -25,6 +25,7 @@ from tukul_core.models import (
     CorrelationGroup,
     FeedEntry,
 )
+from tukul_core.prompting import build_idea_enrichment_prompt
 
 logger = setup_logging()
 
@@ -379,19 +380,11 @@ class IdeaGenerator:
         enriched: list[ArticleIdea] = []
         for idea in ideas:
             try:
-                prompt = (
-                    "Eres un editor especializado en ciberseguridad e IA. "
-                    "Mejora la siguiente idea para un artículo agregando "
-                    "contexto, ángulos alternativos y precisión técnica. "
-                    "No inventes datos que no estén en las fuentes.\n\n"
-                    f"Título actual: {idea.title}\n"
-                    f"Ángulo: {idea.angle}\n"
-                    f"Audiencia: {idea.target_audience}\n"
-                    f"Urgencia: {idea.urgency}\n\n"
-                    "Responde SOLO JSON:\n"
-                    '{"title": "título mejorado", '
-                    '"angle": "ángulo mejorado", '
-                    '"reasoning": "razonamiento expandido"}\n'
+                # El prompt se construye en `prompting` (dueño del contrato de
+                # "dato no confiable"): title/angle derivan de fuentes externas
+                # (CVE, arXiv, MITRE) y no deben interpolarse como instrucciones.
+                prompt = build_idea_enrichment_prompt(
+                    idea.title, idea.angle, idea.target_audience, idea.urgency
                 )
                 raw = self._llm(prompt)
                 data = json.loads(raw)

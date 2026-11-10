@@ -215,6 +215,28 @@ class TestFeedCache:
         retrieved = cache2.get("nvd")
         assert retrieved is not None
         assert retrieved[0].source_id == "nvd:CVE-1"
+
+    def test_escribe_con_permisos_restrictivos_y_sin_temporal_fijo(self, tmp_path: Path) -> None:
+        """La caché no deja un `.tmp` predecible ni un archivo legible por otros.
+
+        Antes escribía con `with_suffix(".tmp")` y sin modo: un temporal de
+        nombre fijo es sustituible por otro proceso y el archivo quedaba con el
+        umask del proceso (típicamente 0644).
+        """
+        import stat as stat_module
+
+        path = tmp_path / "cache.json"
+        cache = FeedCache(path, ttl_minutes=15)
+        now = datetime.now(UTC)
+        cache.set("nvd", [FeedEntry(source_id="nvd:CVE-1", source="nvd",
+                                    title="CVE-1", description="d", url="u",
+                                    published=now)])
+        assert path.exists()
+        # 0600: el archivo no es legible por otros usuarios de la máquina.
+        assert stat_module.S_IMODE(path.stat().st_mode) == 0o600
+        # No queda ningún temporal hermano (el `.tmp` de nombre fijo).
+        sobrantes = [p.name for p in tmp_path.iterdir() if p.name != "cache.json"]
+        assert sobrantes == [], f"temporales sobrantes: {sobrantes}"
 # ─── Tests de FeedNormalizer ───────────────────────────────────────────────
 
 class TestFeedNormalizer:
@@ -380,6 +402,34 @@ class TestArxivAdapterFetch:
     def test_atom_malformado_devuelve_vacio_sin_lanzar(self):
         """Un cuerpo que no es XML válido no rompe el pipeline: degrada a []."""
         assert ArxivAdapter()._parse_atom(b"<feed><entry", "cs.CR") == []
+
+    def test_un_dtd_se_rechaza_sin_expandir_entidades(self):
+        """XXE / «billion laughs»: un DTD hace que el parseo se rechace.
+
+        `xml.etree` expande entidades *durante* el parseo, así que un cuerpo
+        pequeño puede agotar la memoria aunque se acote el número de bytes
+        leídos (bandit B314/B405). El ayudante `xml_fromstring_seguro` rechaza
+        cualquier documento con DTD, que es el único vector de esos ataques.
+        """
+        bomba = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE lolz [<!ENTITY lol "lol">'
+            b'<!ENTITY lol2 "&lol;&lol;&lol;">]>'
+            b"<feed><entry>&lol2;</entry></feed>"
+        )
+        assert ArxivAdapter()._parse_atom(bomba, "cs.CR") == []
+
+    def test_un_atom_valido_sin_dtd_sigue_parseandose(self):
+        """El endurecimiento no afecta a las respuestas legítimas (sin DTD)."""
+        atom = (
+            b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+            b"<entry><id>http://arxiv.org/abs/9</id><title>Paper</title>"
+            b"<summary>r</summary>"
+            b"<published>2026-01-01T00:00:00Z</published></entry></feed>"
+        )
+        entradas = ArxivAdapter()._parse_atom(atom, "cs.CR")
+        assert len(entradas) == 1
+        assert entradas[0]["title"] == "Paper"
 
     def test_entry_sin_titulo_o_id_se_descarta(self):
         """Entradas sin título o sin id no producen FeedEntry parcial."""

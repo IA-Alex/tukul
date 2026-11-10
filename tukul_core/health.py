@@ -1,6 +1,7 @@
 """Health checks y status de la aplicación."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -51,8 +52,6 @@ class HealthStatus:
 
 def _check_storage(profiles_error: Exception | None, config_path: Path) -> tuple[ComponentStatus, str]:
     """Comprueba lectura y escritura de config sin dejar estado en el directorio."""
-    import tempfile
-
     try:
         if profiles_error is not None:
             raise profiles_error
@@ -64,15 +63,14 @@ def _check_storage(profiles_error: Exception | None, config_path: Path) -> tuple
                 ComponentStatus.WARNING,
                 "Aún no existe (se crea al guardar la configuración)",
             )
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=config_dir, delete=True, suffix=".tmp"
-            ) as probe:
-                probe.write("health_check_test")
-                probe.flush()
+        # `os.access` comprueba el permiso de escritura sin crear nada: la
+        # versión anterior dejaba un archivo temporal en la carpeta de config
+        # del usuario (y decía lo contrario en su propia docstring). Un
+        # directorio de solo lectura o un montaje de solo lectura devuelven
+        # False y se reportan como error, igual que antes.
+        if os.access(config_dir, os.W_OK):
             return (ComponentStatus.HEALTHY, "OK (lectura+escritura)")
-        except (PermissionError, OSError):
-            return (ComponentStatus.ERROR, "La carpeta de config es de solo lectura")
+        return (ComponentStatus.ERROR, "La carpeta de config es de solo lectura")
     except Exception as e:
         logger.warning("Health: fallo de almacenamiento - %s", e)
         return (ComponentStatus.ERROR, f"Error: {e}")
