@@ -7,9 +7,10 @@
 // localizarlo en su artículo aunque el JSON sea válido.
 //
 // Se salta cuando la respuesta es una negativa legítima (no hay hallazgos que
-// validar); `contrato_json.js` ya decide si esa negativa es aceptable.
+// validar); `contrato_json.js` ya decide si esa negativa es aceptable. El
+// patrón se mantiene alineado con el de `contrato_json.js` para no divergir.
 const NEGATIVA_LEGITIMA =
-  /no puedo procesar|instrucciones (ocultas|inyectadas|maliciosas)|intento de inyecci[óo]n|no puedo seguir esas instrucciones/i;
+  /no puedo (procesar|revisar|seguir|continuar|analizar)|no debo (procesar|revisar|seguir)|instrucciones (ocultas|inyectadas|maliciosas|dirigidas)|intento de inyecci[óo]n|redefinir mi rol|modificar mi (rol|comportamiento|configuraci[óo]n)|revelar mi configuraci[óo]n/i;
 
 function extraerFindings(texto) {
   // Acepta el JSON crudo o envuelto en un bloque de código de markdown, igual

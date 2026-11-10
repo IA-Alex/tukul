@@ -31,7 +31,7 @@ from tukul_core.models import (
 )
 from tukul_core.prompting import REVIEW_PROMPT, build_editor_prompt, build_review_prompt
 from tukul_core.real_time_feed import FeedOrchestrator  # noqa: F401
-from tukul_core.review import diagnose_findings, parse_findings
+from tukul_core.review import diagnose_findings, parse_findings, respuesta_fuera_de_rol
 
 # Re-exportados para los tests y consumidores que aún los parchean/importan
 # desde `tukul_ui.app`, aunque el fetch vive ya en `tukul_ui.contexto_dialogo`.
@@ -1855,6 +1855,18 @@ class TukulApp(tk.Tk):
 
         findings = self.parse_findings(result)
         if not findings:
+            # Red de seguridad de la aplicación: aunque el SYSTEM_PROMPT pida
+            # resistir las inyecciones, si el modelo obedeció y devolvió el texto
+            # del atacante (o sus propias instrucciones) hay que decirlo como
+            # fallo, no presentar esa prosa como si fuera una revisión.
+            motivo = self.respuesta_fuera_de_rol(result)
+            if motivo is not None:
+                self.set_estado(EstadoUI.ERROR, "la respuesta salió del rol de revisor")
+                self._append_notice(
+                    f"La revisión se descartó: {motivo}. El artículo parece contener "
+                    "instrucciones dirigidas al sistema. Elimínalas del texto y vuelve a intentarlo."
+                )
+                return
             # Cada causa se dice por separado. Antes las cuatro se presentaban
             # como fallo del modelo, incluida la que no lo es: un artículo sin
             # hallazgos es un resultado correcto.
@@ -2036,6 +2048,7 @@ class TukulApp(tk.Tk):
 
     parse_findings = staticmethod(parse_findings)
     diagnose_findings = staticmethod(diagnose_findings)
+    respuesta_fuera_de_rol = staticmethod(respuesta_fuera_de_rol)
     def show_findings(self,findings):
         """Abre el diálogo de hallazgos de una revisión (una sola ventana a la vez)."""
         # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.

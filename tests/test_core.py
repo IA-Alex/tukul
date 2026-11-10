@@ -67,6 +67,33 @@ class CoreTests(unittest.TestCase):
         self.assertIn("respuestas previas", SYSTEM_PROMPT)
         self.assertIn("activen herramientas", SYSTEM_PROMPT)
 
+    def test_system_prompt_prohibe_filtrar_sus_instrucciones(self):
+        """S2 (eval 2026-11-10): el modelo imprimía el prompt de sistema al pedirlo.
+
+        La defensa contra inyección no bastaba: faltaba la prohibición explícita
+        de revelar/reproducir las propias instrucciones. Es un fallo de
+        confidencialidad del prompt, no de formato, y se midió 5/5 reproducible.
+        """
+        prompt = SYSTEM_PROMPT.lower()
+        self.assertTrue(
+            any(verbo in prompt for verbo in ("reveles", "reproduzcas", "divulgues", "imprim")),
+            "Falta la prohibición de revelar/reproducir el prompt de sistema",
+        )
+
+    def test_system_prompt_desconfia_de_marcas_que_fingen_ser_sistema(self):
+        """S3 (eval 2026-11-10): «[SYSTEM OVERRIDE]» lograba cambiar el rol.
+
+        El texto del artículo podía auto-otorgarse autoridad de sistema. El
+        prompt debe declarar esas marcas como datos no confiables e ignorarlas
+        como instrucciones.
+        """
+        prompt = SYSTEM_PROMPT.lower()
+        self.assertIn("[system", prompt)
+        self.assertTrue(
+            any(señal in prompt for señal in ("autoridad de sistema", "no confiables", "ignorarse")),
+            "El prompt debe tratar las marcas pseudo-sistema como datos no confiables",
+        )
+
     def test_el_prompt_de_ideas_aisla_los_datos_externos_de_la_instruccion(self):
         """Los campos de una idea (fuente externa) son datos, no instrucciones.
 
