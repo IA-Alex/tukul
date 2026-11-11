@@ -47,6 +47,7 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
     style.configure("Cabecera.TFrame", background=es.FONDO)
     style.configure("Superficie.TFrame", background=es.SUPERFICIE)
     style.configure("Alta.TFrame", background=es.SUPERFICIE_ALTA)
+    style.configure("ResizeHandle.TFrame", background=es.ACENTO, height=6)
     style.configure("TLabel", background=es.FONDO, foreground=es.TEXTO)
     style.configure("Superficie.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO)
     style.configure("Tenue.TLabel", background=es.FONDO, foreground=es.TEXTO_TENUE,

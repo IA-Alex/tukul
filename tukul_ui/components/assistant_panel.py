@@ -43,6 +43,19 @@ class AssistantPanel(ttk.Labelframe):
         self.input = self.callbacks["create_input"](self.compositor)
         self.input.pack(side="left", fill="both", expand=True, padx=(0, es.ESP["xs"]))
 
+        # Asa vertical: el compositor deja de ser una caja fija de tres líneas
+        # y puede crecer cuando la persona necesita escribir una consulta larga.
+        self.resize_handle = ttk.Frame(self, style="ResizeHandle.TFrame",
+                                       height=es.ESP["xs"] + 2,
+                                       cursor="sb_v_double_arrow")
+        self.resize_handle.pack(side="bottom", fill="x", before=self.compositor,
+                                pady=(es.ESP["xs"], 0))
+        self._resize_y: int | None = None
+        self._resize_height = 3
+        self.resize_handle.bind("<Button-1>", self._iniciar_resize_input)
+        self.resize_handle.bind("<B1-Motion>", self._mover_resize_input)
+        self.resize_handle.bind("<ButtonRelease-1>", self._terminar_resize_input)
+
         self.fila_acciones = ttk.Frame(self, style="Superficie.TFrame")
         self.fila_acciones.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
 
@@ -114,6 +127,30 @@ class AssistantPanel(ttk.Labelframe):
         for etiqueta in self._textos_ajustables:
             if int(float(etiqueta.cget("wraplength"))) != ancho:
                 etiqueta.config(wraplength=ancho)
+
+    def _iniciar_resize_input(self, evento: tk.Event) -> None:
+        """Guarda el punto de inicio del arrastre vertical del compositor."""
+        self._resize_y = int(evento.y_root)
+        try:
+            self._resize_height = max(3, int(self.input.cget("height")))
+        except (tk.TclError, TypeError, ValueError):
+            self._resize_height = 3
+
+    def _mover_resize_input(self, evento: tk.Event) -> None:
+        """Ajusta la altura del campo mientras se arrastra el asa."""
+        if self._resize_y is None:
+            return
+        delta = self._resize_y - int(evento.y_root)
+        # Una línea de Tk ronda 18 px: el cambio se siente continuo sin saltos.
+        lineas = self._resize_height + round(delta / 18)
+        limite = max(8, min(16, self.winfo_height() // 28))
+        try:
+            self.input.configure(height=max(3, min(limite, lineas)))
+        except tk.TclError:
+            pass
+
+    def _terminar_resize_input(self, _evento: tk.Event) -> None:
+        self._resize_y = None
 
     def show_approval(self, text: str, on_approve: Callable, on_reject: Callable) -> None:
         self.aprobacion_texto.set(text)
