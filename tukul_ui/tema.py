@@ -70,13 +70,13 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
     style.configure("Pie.TLabel", background=es.FONDO, foreground=es.TEXTO_TENUE,
                     font=es.fuente(es.TIPO_SM))
     # El divisor es una señal de ajuste, no un borde de panel dominante.
-    # `sashthickness` fija la zona sensible al arrastre: por debajo de 4 px
-    # el agarre se vuelve incómodo, así que se mantiene fino pero usable.
+    # El divisor es una herramienta de trabajo: una zona de 10 px y un
+    # pequeño agarre visual hacen evidente que se puede arrastrar con el ratón.
     # El sash es una pieza accionable (se arrastra): 1.4.11 le exige 3:1,
     # así que usa `BORDE_CONTROL` y no la divisoria discreta.
     style.configure("TPanedwindow", background=es.BORDE)
     style.configure("Sash", background=es.BORDE_CONTROL, bordercolor=es.BORDE_CONTROL,
-                    sashthickness=4, gripcount=0, lightcolor=es.BORDE_CONTROL,
+                    sashthickness=10, gripcount=5, lightcolor=es.BORDE_CONTROL,
                     darkcolor=es.BORDE_CONTROL)
     # Paneles sin marco: la separación la dan la superficie y el divisor.
     style.configure("TLabelframe", background=es.SUPERFICIE,

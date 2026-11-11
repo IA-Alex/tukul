@@ -638,6 +638,10 @@ class TukulApp(tk.Tk):
         panes = ttk.PanedWindow(self, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=es.ESP["md"], pady=(es.ESP["sm"], es.ESP["md"]))
         self.panes = panes
+        # El separador no es una línea pasiva: anuncia su affordance con el
+        # cursor únicamente cuando el puntero está sobre la zona de arrastre.
+        panes.bind("<Motion>", self._actualizar_cursor_sash, add="+")
+        panes.bind("<Leave>", lambda _event: panes.configure(cursor=""), add="+")
         # El artículo va primero y con más peso: es el foco del trabajo.
         self._build_editor(panes)
         self._build_asistente(panes)
@@ -660,6 +664,15 @@ class TukulApp(tk.Tk):
         self.editor.focus_set()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
+
+    def _actualizar_cursor_sash(self, evento: tk.Event) -> None:
+        """Indica con el cursor que el divisor editor/asistente es arrastrable."""
+        try:
+            posicion = self.panes.sashpos(0)
+            cerca = abs(int(evento.x) - posicion) <= 8
+            self.panes.configure(cursor="sb_h_double_arrow" if cerca else "")
+        except (tk.TclError, AttributeError, TypeError, ValueError):
+            pass
 
     @staticmethod
     def _tiene_enunciado(historial: Any) -> bool:
