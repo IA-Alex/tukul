@@ -32,7 +32,18 @@ class AssistantPanel(ttk.Labelframe):
         self.compositor = ttk.Frame(self, style="Alta.TFrame", padding=(es.ESP["sm"], es.ESP["sm"], es.ESP["sm"], es.ESP["xs"]))
         self.compositor.pack(side="bottom", fill="x")
 
-        self.send_button = ttk.Button(self.compositor, text="Enviar", style="Primaria.TButton",
+        # El asa vive ARRIBA del campo, como una frontera que se puede
+        # arrastrar. Antes estaba fuera y debajo del compositor: se veía como
+        # una línea decorativa y no como el control que cambia su tamaño.
+        self.resize_handle = ttk.Frame(self.compositor, style="ResizeHandle.TFrame",
+                                       height=es.ESP["sm"], cursor="sb_v_double_arrow")
+        self.resize_handle.pack(side="top", fill="x", pady=(0, es.ESP["xs"]))
+        ToolTip(self.resize_handle, "Arrastra para ampliar el campo de mensaje")
+
+        self.composer_row = ttk.Frame(self.compositor, style="Alta.TFrame")
+        self.composer_row.pack(side="top", fill="x")
+
+        self.send_button = ttk.Button(self.composer_row, text="Enviar", style="Primaria.TButton",
                                       command=self.callbacks["send_message"])
         self.send_button.pack(side="right", fill="y")
         self.tooltip_enviar = ToolTip(
@@ -40,16 +51,11 @@ class AssistantPanel(ttk.Labelframe):
             "Envía la consulta usando el artículo activo, la selección y el contexto aprobado.",
         )
 
-        self.input = self.callbacks["create_input"](self.compositor)
+        self.input = self.callbacks["create_input"](self.composer_row)
         self.input.pack(side="left", fill="both", expand=True, padx=(0, es.ESP["xs"]))
 
-        # Asa vertical: el compositor deja de ser una caja fija de tres líneas
-        # y puede crecer cuando la persona necesita escribir una consulta larga.
-        self.resize_handle = ttk.Frame(self, style="ResizeHandle.TFrame",
-                                       height=es.ESP["xs"] + 2,
-                                       cursor="sb_v_double_arrow")
-        self.resize_handle.pack(side="bottom", fill="x", before=self.compositor,
-                                pady=(es.ESP["xs"], 0))
+        # El compositor deja de ser una caja fija de tres líneas y puede crecer
+        # hasta ocupar una parte sustancial del panel.
         self._resize_y: int | None = None
         self._resize_height = 3
         self.resize_handle.bind("<Button-1>", self._iniciar_resize_input)
@@ -143,7 +149,7 @@ class AssistantPanel(ttk.Labelframe):
         delta = self._resize_y - int(evento.y_root)
         # Una línea de Tk ronda 18 px: el cambio se siente continuo sin saltos.
         lineas = self._resize_height + round(delta / 18)
-        limite = max(8, min(16, self.winfo_height() // 28))
+        limite = max(8, min(40, self.winfo_height() // 18))
         try:
             self.input.configure(height=max(3, min(limite, lineas)))
         except tk.TclError:
