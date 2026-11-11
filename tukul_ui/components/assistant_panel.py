@@ -15,6 +15,15 @@ class AssistantPanel(ttk.Labelframe):
         self._build()
 
     def _build(self) -> None:
+        self.guia = ttk.Frame(self, style="Superficie.TFrame")
+        self.guia.pack(side="top", fill="x", pady=(0, es.ESP["sm"]))
+        ttk.Label(self.guia, text="Tu compañero de escritura",
+                  style="PanelTitulo.TLabel").pack(anchor="w")
+        ttk.Label(self.guia,
+                  text="Pregunta sobre el artículo, una selección o su estructura.",
+                  style="PanelMeta.TLabel", wraplength=520, justify="left").pack(
+                      anchor="w", pady=(2, 0))
+
         # Orden de `pack` deliberado: con pack, lo que se coloca DESPUÉS se
         # recorta primero cuando falta espacio. Por eso los controles de abajo
         # (compositor, acciones, estados, barra de aprobación) se reservan ANTES
@@ -44,6 +53,7 @@ class AssistantPanel(ttk.Labelframe):
                                         command=self.callbacks["cancel_request"], state="disabled")
         self.cancel_button.pack(side="right", padx=(0, es.ESP["sm"]))
         self.review_button = ttk.Button(self.fila_acciones, text="Revisar artículo",
+                                        style="Secundaria.TButton",
                                         command=self.callbacks["review"])
         self.review_button.pack(side="left")
         # «Revisar artículo» nombra una acción con consecuencia sobre el texto:

@@ -739,7 +739,7 @@ class TukulApp(tk.Tk):
         ancho = self.panes.winfo_width()
         if ancho > 0:
             try:
-                self.panes.sashpos(0, round(ancho * 0.68))
+                self.panes.sashpos(0, round(ancho * 0.64))
             except tk.TclError:
                 pass
 
@@ -804,7 +804,7 @@ class TukulApp(tk.Tk):
             "text_menu": self.text_menu
         }
         self.panel_editor = EditorPanel(panes, callbacks)
-        panes.add(self.panel_editor, weight=68)
+        panes.add(self.panel_editor, weight=64)
         self.editor = self.panel_editor.editor
 
     def _build_asistente(self, panes) -> None:
@@ -820,7 +820,7 @@ class TukulApp(tk.Tk):
                                                         background=es.SUPERFICIE_ALTA)
         }
         self.panel_asistente = AssistantPanel(panes, callbacks)
-        panes.add(self.panel_asistente, weight=32)
+        panes.add(self.panel_asistente, weight=36)
 
         self.input = self.panel_asistente.input
         self.history = self.panel_asistente.history

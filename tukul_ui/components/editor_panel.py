@@ -15,6 +15,13 @@ class EditorPanel(ttk.Labelframe):
         self._build()
 
     def _build(self) -> None:
+        self.guia = ttk.Frame(self, style="Superficie.TFrame")
+        self.guia.pack(fill="x", pady=(0, es.ESP["sm"]))
+        ttk.Label(self.guia, text="Tu espacio de escritura",
+                  style="PanelTitulo.TLabel").pack(anchor="w")
+        ttk.Label(self.guia, text="Escribe, pega o abre un artículo para comenzar.",
+                  style="PanelMeta.TLabel").pack(anchor="w", pady=(2, 0))
+
         self.editor = ScrolledText(self, undo=True, wrap="word", font=es.fuente(es.TIPO_LG),
                                    background=es.SUPERFICIE, padx=es.ESP["lg"] * 2,
                                    pady=es.ESP["lg"] * 2,

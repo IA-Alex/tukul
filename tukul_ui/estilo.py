@@ -57,58 +57,58 @@ TEMAS_VALIDOS = frozenset({"dark", "light"})
 PALETAS: dict[str, dict[str, str]] = {
     "dark": {
         # --- Capas: madera del tunkul y sombra del interior --------------
-        "fondo": "#1A1410",           # madera sin luz
-        "superficie": "#292018",      # panel: madera al lado del fuego
-        "superficie_alta": "#3A2F22", # campo: madera clara de la lengüeta
+        "fondo": "#1D1A18",           # grafito cálido, no marrón dominante
+        "superficie": "#292622",      # panel de trabajo
+        "superficie_alta": "#39352E", # campo elevado
         # --- Divisorias y controles ---------------------------------------
-        "borde": "#8E7A62",           # fibra de bambú seca (>=3:1 en las capas)
+        "borde": "#8F7B64",           # divisor cálido con contraste real
         # WCAG 1.4.11 exige 3:1 a los bordes de elementos accionables; este
         # tono sube algo más que `borde` para distinguirse sobre `superficie_alta`.
-        "borde_control": "#A08A72",
-        "superficie_activa": "#3E3225",  # hover: madera frotada
-        "foco": "#8FC0A9",            # brote de bambú: indicador de foco
+        "borde_control": "#C1AC91",
+        "superficie_activa": "#443D34",  # hover carbón cálido
+        "foco": "#64C9B3",            # foco teal
         # --- Acento: la lengüeta que vibra -------------------------------
         # Es el verde del bambú joven: el único tono frío, como el sonido
         # agudo de la lengüeta fina frente al grave de la gruesa.
-        "acento": "#7FB89A",
-        "acento_activo": "#A8D3BC",
-        "acento_texto": "#0E1411",
+        "acento": "#53C7B2",
+        "acento_activo": "#7FE1D0",
+        "acento_texto": "#0D2020",
         # --- Texto -------------------------------------------------------
-        "texto": "#F3EDE2",           # médula clara de la caña
-        "texto_tenue": "#CDC1AE",     # fibra a media luz
-        "seleccion": "#3E5B4A",       # sombra verde entre las lengüetas
+        "texto": "#F3F7FA",
+        "texto_tenue": "#B9C5D1",
+        "seleccion": "#285B63",
         # --- Señal de estado (funcional, no decorativa) ------------------
-        "estado_neutro": "#AAA190",
-        "estado_proceso": "#86CBE0",
-        "estado_exito": "#8FDDAD",
-        "estado_error": "#E58F86",
-        "estado_aviso": "#E3C67F",
+        "estado_neutro": "#AEB9C6",
+        "estado_proceso": "#7CC7F2",
+        "estado_exito": "#7DDBB1",
+        "estado_error": "#F08B9A",
+        "estado_aviso": "#F2C879",
         # --- Rol conversacional -----------------------------------------
-        "voz_usuario": "#9AD0BB",
-        "voz_asistente": "#D3B3F0",
+        "voz_usuario": "#73D6C4",
+        "voz_asistente": "#C7A7F7",
     },
     "light": {
         # --- Capas: caña al sol -------------------------------------------
-        "fondo": "#F7F3E8",           # médula de bambú a plena luz
-        "superficie": "#ECE5D5",      # caña a la sombra
-        "superficie_alta": "#FDFBF4", # hoja de papel sobre la mesa
-        "borde": "#7D6C57",           # fibra de bambú: divisorias y hover
+        "fondo": "#F2F3EC",
+        "superficie": "#E7E9E0",
+        "superficie_alta": "#FAFBF7",
+        "borde": "#7D6C57",
         "borde_control": "#766651",
-        "superficie_activa": "#D8CFBB",
-        "foco": "#0F6B4F",            # bambú joven
-        "acento": "#0F6B4F",
-        "acento_activo": "#0B5440",
+        "superficie_activa": "#D7DCD0",
+        "foco": "#0F6B5F",
+        "acento": "#0B655C",
+        "acento_activo": "#084C46",
         "acento_texto": "#FFFFFF",
-        "texto": "#1E1811",           # veta oscura
-        "texto_tenue": "#473D30",
-        "seleccion": "#BBD9C2",
-        "estado_neutro": "#4F4A40",
+        "texto": "#15202B",
+        "texto_tenue": "#455463",
+        "seleccion": "#BCE3DE",
+        "estado_neutro": "#566575",
         "estado_proceso": "#0F5E70",
         "estado_exito": "#146B3A",
-        "estado_error": "#A81E14",
-        "estado_aviso": "#8A4B08",
-        "voz_usuario": "#0E5C4E",
-        "voz_asistente": "#5B21A8",
+        "estado_error": "#B4233A",
+        "estado_aviso": "#8A5708",
+        "voz_usuario": "#126C64",
+        "voz_asistente": "#6843A8",
     },
 }
 

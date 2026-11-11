@@ -117,6 +117,14 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
                     padding=(es.ESP["sm"], es.ESP["xs"] + 1))
     style.map("Guardar.TButton", background=estados_fondo, foreground=estados_texto,
               bordercolor=estados_borde)
+    style.configure("Secundaria.TButton", background=es.SUPERFICIE_ALTA,
+                    foreground=es.FOCO, bordercolor=es.FOCO, relief="flat",
+                    focuscolor=es.FOCO, font=es.fuente(negrita=True),
+                    padding=(es.ESP["sm"], es.ESP["xs"] + 1))
+    style.map("Secundaria.TButton",
+              background=[("active", es.SUPERFICIE_ACTIVA), ("pressed", es.SUPERFICIE)],
+              foreground=[("disabled", es.TEXTO_TENUE), ("active", es.TEXTO)],
+              bordercolor=[("focus", es.FOCO)])
     # «Cancelar» en reposo: se queda visible (así se descubre la salida)
     # pero sin relieve ni borde, como una palabra y no como un botón
     # apagado. Deshabilitado no dice «Revisar está roto»: dice «aquí no hay
