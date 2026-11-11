@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 
 REQUIRED_FINDING_FIELDS = {"category", "severity", "original", "suggestion", "reason"}
@@ -109,6 +110,13 @@ def omitted_reasons(result: str) -> list[str]:
     ambas llegan como ``findings: []``. Se devuelve una lista vacía cuando no hay
     JSON válido o cuando el campo está ausente o mal formado, de modo que el
     comportamiento previo queda intacto.
+
+    El formato que devuelve el modelo NO es fiable: sin un ejemplo literal en el
+    prompt llegó a mandar la representación de un objeto dentro de la cadena
+    (``"{'original': 'introdución', 'reason': '…'}"``). La aplicación no puede
+    depender de su obediencia para el formato, así que aquí se normaliza: cada
+    elemento se convierte en el texto del motivo, esté como cadena simple, como
+    objeto JSON con ``reason``/``motivo`` o como el `repr` de un dict de Python.
     """
     causa, payload = _decode_payload(result)
     if causa != "ok" or not isinstance(payload, dict):
@@ -116,7 +124,73 @@ def omitted_reasons(result: str) -> list[str]:
     omitted = payload.get("omitted")
     if not isinstance(omitted, list):
         return []
-    return [str(motivo).strip() for motivo in omitted if str(motivo).strip()]
+    motivos: list[str] = []
+    for elemento in omitted:
+        motivo = _texto_de_motivo(elemento)
+        if motivo:
+            motivos.append(motivo)
+    return motivos
+
+
+# Claves habituales del motivo, en orden de preferencia.
+_CLAVES_MOTIVO = ("reason", "motivo", "razón", "razon")
+
+
+def _texto_de_motivo(elemento: object) -> str:
+    """Extrae un motivo legible de cualquiera de las formas observadas.
+
+    Acepta: una cadena simple; un objeto JSON con una clave de motivo; y la
+    representación textual de un dict de Python (comillas simples, que no es
+    JSON válido). Si nada de eso da texto, se conserva la cadena original como
+    último recurso: es preferible un motivo imperfecto a perder la señal.
+    """
+    if isinstance(elemento, dict):
+        for clave in _CLAVES_MOTIVO:
+            valor = elemento.get(clave)
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+        return ""
+    if not isinstance(elemento, str):
+        return ""
+    texto = elemento.strip()
+    if not texto:
+        return ""
+    if texto.startswith("{"):
+        # Parece un objeto: o se extrae un motivo legible, o se descarta. Devolver
+        # el texto crudo mostraría al usuario un `repr` roto o un dict sin motivo.
+        objeto = _parsear_repr_de_dict(texto)
+        if objeto is None:
+            return ""
+        for clave in _CLAVES_MOTIVO:
+            valor = objeto.get(clave)
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+        return ""
+    return texto
+
+
+def _parsear_repr_de_dict(texto: str) -> dict | None:
+    """Convierte el `repr` de un dict de Python en un dict, o None.
+
+    Se limita deliberadamente a un ``{...}`` con comillas simples dentro: no
+    evalúa código ni usa `ast.literal_eval` sobre la salida del modelo, que es
+    un dato no confiable. Solo se acepta el resultado si JSON lo puede leer tras
+    normalizar las comillas, y únicamente se consumen claves de texto conocidas.
+    """
+    if not (texto.startswith("{") and texto.endswith("}")):
+        return None
+    try:
+        objeto = ast.literal_eval(texto)
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(objeto, dict):
+        return None
+    # Solo se acepta como dict si sus valores son simples: evita materializar
+    # estructuras anidadas o llamadas que `literal_eval` rechazaría de todos
+    # modos, y deja el resto como texto.
+    if not all(isinstance(v, (str, int, float, bool, type(None))) for v in objeto.values()):
+        return None
+    return objeto
 
 
 def parse_findings(result: str) -> list[dict[str, str]]:
