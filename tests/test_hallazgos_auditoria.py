@@ -164,6 +164,19 @@ class TestErrorVisibleConRuta(unittest.TestCase):
         finally:
             con_archivo.close()
 
+    def test_show_error_muestra_el_siguiente_paso(self):
+        app = MagicMock()
+        with patch("tukul_ui.app.messagebox.showerror") as dialogo:
+            TukulApp.show_error(
+                app,
+                "No se pudo abrir el documento",
+                "detalle técnico",
+                "Usa Menú > Abrir artículo… o Ctrl+O.",
+            )
+        self.assertIn("Siguiente paso", dialogo.call_args[0][1])
+        self.assertIn("Ctrl+O", dialogo.call_args[0][1])
+        self.assertIn("Siguiente paso", app.status.set.call_args[0][0])
+
 
 class TestAvisoDeLlaveroCaido(unittest.TestCase):
     """M-5 (UI): el evento llega al pie con una instrucción accionable."""

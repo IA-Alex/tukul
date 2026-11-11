@@ -26,6 +26,10 @@ class AssistantPanel(ttk.Labelframe):
         self.send_button = ttk.Button(self.compositor, text="Enviar", style="Primaria.TButton",
                                       command=self.callbacks["send_message"])
         self.send_button.pack(side="right", fill="y")
+        self.tooltip_enviar = ToolTip(
+            self.send_button,
+            "Envía la consulta usando el artículo activo, la selección y el contexto aprobado.",
+        )
 
         self.input = self.callbacks["create_input"](self.compositor)
         self.input.pack(side="left", fill="both", expand=True, padx=(0, es.ESP["xs"]))

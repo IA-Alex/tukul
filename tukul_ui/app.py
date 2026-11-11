@@ -1387,9 +1387,9 @@ class TukulApp(tk.Tk):
                 f"{user_msg}\n\nSi el problema persiste, revisa el registro en ~/.local/state/tukul/tukul.log",
                 parent=self,
             )
-    def show_error(self, title: str, detail: str) -> None:
-        """Muestra un error en la barra de estado y en un diálogo modal."""
-        self.status.set(title)
+    def show_error(self, title: str, detail: str, next_step: str | None = None) -> None:
+        """Muestra un error y, si existe, el siguiente paso accionable."""
+        self.status.set(f"{title}. Siguiente paso: {next_step}" if next_step else title)
         logger.error("Error visible en UI: %s — %s", title, detail)
         # La ruta del registro es el único dato que permite investigar después
         # de cerrar el diálogo: sin ella, «quedaron registrados» no dice dónde.
@@ -1399,9 +1399,10 @@ class TukulApp(tk.Tk):
         )
         pista = (f"\n\nDetalles en: {registro}" if registro
                  else "\n\nNo hay archivo de registro disponible en esta instalación.")
+        siguiente = f"\n\nSiguiente paso: {next_step}" if next_step else ""
         messagebox.showerror(
             title,
-            "No pudimos completar la acción. Vuelve a intentarlo." + pista,
+            "No pudimos completar la acción. Vuelve a intentarlo." + siguiente + pista,
             parent=self,
         )
     def load_document(self, path: Path) -> bool:
@@ -1410,11 +1411,19 @@ class TukulApp(tk.Tk):
         self.update_idletasks()
         success, error, session = self.docs.open_document(path)
         if not success:
-            self.show_error("No se pudo abrir el documento", f"{path}\n\n{error}")
+            self.show_error(
+                "No se pudo abrir el documento",
+                f"{path}\n\n{error}",
+                "Usa Menú > Abrir artículo… o Ctrl+O para elegir otro archivo.",
+            )
             return False
         documento = session.document_path
         if documento is None:
-            self.show_error("No se pudo abrir el documento", f"{path}\n\nSin ruta de destino.")
+            self.show_error(
+                "No se pudo abrir el documento",
+                f"{path}\n\nSin ruta de destino.",
+                "Usa Menú > Abrir artículo… o Ctrl+O para elegir otro archivo.",
+            )
             return False
         # Si se abandona otro documento, su respaldo de recuperación queda
         # obsoleto: el usuario ya decidió (guardó o descartó al salir).

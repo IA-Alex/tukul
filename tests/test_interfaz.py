@@ -77,7 +77,6 @@ class TestSistemaVisual(unittest.TestCase):
         for capa in (es.FONDO, es.SUPERFICIE, es.SUPERFICIE_ALTA):
             self.assertGreaterEqual(es.contraste(es.FOCO, capa), 3.0)
 
-
 class TestEstados(unittest.TestCase):
     """Cada estado se distingue sin depender del color."""
 
@@ -134,6 +133,11 @@ class TestVentanaReal(unittest.TestCase):
         for _ in range(5):
             self.app.update()
             self.app.update_idletasks()
+
+    def test_enviar_explica_el_alcance_de_la_consulta(self):
+        """La acción primaria aclara qué contexto se enviará al modelo."""
+        self.assertIn("artículo activo", self.app.panel_asistente.tooltip_enviar.texto)
+        self.assertIn("contexto aprobado", self.app.panel_asistente.tooltip_enviar.texto)
 
     # --- estados -------------------------------------------------------
     def test_cada_estado_se_refleja_en_la_etiqueta_y_en_los_botones(self):
