@@ -10,16 +10,17 @@ from tukul_ui import estilo as es
 
 class EditorPanel(ttk.Labelframe):
     def __init__(self, parent: tk.Misc, callbacks: dict[str, Callable], **kwargs) -> None:
-        super().__init__(parent, text="TU ARTÍCULO", padding=es.ESP["md"], **kwargs)
+        super().__init__(parent, text="Tu artículo", padding=(es.ESP["md"], es.ESP["sm"], es.ESP["lg"], es.ESP["lg"]), **kwargs)
         self.callbacks = callbacks
         self._build()
 
     def _build(self) -> None:
         self.editor = ScrolledText(self, undo=True, wrap="word", font=es.fuente(es.TIPO_LG),
-                                   background=es.SUPERFICIE, padx=es.ESP["lg"], pady=es.ESP["lg"],
+                                   background=es.SUPERFICIE, padx=es.ESP["lg"] * 2,
+                                   pady=es.ESP["lg"] * 2,
                                    spacing1=2, spacing2=3, spacing3=8,
                                    relief="flat", borderwidth=0,
-                                   highlightthickness=1, highlightbackground=es.SUPERFICIE,
+                                   highlightthickness=1, highlightbackground=es.BORDE,
                                    highlightcolor=es.FOCO, insertbackground=es.ACENTO)
         self.editor.pack(fill="both", expand=True)
 

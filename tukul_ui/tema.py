@@ -42,7 +42,9 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
     style.configure(".", background=es.FONDO, foreground=es.TEXTO, font=es.fuente(),
                     focuscolor=es.FOCO)
     style.configure("TFrame", background=es.FONDO)
-    style.configure("Cabecera.TFrame", background=es.SUPERFICIE_ALTA)
+    # La barra superior debe leerse como una banda de navegación, no como
+    # otro panel de contenido. Deja aire alrededor de la zona de trabajo.
+    style.configure("Cabecera.TFrame", background=es.FONDO)
     style.configure("Superficie.TFrame", background=es.SUPERFICIE)
     style.configure("Alta.TFrame", background=es.SUPERFICIE_ALTA)
     style.configure("TLabel", background=es.FONDO, foreground=es.TEXTO)
@@ -53,15 +55,19 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     style.configure("Titulo.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO,
                     font=es.fuente(negrita=True))
+    style.configure("PanelTitulo.TLabel", background=es.SUPERFICIE,
+                    foreground=es.TEXTO, font=es.fuente(es.TIPO_MD, negrita=True))
+    style.configure("PanelMeta.TLabel", background=es.SUPERFICIE,
+                    foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     # Franja inferior: continua, tenue y de una sola pieza.
-    style.configure("Cabecera.TLabel", background=es.SUPERFICIE_ALTA,
+    style.configure("Cabecera.TLabel", background=es.FONDO,
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     # Separador de la cabecera: divisoria fina que separa acciones de
     # configuración. Usa `borde` (sutil), no `borde_control`: no se pulsa.
     style.configure("Cabecera.TSeparator", background=es.BORDE)
     style.map("Cabecera.TSeparator", background=[("!disabled", es.BORDE)])
-    style.configure("Pie.TFrame", background=es.SUPERFICIE)
-    style.configure("Pie.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO_TENUE,
+    style.configure("Pie.TFrame", background=es.FONDO)
+    style.configure("Pie.TLabel", background=es.FONDO, foreground=es.TEXTO_TENUE,
                     font=es.fuente(es.TIPO_SM))
     # El divisor es una señal de ajuste, no un borde de panel dominante.
     # `sashthickness` fija la zona sensible al arrastre: por debajo de 4 px
@@ -76,7 +82,7 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
     style.configure("TLabelframe", background=es.SUPERFICIE,
                     bordercolor=es.SUPERFICIE, relief="flat", borderwidth=0)
     style.configure("TLabelframe.Label", background=es.SUPERFICIE,
-                    foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM, negrita=True))
+                    foreground=es.TEXTO, font=es.fuente(es.TIPO_MD, negrita=True))
 
     # Estados unificados de los controles. Cuatro señales, siempre las mismas:
     #   reposo  -> superficie elevada
@@ -99,7 +105,7 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
               bordercolor=estados_borde)
     style.configure("Primaria.TButton", background=es.ACENTO, foreground=es.ACENTO_TEXTO,
                     bordercolor=es.ACENTO, focuscolor=es.ACENTO_TEXTO, relief="flat",
-                    font=es.fuente(negrita=True), padding=(es.ESP["md"], es.ESP["xs"] + 2))
+                    font=es.fuente(negrita=True), padding=(es.ESP["lg"], es.ESP["sm"]))
     style.map("Primaria.TButton",
               background=[("disabled", es.SUPERFICIE_ALTA), ("pressed", es.ACENTO),
                           ("active", es.ACENTO_ACTIVO)],

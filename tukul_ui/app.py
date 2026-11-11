@@ -636,7 +636,7 @@ class TukulApp(tk.Tk):
         # después es lo que se recorta al faltar espacio.
         self._build_pie()
         panes = ttk.PanedWindow(self, orient="horizontal")
-        panes.pack(fill="both", expand=True, padx=es.ESP["sm"], pady=(0, es.ESP["xs"]))
+        panes.pack(fill="both", expand=True, padx=es.ESP["md"], pady=(es.ESP["sm"], es.ESP["md"]))
         self.panes = panes
         # El artículo va primero y con más peso: es el foco del trabajo.
         self._build_editor(panes)

@@ -41,7 +41,8 @@ class TopBar(ttk.Frame):
     ANCHO_ESTADO = 1080
 
     def __init__(self, parent: tk.Misc, callbacks: dict[str, Callable], menu: tk.Menu, state: Any, theme: str, **kwargs) -> None:
-        super().__init__(parent, style="Cabecera.TFrame", padding=(es.ESP["sm"], es.ESP["xs"], es.ESP["sm"], es.ESP["xs"]), **kwargs)
+        super().__init__(parent, style="Cabecera.TFrame",
+                         padding=(es.ESP["md"], es.ESP["sm"], es.ESP["md"], es.ESP["sm"]), **kwargs)
         self.callbacks = callbacks
         self.menu = menu
         # La barra consulta el perfil activo de la app: `state` es la propia

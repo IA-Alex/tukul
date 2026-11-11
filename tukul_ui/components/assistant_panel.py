@@ -10,7 +10,7 @@ from tukul_ui.tooltip import ToolTip
 
 class AssistantPanel(ttk.Labelframe):
     def __init__(self, parent: tk.Misc, callbacks: dict[str, Callable], **kwargs) -> None:
-        super().__init__(parent, text="ASISTENTE", padding=es.ESP["md"], **kwargs)
+        super().__init__(parent, text="Asistente", padding=(es.ESP["md"], es.ESP["sm"], es.ESP["md"], es.ESP["md"]), **kwargs)
         self.callbacks = callbacks
         self._build()
 
@@ -20,7 +20,7 @@ class AssistantPanel(ttk.Labelframe):
         # (compositor, acciones, estados, barra de aprobación) se reservan ANTES
         # que el historial expansible. Antes el historial iba primero y con el
         # panel corto la barra de aprobación quedaba en 1 px de alto.
-        self.compositor = ttk.Frame(self, style="Alta.TFrame", padding=es.ESP["xs"])
+        self.compositor = ttk.Frame(self, style="Alta.TFrame", padding=(es.ESP["sm"], es.ESP["sm"], es.ESP["sm"], es.ESP["xs"]))
         self.compositor.pack(side="bottom", fill="x")
 
         self.send_button = ttk.Button(self.compositor, text="Enviar", style="Primaria.TButton",
@@ -53,7 +53,8 @@ class AssistantPanel(ttk.Labelframe):
                 "Revisa ortografía, gramática, semántica y estructura del artículo "
                 "completo o de la selección. No modifica nada: propone cambios uno a uno.")
 
-        self.estado_label = ttk.Label(self, style="Superficie.TLabel")
+        self.estado_label = ttk.Label(self, style="Superficie.TLabel",
+                                      font=es.fuente(es.TIPO_SM, negrita=True))
         self.estado_label.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
 
         self.estado_ayuda = ttk.Label(self, style="TenueSuperficie.TLabel",
