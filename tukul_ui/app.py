@@ -74,9 +74,17 @@ KEYRING_TIMEOUT_SECONDS = 3.0
 # usuario, igual que añadir un artículo de contexto.
 THREAT_FEED_HOURS = 24
 THREAT_FEED_SOURCE_ID = "threat-feed:cve-recientes"
-# Corpus editorial local. La variable permite usar una carpeta externa sin
-# mezclar documentos personales con el código de Tukul.
-MEMORY_ROOT = Path(os.environ.get("TUKUL_MEMORY_ROOT", str(Path.home() / "Articulos"))).expanduser()
+# Corpus editorial local. Por defecto se usa la carpeta `Articulos/` que vive
+# junto al código del repo, de modo que la herramienta pueda analizar los
+# artículos del proyecto sin configuración previa. La carpeta está en
+# `.gitignore`: existe en el clon local, pero no se versiona (evita subir
+# binarios pesados). `TUKUL_MEMORY_ROOT` permite apuntar a otra carpeta externa
+# sin tocar el código.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_MEMORY_ROOT = _REPO_ROOT / "Articulos"
+MEMORY_ROOT = Path(
+    os.environ.get("TUKUL_MEMORY_ROOT", str(_DEFAULT_MEMORY_ROOT))
+).expanduser()
 MEMORY_INDEX_PATH = Path.home() / ".local" / "state" / "tukul" / "memory.sqlite3"
 # Caché local de entradas de fuentes oficiales para evitar consultas repetidas.
 FEED_CACHE_DIR = Path.home() / ".local" / "state" / "tukul" / "feed_cache"
@@ -200,7 +208,13 @@ class TukulApp(tk.Tk):
         # conversaciones. Vive junto al config para que una instalación tenga un
         # único directorio de estado y los tests puedan aislarlo.
         self.ui_state = storage.load_ui_state(config_path)
+        # El estado puede guardar una carpeta de memoria distinta de la actual.
+        # Se respeta salvo que apunte al default antiguo (`~/Articulos`): en ese
+        # caso se prefiere el nuevo default del repo, para que la herramienta
+        # analice los artículos del proyecto sin reconfigurar a mano.
         configured_memory_root = self.ui_state.get("memory_root", str(MEMORY_ROOT))
+        if configured_memory_root == str(Path.home() / "Articulos") and MEMORY_ROOT != Path.home() / "Articulos":
+            configured_memory_root = str(MEMORY_ROOT)
         self.memory_root = Path(configured_memory_root).expanduser()
         self.memory_index_path = MEMORY_INDEX_PATH
         # El zoom se aplica antes del tema para que las fuentes nazcan escaladas.
