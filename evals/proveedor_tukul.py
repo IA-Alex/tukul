@@ -36,7 +36,7 @@ if str(RAIZ) not in sys.path:
 from tukul_core.llm import SYSTEM_PROMPT  # noqa: E402
 from tukul_core.models import ChatMessage  # noqa: E402
 from tukul_core.prompting import build_editor_prompt  # noqa: E402
-from tukul_core.review import omitted_reasons, parse_findings  # noqa: E402
+from tukul_core.review import diagnose_findings, omitted_reasons  # noqa: E402
 
 ENDPOINT = os.environ.get(
     "TUKUL_EVAL_ENDPOINT", "https://api.deepinfra.com/v1/openai/chat/completions"
@@ -168,12 +168,16 @@ def main() -> int:
         print(json.dumps({"output": "", "error": f"respuesta inesperada: {error}"}))
         return 0
 
-    hallazgos = parse_findings(salida)
+    causa, hallazgos = diagnose_findings(salida)
     print(json.dumps({
         "output": _redactar(salida, clave),
         "metadata": {
             # El parser REAL del repo decide esto, igual que en la aplicación.
             "parse_findings_count": len(hallazgos),
+            # La CAUSA distingue «sin hallazgos» (éxito) de «sin JSON» o
+            # «esquema ajeno» (fallo), que colapsan en count=0. Las aserciones
+            # deben mirar esto, no solo el conteo.
+            "parse_cause": causa,
             "parse_findings_categories": sorted({h["category"] for h in hallazgos}),
             # Motivos que el modelo declara haber omitido a petición del usuario:
             # permite distinguir una revisión vacía legitima de una obediencia.
