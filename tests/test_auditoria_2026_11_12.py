@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import tempfile
 import tkinter as tk
+import tkinter.font as tkfont
 import unittest
 from pathlib import Path
 
@@ -58,8 +59,14 @@ class TestZoomCoherente(BaseConApp):
     """DF-001: al cambiar el zoom, todo portador con fuente explícita escala."""
 
     def _tamano(self, widget) -> int:
-        fuente = str(widget.cget("font")).split()
-        return int(fuente[1]) if len(fuente) > 1 else int(widget.cget("font"))
+        # Se resuelve la fuente con `tkfont.Font`, no con `split()` del string de
+        # `cget("font")`. Ese string varía según la fuente disponible: si la
+        # familia tiene espacios Tk la envuelve en llaves («{Nimbus Sans} 12»),
+        # así que `split()[1]` devolvía «Sans}» y `int()` reventaba. Ocurría solo
+        # en entornos sin la fuente del tema (el runner de CI), no en local.
+        # `tkfont.Font` acepta por igual un objeto Font, un nombre o un spec con
+        # llaves y expone el tamaño real con `actual("size")`.
+        return int(tkfont.Font(root=widget, font=widget.cget("font")).actual("size"))
 
     def test_la_linea_de_estado_crece_con_el_zoom(self):
         antes = self._tamano(self.app.estado_label)
