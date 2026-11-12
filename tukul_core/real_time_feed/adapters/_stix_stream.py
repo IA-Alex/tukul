@@ -7,9 +7,15 @@ práctica solo un puñado de objetos son técnicas (`attack-pattern`).
 
 Este módulo recorre el cuerpo por tramos y devuelve cada objeto de `objects` en
 cuanto está completo, usando `json.JSONDecoder.raw_decode` sobre un búfer
-deslizante. El búfer nunca contiene más de un objeto (más el resto del tramo
-pendiente), así que el pico de memoria queda acotado por el objeto más grande,
-no por el bundle entero.
+deslizante. Durante la extracción el búfer nunca contiene más de un objeto (más
+el resto del tramo pendiente), así que el pico de memoria queda acotado por el
+objeto más grande, no por el bundle entero.
+
+La cabecera (hasta el `[` de `objects`) sí se acumula entera mientras se busca
+la llave: un bundle real la declara en los primeros KB, así que en la práctica
+solo se retienen unos pocos tramos. Conservarla completa es lo que permite
+distinguir un JSON válido *sin* lista `objects` (bundle vacío → sin objetos) de
+un cuerpo ilegible (→ `StixStreamError`) cuando la respuesta se agota.
 
 El escaneo de la llave `"objects"` y del `[` es deliberadamente literal y solo
 se aplica a la cabecera; los objetos se extraen con el decodificador JSON real,
@@ -68,6 +74,14 @@ def iter_stix_objects(response: Any, max_bytes: int) -> Iterator[dict]:
         if _encontrar_inicio_lista(buffer):
             break
         if not leer():
+            # El cuerpo se agotó sin lista `objects`. Se distingue un bundle
+            # legítimo SIN objetos (JSON válido: `{}`, `{"foo": 1}`, …) de un
+            # cuerpo ilegible. El primero debe degradar a vacío —así lo hacía el
+            # `data.get("objects", [])` anterior y lo fija
+            # `test_un_json_no_objeto_no_rompe_el_tipo_de_objects`—; el segundo
+            # sí es un error real.
+            if _es_json_valido(buffer):
+                return
             raise StixStreamError("El bundle STIX no contiene una lista 'objects'.")
 
     # Fase 2: extraer objetos uno a uno.
@@ -79,17 +93,33 @@ def _encontrar_inicio_lista(buffer: bytearray) -> bool:
 
     Devuelve True cuando la llave y su `[` ya están en el búfer (y lo deja
     posicionado justo después). Sin la llave aún, devuelve False sin consumir.
+
+    Cuando la llave no aparece, el búfer se conserva intacto: si el cuerpo se
+    agota sin `objects`, hace falta completo para decidir si es un JSON válido
+    sin objetos (→ vacío) o un cuerpo ilegible (→ error). El costo es nulo en el
+    camino normal: un bundle real declara `objects` en los primeros KB, así que
+    el bucle sale antes de acumular nada grande.
     """
     idx = buffer.find(MARKER)
     if idx < 0:
-        # Conserva un margen por si la llave quedó partida entre tramos.
-        if len(buffer) > len(MARKER):
-            del buffer[: len(buffer) - len(MARKER)]
         return False
     corchete = buffer.find(b"[", idx + len(MARKER))
     if corchete < 0:
         return False
     del buffer[: corchete + 1]
+    return True
+
+
+def _es_json_valido(buffer: bytearray | bytes) -> bool:
+    """Indica si el búfer contiene un documento JSON completo y bien formado."""
+    import json
+
+    if not buffer:
+        return False
+    try:
+        json.loads(bytes(buffer))
+    except (ValueError, UnicodeDecodeError):
+        return False
     return True
 
 
