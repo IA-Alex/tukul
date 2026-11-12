@@ -29,7 +29,11 @@ RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 MAX_ATTEMPTS = 3
 BACKOFF_BASE = 0.5
 BACKOFF_MAX = 4.0
-MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+# El bundle STIX enterprise-attack.json pesa ~49-55 MB (medido 2026-11): con el
+# techo anterior de 32 MB, `fetch()` fallaba SIEMPRE con "supera el límite de
+# bytes" y MITRE ATT&CK nunca aportaba datos al pipeline de ideas. 64 MB cubre
+# el bundle real con margen sin dejar de acotar una respuesta anómala.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 USER_AGENT = (
     "Tukul/ThreatFeed (+https://github.com/; "
     "contacto: mantenedor del repositorio)"
@@ -51,13 +55,22 @@ class MitreAttackAdapter(SourceAdapter):
     def label(cls) -> str:
         return "MITRE ATT&CK Enterprise"
 
-    def fetch(self, hours: int) -> list[dict]:
-        """Obtiene técnicas ATT&CK, con cache interno de 1 hora."""
+    def fetch(self, hours: int, **kwargs: Any) -> list[dict]:
+        """Obtiene técnicas ATT&CK, con cache interno de 1 hora.
+
+        El bundle STIX completo pesa ~49 MB con ~26 000 objetos, de los que solo
+        un puñado son técnicas. El cache (de clase, con TTL de 1 h) guarda SOLO
+        los `attack-pattern` ya filtrados por tipo, no el bundle crudo: retener
+        todos los objetos mantendría decenas de MB de RAM durante una hora sin
+        aportar nada. El camino de cache también filtra por tipo y ventana; antes
+        devolvía los objetos crudos sin filtrar, colando entidades que no son
+        técnicas (`campaign--…`).
+        """
         now = datetime.now(UTC)
         if self._cache is not None and self._cache_ts is not None:
             delta = now - self._cache_ts
             if delta < timedelta(minutes=self._CACHE_TTL_MINUTES):
-                return self._cache
+                return self._techniques_in_window(self._cache, hours, now)
 
         request = urllib.request.Request(
             ATTACK_ENTERPRISE_URL, headers={"User-Agent": USER_AGENT}
@@ -67,8 +80,12 @@ class MitreAttackAdapter(SourceAdapter):
             try:
                 response = NO_REDIRECT_OPENER.open(request, timeout=HTTP_TIMEOUT)
                 data = json.loads(self._read_bounded(response))
-                objects = data.get("objects", [])
-                self._cache = objects
+                # Solo se cachean las técnicas: el bundle completo (decenas de
+                # MB) no debe permanecer en memoria durante el TTL del cache.
+                self._cache = [
+                    obj for obj in data.get("objects", [])
+                    if obj.get("type") == "attack-pattern"
+                ]
                 self._cache_ts = now
                 break
             except urllib.error.HTTPError as error:
@@ -97,13 +114,19 @@ class MitreAttackAdapter(SourceAdapter):
                 "No se pudo obtener MITRE ATT&CK tras los reintentos."
             )
 
+        return self._techniques_in_window(self._cache, hours, now)
+
+    @staticmethod
+    def _techniques_in_window(
+        objects: list[dict], hours: int, now: datetime
+    ) -> list[dict]:
+        """Filtra objetos STIX a técnicas ATT&CK modificadas en la ventana."""
         since = now - timedelta(hours=hours)
-        techniques = [
-            obj for obj in self._cache
+        return [
+            obj for obj in objects
             if obj.get("type") == "attack-pattern"
             and _parse_stix_date(obj.get("modified", ""), now) >= since
         ]
-        return techniques
 
     def normalize(self, raw: list[dict]) -> list[FeedEntry]:
         """Convierte técnicas ATT&CK en FeedEntry."""

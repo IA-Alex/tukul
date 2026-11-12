@@ -41,7 +41,7 @@ class EpssAdapter(SourceAdapter):
     def label(cls) -> str:
         return "FIRST EPSS (Exploit Prediction Scoring System)"
 
-    def fetch(self, hours: int, cve_ids: list[str] | None = None) -> list[dict]:
+    def fetch(self, hours: int, cve_ids: list[str] | None = None, **kwargs: Any) -> list[dict]:
         """Obtiene scores EPSS recientes.
 
         Args:

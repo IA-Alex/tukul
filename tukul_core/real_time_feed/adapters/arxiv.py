@@ -48,7 +48,7 @@ class ArxivAdapter(SourceAdapter):
     def label(cls) -> str:
         return "arXiv (papers académicos)"
 
-    def fetch(self, hours: int) -> list[dict]:
+    def fetch(self, hours: int, **kwargs: Any) -> list[dict]:
         """Obtiene papers recientes de cs.CR y cs.AI."""
         all_entries: list[dict] = []
         for cat in ("cs.CR", "cs.AI"):

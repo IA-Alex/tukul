@@ -59,6 +59,10 @@ exclude = [
     "build",
     "dist",
     "*.egg-info",
+    # `Articulos/` es contenido del usuario (artículos y plugins en Markdown y
+    # scripts auxiliares), no código del proyecto. No debe pasar por el linter:
+    # sus avisos bloqueaban la puerta de calidad por archivos ajenos al repo.
+    "Articulos",
 ]
 
 [tool.ruff.lint]

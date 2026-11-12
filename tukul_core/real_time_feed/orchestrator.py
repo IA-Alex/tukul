@@ -9,6 +9,7 @@ degradación granular por fuente, solo error si todas fallan.
 
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -75,6 +76,12 @@ class FeedOrchestrator:
         if not raw_entries:
             raise RuntimeError("Ninguna fuente respondió. Verifica tu conexión.")
 
+        # EPSS se consulta por CVE: pedirlo sin la lista devuelve 100 filas
+        # arbitrarias del día que casi nunca cruzan con los CVE de NVD, así que
+        # el enriquecimiento quedaba en no-op. Se re-consulta acotado a los CVE
+        # realmente obtenidos de NVD.
+        raw_entries = self._recover_epss_for_nvd(raw_entries, hours)
+
         # Enriquecer NVD con EPSS y KEV
         nvd = raw_entries.get("nvd", [])
         epss = raw_entries.get("epss", [])
@@ -97,6 +104,50 @@ class FeedOrchestrator:
             if entries is not None:
                 cached[sid] = entries
         return cached
+
+    def _recover_epss_for_nvd(self, raw_entries: dict[str, list], hours: int) -> dict[str, list]:
+        """Re-consulta EPSS acotado a los CVE de NVD y sustituye la fuente.
+
+        `FeedOrchestrator` llama `fetch(hours)` a todas las fuentes por igual,
+        pero EPSS responde por CVE: sin la lista devuelve una muestra arbitraria
+        del día. Aquí, ya con los CVE de NVD en mano, se pide EPSS solo para
+        esos IDs (mismo mecanismo que `threat_feed.fetch_epss`). Si EPSS no
+        estaba entre las fuentes, no se introduce; si falla, la degradación es
+        granular y se conserva lo que hubiera.
+        """
+        if "epss" not in raw_entries:
+            return raw_entries
+        cve_ids = _cve_ids_de(raw_entries.get("nvd", []))
+        if not cve_ids:
+            return raw_entries
+        adapter_cls = REGISTRY.get("epss")
+        if adapter_cls is None:
+            return raw_entries
+        # Troceado en lotes como `threat_feed.fetch_epss`: una query string con
+        # cientos de CVE es frágil y un lote caído no debe tumbar los demás.
+        self._log(f"  epss: re-consultando {len(cve_ids)} CVE de NVD...")
+        entries: list = []
+        fallos = 0
+        for i in range(0, len(cve_ids), EPSS_BATCH_SIZE):
+            lote = cve_ids[i:i + EPSS_BATCH_SIZE]
+            try:
+                adapter = adapter_cls()
+                raw = adapter.fetch(hours, cve_ids=lote)
+                entries.extend(adapter.normalize(raw))
+            except Exception as error:
+                fallos += 1
+                logger.warning(
+                    "FeedOrchestrator: EPSS dirigido por CVE falló (lote %d): %s",
+                    i // EPSS_BATCH_SIZE, error,
+                )
+        if not entries and fallos:
+            # Ningún lote respondió: se conserva la fuente previa (degradación
+            # granular) en vez de dejarla vacía.
+            return raw_entries
+        raw_entries["epss"] = entries
+        self._cache.set("epss", entries)
+        self._log(f"  epss: {len(entries)} entradas acotadas a NVD")
+        return raw_entries
 
     def _fetch_parallel(self, sources: list[str], hours: int) -> dict[str, list]:
         """Ejecuta fetch de fuentes en hilos paralelos."""
@@ -155,3 +206,22 @@ class FeedOrchestrator:
             self._cache.invalidate(source_id)
         else:
             self._cache.clear()
+
+
+# EPSS acepta lotes por query string; se trocea como en `threat_feed.fetch_epss`
+# para no construir URLs frágiles con cientos de CVE.
+EPSS_BATCH_SIZE = 100
+
+_CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$")
+
+
+def _cve_ids_de(entries: list) -> list[str]:
+    """Extrae los CVE IDs válidos de las entradas NVD (source_id `nvd:CVE-…`)."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        cve_id = str(getattr(entry, "source_id", "")).replace("nvd:", "", 1)
+        if _CVE_RE.match(cve_id) and cve_id not in seen:
+            seen.add(cve_id)
+            ids.append(cve_id)
+    return ids

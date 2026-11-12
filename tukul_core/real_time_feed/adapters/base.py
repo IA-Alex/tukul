@@ -10,6 +10,7 @@ El patrón de red es urllib puro con `NO_REDIRECT_OPENER` de
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from tukul_core.models import FeedEntry
 
@@ -30,11 +31,15 @@ class SourceAdapter(ABC):
         ...
 
     @abstractmethod
-    def fetch(self, hours: int) -> list[dict]:
+    def fetch(self, hours: int, **kwargs: Any) -> list[dict]:
         """Obtiene datos crudos desde la fuente.
 
         Args:
             hours: Ventana temporal hacia atrás desde ahora.
+            **kwargs: Parámetros opcionales específicos de la fuente. El
+                orquestador llama siempre con `fetch(hours)`; un adaptador
+                puede ampliar su firma (p. ej. EPSS acepta `cve_ids`) sin
+                romper el contrato común ni el descubrimiento por `REGISTRY`.
 
         Returns:
             Lista de diccionarios con datos sin normalizar.

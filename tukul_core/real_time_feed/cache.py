@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -137,9 +137,9 @@ class FeedCache:
         entries: list[FeedEntry] = []
         for item in raw:
             try:
-                published = datetime.fromisoformat(item.get("published", ""))
+                published = _aware_o_ahora(item.get("published", ""))
                 updated_raw = item.get("updated")
-                updated = datetime.fromisoformat(updated_raw) if updated_raw else None
+                updated = _aware_o_ahora(updated_raw) if updated_raw else None
                 entries.append(FeedEntry(
                     source_id=item.get("source_id", ""),
                     source=item.get("source", ""),
@@ -158,3 +158,15 @@ class FeedCache:
                 logger.warning("FeedCache: entrada inválida ignorada: %s", error)
                 continue
         return entries
+
+
+def _aware_o_ahora(raw: str) -> datetime:
+    """Parsea una fecha ISO del caché garantizando un datetime con zona.
+
+    Un caché escrito antes de la corrección de KEV guarda timestamps naive
+    (`isoformat()` sin offset). Releerlos tal cual reintroducía el
+    `TypeError` de comparación naive/aware en `normalize_all`. Aquí se
+    completan a UTC en vez de rechazarlos: el dato sigue siendo válido.
+    """
+    parsed = datetime.fromisoformat(raw)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed

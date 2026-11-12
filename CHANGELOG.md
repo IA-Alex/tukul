@@ -7,12 +7,43 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 ## [0.4.1] - 2026-11-12
 
 Cierra la auditoría de escritorio + diseño del 2026-11-12
-(`docs/audit/auditoria-2026-11-12.md`) y la reparación de residuos y pendientes
-derivada (`docs/audit/reparacion-2026-11-12.md`). Seis defectos confirmados de
-interfaz, más residuos y pendientes de auditorías previas. Sin cambios en el
-comportamiento del núcleo.
+(`docs/audit/auditoria-2026-11-12.md`), la reparación de residuos y pendientes
+derivada (`docs/audit/reparacion-2026-11-12.md`) y la auditoría
+conector-proveedor del pipeline de fuentes (`docs/audit/auditoria-conector-2026-11-12.md`).
+Seis defectos confirmados de interfaz, cinco de la integración con proveedores
+externos, más residuos y pendientes de auditorías previas.
 
-### Corregido
+### Corregido (integración con proveedores externos)
+
+- **El pipeline de ideas fallaba siempre (H-01).** `FeedOrchestrator.fetch_all`
+  abortaba con `TypeError: can't compare offset-naive and offset-aware
+  datetimes` en `FeedNormalizer.normalize_all`: NVD devuelve `published` sin
+  sufijo de zona (`2026-11-11T22:17:10.820`) y CISA KEV `dateAdded` como fecha
+  sin hora, así que `fromisoformat` producía datetimes naive que se comparaban
+  contra un `since` UTC. Se fija UTC en ambos adaptadores y, como defensa, al
+  releer el caché (`_aware_o_ahora`), que podía conservar timestamps naive de
+  versiones anteriores.
+- **MITRE ATT&CK nunca aportaba datos (H-02).** El techo de respuesta era de
+  32 MB y el bundle STIX `enterprise-attack.json` pesa ~49 MB, de modo que
+  `fetch()` fallaba siempre con «supera el límite de bytes». Se sube a 64 MB y
+  el cache pasa a guardar solo las técnicas (`attack-pattern`) en vez del bundle
+  crudo, que retenía decenas de MB durante el TTL. El camino de cache también
+  filtraba por tipo y ventana: antes devolvía los objetos crudos sin filtrar,
+  colando entidades que no son técnicas (`campaign--…`).
+- **El enriquecimiento NVD∩EPSS nunca cruzaba (H-03).** El orquestador llamaba
+  `fetch(hours)` a EPSS, que sin la lista de CVE devuelve 100 filas arbitrarias
+  del día. Ahora EPSS se re-consulta acotado a los CVE de NVD, troceado en lotes
+  de 100 (igual que `threat_feed.fetch_epss`) con degradación por lote.
+- **Contrato de `SourceAdapter.fetch` (H-04).** `EpssAdapter.fetch` aceptaba un
+  `cve_ids` opcional que el ABC no declaraba. Se amplía el contrato con
+  `**kwargs` y se alinean los cinco adaptadores.
+- **README prometía proveedores no seleccionables (H-05).** El selector solo
+  ofrece Compatible con OpenAI, DeepInfra y Novita AI; Anthropic y Gemini no son
+  seleccionables (el README afirmaba lo contrario). Se corrige el texto para
+  describir lo ofrecido y cómo usar un endpoint compatible con OpenAI para el
+  resto (DeepSeek, OpenRouter, Ollama…).
+
+### Corregido (interfaz)
 
 - **Zoom coherente (DF-001).** `Ctrl+=` / `Ctrl+-` escalaba la prosa y los
   controles ttk, pero dejaba al tamaño anterior la línea de estado, la barra de

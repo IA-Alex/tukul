@@ -42,7 +42,7 @@ class NvdAdapter(SourceAdapter):
     def label(cls) -> str:
         return "National Vulnerability Database (NVD)"
 
-    def fetch(self, hours: int) -> list[dict]:
+    def fetch(self, hours: int, **kwargs: Any) -> list[dict]:
         """Obtiene CVEs publicados en las últimas N horas."""
         if hours <= 0:
             raise RuntimeError("La ventana temporal debe ser positiva.")
@@ -156,8 +156,16 @@ class NvdAdapter(SourceAdapter):
 
 
 def _parse_nvd_date(raw: str) -> datetime:
-    """Parsea fecha ISO de NVD."""
+    """Parsea fecha ISO de NVD garantizando un datetime con zona.
+
+    NVD devuelve `published` sin sufijo de zona (`2026-11-11T22:17:10.820`),
+    así que `replace("Z", …)` no basta y `fromisoformat` producía un datetime
+    NAIVE. `normalize_all` lo compara contra un `since` aware y lanzaba
+    `TypeError`, tumbando todo el pipeline de ideas. Se asume UTC cuando no
+    viene offset (las fechas de NVD son UTC).
+    """
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return datetime.now(UTC)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed

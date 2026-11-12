@@ -158,6 +158,45 @@ class TestFetch:
         assert primera == segunda
         assert abrir.call_count == 1, "Dentro del TTL no debe haber segunda descarga."
 
+    def test_el_cache_hit_tambien_filtra_por_tipo_y_ventana(self):
+        """El camino de cache no puede devolver el bundle crudo sin filtrar.
+
+        Si el cache-hit devolviera los objetos tal cual, se cuelan entidades que
+        no son técnicas (`campaign--…`) en el pipeline de ideas y además
+        ignoran la ventana temporal.
+        """
+        objetos = [
+            _tecnica("T1059"),
+            _tecnica("T1105", modificada=_hoy_stix(horas=24 * 40)),  # fuera de 24 h
+            {"type": "campaign", "id": "C0001", "modified": _hoy_stix()},
+        ]
+        with patch.object(NO_REDIRECT_OPENER, "open", return_value=_response(objetos)):
+            adaptador = MitreAttackAdapter()
+            adaptador.fetch(24)              # descarga y filtra
+            en_cache = adaptador.fetch(24)   # cache-hit
+
+        assert [t["id"] for t in en_cache] == ["T1059"]
+        assert all(t["type"] == "attack-pattern" for t in en_cache)
+
+    def test_el_cache_guarda_solo_tecnicas_no_el_bundle_crudo(self):
+        """El cache no debe retener los ~26 000 objetos STIX (decenas de MB).
+
+        Solo las técnicas aportan algo; guardar el bundle completo mantenía
+        decenas de MB de RAM durante el TTL del cache.
+        """
+        objetos = [
+            _tecnica("T1059"),
+            {"type": "campaign", "id": "C0001", "modified": _hoy_stix()},
+            {"type": "intrusion-set", "id": "G0001", "modified": _hoy_stix()},
+            {"type": "malware", "id": "S0001", "modified": _hoy_stix()},
+        ]
+        with patch.object(NO_REDIRECT_OPENER, "open", return_value=_response(objetos)):
+            adaptador = MitreAttackAdapter()
+            adaptador.fetch(24)
+
+        assert [o["id"] for o in adaptador._cache] == ["T1059"]
+        assert all(o["type"] == "attack-pattern" for o in adaptador._cache)
+
     def test_refresca_la_cache_caducada(self):
         objetos = [_tecnica()]
         with patch.object(NO_REDIRECT_OPENER, "open", side_effect=[

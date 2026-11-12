@@ -41,7 +41,7 @@ class KevAdapter(SourceAdapter):
     def label(cls) -> str:
         return "CISA Known Exploited Vulnerabilities (KEV)"
 
-    def fetch(self, hours: int) -> list[dict]:
+    def fetch(self, hours: int, **kwargs: Any) -> list[dict]:
         """Obtiene el catálogo KEV completo.
 
         KEV no tiene filtro por fecha en el endpoint; se devuelve entero
@@ -83,7 +83,12 @@ class KevAdapter(SourceAdapter):
             description = vuln.get("shortDescription", "")
             date_added = vuln.get("dateAdded", "")
             try:
-                published = datetime.fromisoformat(date_added)
+                # `dateAdded` llega como fecha sin hora ("2026-11-10"):
+                # `fromisoformat` produce un datetime NAIVE y `normalize_all`
+                # lo compara contra un `since` aware → TypeError que tumbaba
+                # TODO el pipeline de ideas. Se fija UTC, igual que el resto
+                # de adaptadores (NVD/EPSS/arXiv/MITRE).
+                published = datetime.fromisoformat(date_added).replace(tzinfo=UTC)
             except (ValueError, TypeError):
                 published = datetime.now(UTC)
 

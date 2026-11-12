@@ -66,7 +66,7 @@ La conversación es por documento: cada artículo mantiene su propia hebra y se 
 
 ## LLM y key
 
-Abre **Configurar modelo…** (en el menú) para configurar el proveedor, endpoint, modelo y límites. Incluye plantillas para DeepInfra, DeepSeek, OpenRouter, Ollama, Anthropic, Gemini y cualquier API compatible con OpenAI. El selector no impide usar un endpoint personalizado.
+Abre **Configurar modelo…** (en el menú) para configurar el proveedor, endpoint, modelo y límites. El selector ofrece **Compatible con OpenAI**, **DeepInfra** y **Novita AI** (los tres hablan el protocolo OpenAI Chat Completions con sus endpoints predefinidos). Para cualquier otro servicio compatible con OpenAI —DeepSeek, OpenRouter, Ollama y similares— usa la opción **Compatible con OpenAI** con su endpoint completo, por ejemplo `https://openrouter.ai/api/v1/chat/completions`; el selector no impide usar un endpoint personalizado.
 
 La key puede mantenerse solo durante la sesión o recordarse en el llavero del sistema mediante `keyring`; nunca se escribe en el TOML ni en un JSON local. Una variable de entorno con el nombre configurado tiene prioridad. Para recordar la key:
 

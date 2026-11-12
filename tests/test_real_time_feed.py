@@ -622,6 +622,79 @@ class TestFeedOrchestrator:
         o.invalidate_cache("x")
         o.invalidate_cache()  # total
 
+    def test_epss_se_reconsulta_con_los_cve_de_nvd(self, tmp_path, monkeypatch):
+        """El orquestador pide EPSS acotado a los CVE de NVD, no una muestra.
+
+        Sin esto, EPSS `fetch(24)` sin `cve_ids` devuelve 100 filas arbitrarias
+        del día que casi nunca cruzan con NVD: el enriquecimiento quedaba en
+        no-op silencioso.
+        """
+        llamadas: list[list[str] | None] = []
+
+        class _EpssDoble(_AdaptadorDoble):
+            def fetch(self, hours, cve_ids=None):
+                llamadas.append(cve_ids)
+                if cve_ids:
+                    # severity=9.8 → epss_score 0.98 (> 0.9 → alta probabilidad).
+                    return [_entrada(f"epss:{cve}", "epss", severity=9.8)
+                            for cve in cve_ids]
+                return [_entrada("epss:CVE-0000-9999", "epss")]
+
+        registro = {
+            "nvd": lambda: _AdaptadorDoble("nvd", [
+                _entrada("nvd:CVE-2026-0001", "nvd", severity=7.5),
+                _entrada("nvd:CVE-2026-0002", "nvd", severity=6.0),
+            ]),
+            "epss": lambda: _EpssDoble("epss"),
+        }
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        resultado = o.fetch_all(sources=["nvd", "epss"])
+
+        # La última llamada a EPSS lleva los CVE de NVD, no None.
+        assert llamadas[-1] is not None
+        assert set(llamadas[-1]) == {"CVE-2026-0001", "CVE-2026-0002"}
+        # Y el enriquecimiento aplicó el tag EPSS al CVE correspondiente.
+        nvd_1 = next(e for e in resultado if e.source_id == "nvd:CVE-2026-0001")
+        assert "alta_probabilidad_explotacion" in nvd_1.tags
+
+    def test_epss_se_trocea_en_lotes_de_cien(self, tmp_path, monkeypatch):
+        """Con muchos CVE, EPSS se pide en lotes de 100 (URLs no frágiles).
+
+        Una query string con cientos de `cve=` es frágil; `threat_feed` ya
+        trocea y el orquestador debe hacer lo mismo. Un lote caído no debe
+        tumbar los demás (degradación granular).
+        """
+        lotes: list[list[str]] = []
+
+        class _EpssDoble(_AdaptadorDoble):
+            def fetch(self, hours, cve_ids=None):
+                if cve_ids:
+                    lotes.append(list(cve_ids))
+                    if len(lotes) == 2:  # el 2.º lote falla
+                        raise RuntimeError("lote caído")
+                    return [_entrada(f"epss:{cve}", "epss", severity=9.8)
+                            for cve in cve_ids]
+                return []
+
+        total_cve = orchestrator_module.EPSS_BATCH_SIZE * 2 + 5
+        nvd = [
+            _entrada(f"nvd:CVE-2026-{i:04d}", "nvd", severity=7.0)
+            for i in range(total_cve)
+        ]
+        registro = {
+            "nvd": lambda: _AdaptadorDoble("nvd", list(nvd)),
+            "epss": lambda: _EpssDoble("epss"),
+        }
+        monkeypatch.setattr(orchestrator_module, "REGISTRY", registro)
+        o = FeedOrchestrator(tmp_path / "c.json")
+        resultado = o.fetch_all(sources=["nvd", "epss"])
+
+        # Tres lotes: 100 + 100 + 5.
+        assert [len(lote) for lote in lotes] == [100, 100, 5]
+        # El lote 2 falló, pero los otros dos se mantienen.
+        assert len([e for e in resultado if e.source == "epss"]) == 105
+
 
 # ─── Tests de EpssAdapter: contrato de red y normalización ─────────────────
 # EPSS enriquece NVD con la probabilidad de explotación. Sus rutas de error
