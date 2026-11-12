@@ -15,14 +15,16 @@ class AssistantPanel(ttk.Labelframe):
         self._build()
 
     def _build(self) -> None:
+        # Una sola línea de orientación: resume a qué puede apuntar una consulta
+        # (artículo, selección, estructura) sin repetir el título del panel ni
+        # narrar la función de la sección, que ya explican la bienvenida y el
+        # tooltip de «Enviar».
         self.guia = ttk.Frame(self, style="Superficie.TFrame")
         self.guia.pack(side="top", fill="x", pady=(0, es.ESP["sm"]))
-        ttk.Label(self.guia, text="Tu compañero de escritura",
-                  style="PanelTitulo.TLabel").pack(anchor="w")
         ttk.Label(self.guia,
                   text="Pregunta sobre el artículo, una selección o su estructura.",
                   style="PanelMeta.TLabel", wraplength=520, justify="left").pack(
-                      anchor="w", pady=(2, 0))
+                      anchor="w")
 
         # Orden de `pack` deliberado: con pack, lo que se coloca DESPUÉS se
         # recorta primero cuando falta espacio. Por eso los controles de abajo

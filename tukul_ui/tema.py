@@ -14,8 +14,37 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable
 from tkinter import ttk
+from typing import Any
 
 from tukul_ui import estilo as es
+
+
+def estilizar_area_texto(area: Any) -> None:
+    """Viste un `ScrolledText` con la paleta vigente.
+
+    `tkinter.scrolledtext.ScrolledText` no es un widget compuesto de ttk: por
+    dentro crea un `tkinter.Frame` y un `tkinter.Scrollbar` **clásicos**. Los
+    estilos `Vertical.TScrollbar` de `aplicar_estilos` no los alcanzan, así que
+    el editor, el campo de mensaje y el historial mostraban el gris por defecto
+    de Tk (`#d9d9d9` con canal `#b3b3b3`) dentro de un tema oscuro.
+
+    Se configuran las dos piezas (marco y barra) con los tokens del tema. Es
+    idempotente: se llama al construir cada área y otra vez al cambiar de tema,
+    sin recrear el widget.
+    """
+    try:
+        area.vbar.configure(
+            background=es.BORDE_CONTROL, troughcolor=es.SUPERFICIE,
+            activebackground=es.FOCO, borderwidth=0, highlightthickness=0,
+            elementborderwidth=0,
+        )
+        # El marco interior asoma como un canto del ancho de la barra.
+        area.frame.configure(background=es.SUPERFICIE_ALTA, borderwidth=0,
+                             highlightthickness=0)
+    except (AttributeError, tk.TclError):
+        # Un widget sustituido por un doble de prueba puede no exponer estas
+        # piezas; el estilo no es tan crítico como para interrumpir el repintado.
+        pass
 
 
 def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None]) -> None:
@@ -56,8 +85,6 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     style.configure("Titulo.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO,
                     font=es.fuente(negrita=True))
-    style.configure("PanelTitulo.TLabel", background=es.SUPERFICIE,
-                    foreground=es.TEXTO, font=es.fuente(es.TIPO_MD, negrita=True))
     style.configure("PanelMeta.TLabel", background=es.SUPERFICIE,
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     # Franja inferior: continua, tenue y de una sola pieza.

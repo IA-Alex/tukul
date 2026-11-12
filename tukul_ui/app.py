@@ -51,7 +51,7 @@ from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from tukul_ui.ideas import IdeasController
 from tukul_ui.llm_session_manager import LLMSessionManager
 from tukul_ui.request_lifecycle import RequestLifecycle
-from tukul_ui.tema import aplicar_estilos
+from tukul_ui.tema import aplicar_estilos, estilizar_area_texto
 from tukul_ui.worker_threads import WorkerThreads
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
@@ -558,16 +558,19 @@ class TukulApp(tk.Tk):
             self.editor.configure(background=es.SUPERFICIE, foreground=es.TEXTO,
                                   insertbackground=es.ACENTO, selectbackground=es.SELECCION,
                                   highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
+            estilizar_area_texto(self.editor)
         if getattr(self, "input", None) is not None and self.input.winfo_exists():
             # Preservar el color tenue si el placeholder está activo
             input_fg = es.TEXTO_TENUE if self._placeholder_activo else es.TEXTO
             self.input.configure(background=es.SUPERFICIE_ALTA, foreground=input_fg,
                                  insertbackground=es.ACENTO, selectbackground=es.SELECCION,
                                  highlightbackground=es.SUPERFICIE_ALTA, highlightcolor=es.FOCO)
+            estilizar_area_texto(self.input)
         if getattr(self, "history", None) is not None and self.history.winfo_exists():
             self.history.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
                                    insertbackground=es.ACENTO, selectbackground=es.SELECCION,
                                    highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
+            estilizar_area_texto(self.history)
             self._configurar_tags_historial()
         # Etiqueta de aprobación de contexto: colores directos sobre ttk.Label.
         # Vive en AssistantPanel, no directamente en TukulApp.
@@ -669,6 +672,10 @@ class TukulApp(tk.Tk):
             self.toggle_asistente()
         self._preparar_enunciado_inicial()
         self.editor.focus_set()
+        # `_theme()` corre ANTES de `_build()` (los widgets aún no existen), así
+        # que el vestido inicial de las áreas de texto —que no son ttk— se hace
+        # aquí una vez, ya con los tres widgets creados.
+        self._reaplicar_estilos_widgets()
         # Iniciar el consumidor de eventos de UI (thread-safe)
         self.process_ui_events()
 
@@ -1032,7 +1039,14 @@ class TukulApp(tk.Tk):
         self.status.set("Zoom: 100%")
 
     def _aplicar_escala(self) -> None:
-        """Reaplica el tema y las fuentes de los campos de texto tras cambiar el zoom."""
+        """Reaplica el tema y las fuentes de todo portador con fuente explícita.
+
+        Además de `_theme()` (que repinta los estilos ttk), hay piezas cuyo
+        tamaño NO depende de ttk y que se quedaban al zoom anterior:
+        las áreas de texto, la línea de estado, la barra de aprobación y los
+        menús de Tk. Sin repintarlas, Ctrl+± escalaba el cuerpo de la prosa pero
+        dejaba esos controles desalineados.
+        """
         self._theme()
         self.editor.configure(font=es.fuente(es.TIPO_LG))
         self.input.configure(font=es.fuente())
@@ -1042,6 +1056,36 @@ class TukulApp(tk.Tk):
         self.history.tag_configure("nota", font=es.fuente(es.TIPO_SM))
         self.history.tag_configure("you", font=es.fuente(negrita=True))
         self.history.tag_configure("bot", font=es.fuente(negrita=True))
+        self._repintar_fuentes_fijas()
+
+    def _repintar_fuentes_fijas(self) -> None:
+        """Reescala los widgets con `font=` explícita y los menús de Tk.
+
+        `ttk.Style` recoloca la fuente de un `ttk.Label` solo si el estilo la
+        define; cuando el widget fija `font=` propia, esa manda y el cambio de
+        zoom no la toca. Se repintan aquí, en un único punto, para que zoom y
+        tema compartan un solo camino.
+        """
+        panel = getattr(self, "panel_asistente", None)
+        if panel is not None:
+            for etiqueta, tamano, negrita in (
+                (getattr(panel, "estado_label", None), es.TIPO_SM, True),
+                (getattr(panel, "aprobacion_label", None), es.TIPO_SM, False),
+            ):
+                if etiqueta is None:
+                    continue
+                try:
+                    if etiqueta.winfo_exists():
+                        etiqueta.configure(font=es.fuente(tamano, negrita=negrita))
+                except tk.TclError:
+                    pass
+        for menu in (getattr(self, "menu_archivo", None), getattr(self, "menu_recientes", None)):
+            if menu is None:
+                continue
+            try:
+                menu.configure(font=es.fuente())
+            except tk.TclError:
+                pass
 
     def _refrescar_menu_recientes(self) -> None:
         """Repinta el submenú de recientes desde la lista en memoria."""

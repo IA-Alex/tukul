@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from . import version
 from .logging_config import file_logging_status, setup_logging
 
 # El logger por módulo (`getLogger(__name__)`) no tiene handlers: su salida nunca
@@ -198,6 +199,9 @@ def status_string(status: HealthStatus | None = None) -> str:
     else:
         rotulo = "SIN CONFIGURAR (avisos, ningún error)" if _siguiente_paso(status) else "AVISOS"
     lines = [f"Salud: {rotulo} ({status.timestamp})"]
+    # Identidad de la compilación: sin esto, un reporte de soporte no sabe qué
+    # versión ni qué commit produjo el fallo.
+    lines.append(f"  versión: {version.identidad()}")
     if status.config_path:
         # Decir qué archivo se inspeccionó es lo que hace auditable el resultado.
         lines.append(f"  config: {status.config_path}")

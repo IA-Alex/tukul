@@ -2,8 +2,9 @@
 
 Extraída de TukulApp (ver auditoría 2026-08-21): estos casos cubrían
 antes el mismo comportamiento pero solo a través de TestAprobacionDeContexto
-y TestAprobacionesDesalojoFIFO en tests/test_auditoria_regresion.py, que
-necesitan una ventana real. Los que no dependen de Tk quedan acá.
+y TestAprobacionesDesalojoFIFO en
+tests/test_contexto_aprobacion_regresion.py, que necesitan una ventana real.
+Los que no dependen de Tk quedan acá.
 """
 import unittest
 

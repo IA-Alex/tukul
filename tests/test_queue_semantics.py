@@ -4,7 +4,7 @@ Las clases de semántica de colas y de granularidad de aprobación que vivían a
 se eliminaron en la auditoría: no ejecutaban código de producción (construían
 tuplas locales y afirmaban sobre ellas) y describían una arquitectura de dos
 colas y un banner que la aplicación nunca tuvo. Su cobertura real vive ahora en
-tests/test_auditoria_regresion.py.
+los tests de regresión de auditoría (`tests/test_*_regresion.py`).
 """
 import sys
 import unittest

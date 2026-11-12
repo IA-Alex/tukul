@@ -91,6 +91,10 @@ pip install -e ".[dev]"
 ./scripts/quality-gate.sh   # ruff + mypy + pytest con cobertura (mínimo 70 %)
 ```
 
+Las pruebas de interfaz requieren un servidor X (`xvfb-run -a python -m pytest`),
+no admiten omisiones y el detalle está en [TESTING.md](docs/TESTING.md). Las
+convenciones de commit, ramas y versionado, en [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Contexto de amenazas (CVE)
 
 Además de artículos de archivo, el contexto puede incluir un resumen de CVEs

@@ -39,6 +39,11 @@ class TopBar(ttk.Frame):
     # Por debajo de este ancho de ventana el estado del documento se retira
     # para dejar sitio al nombre del artículo (ver `_ajustar_por_ancho`).
     ANCHO_ESTADO = 1080
+    # Ancho máximo del nombre del artículo, en píxeles. El recorte era por
+    # caracteres (`nombre[:41]`): con una fuente ancha o con zoom, 41 caracteres
+    # desbordaban, y con una estrecha se perdía nombre que cabía. Se mide con la
+    # fuente real, igual que el chip de modelo.
+    ANCHO_DOCUMENTO = 420
 
     def __init__(self, parent: tk.Misc, callbacks: dict[str, Callable], menu: tk.Menu, state: Any, theme: str, **kwargs) -> None:
         super().__init__(parent, style="Cabecera.TFrame",
@@ -184,14 +189,24 @@ class TopBar(ttk.Frame):
         self.profile_chip.config(text=self._texto_modelo())
         self.tooltip_modelo.set_texto(self._tooltip_modelo())
 
+    def _nombre_recortado(self, nombre: str) -> str:
+        """Recorta el nombre por píxeles, no por número de caracteres."""
+        ancho = self.documento_label.winfo_width() if self.documento_label.winfo_ismapped() else 0
+        limite = ancho if ancho > 1 else self.ANCHO_DOCUMENTO
+        fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
+        if fuente.measure(nombre) <= limite:
+            return nombre
+        recorte = nombre
+        while recorte and fuente.measure(f"{recorte}…") > limite:
+            recorte = recorte[:-1]
+        return f"{recorte}…" if recorte else nombre
+
     def actualizar_documento(self, nombre: str | None) -> None:
         """Muestra el artículo activo; sin documento, lo dice en vez de callar."""
         if not nombre:
             self.documento_var.set(self.TEXTO_SIN_DOCUMENTO)
             return
-        limite = 42
-        visible = nombre if len(nombre) <= limite else nombre[: limite - 1] + "…"
-        self.documento_var.set(visible)
+        self.documento_var.set(self._nombre_recortado(nombre))
 
     def actualizar_estado(self, theme: str) -> None:
         """El botón anuncia el tema al que se irá; el actual se ve en pantalla."""

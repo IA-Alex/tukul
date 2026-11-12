@@ -184,7 +184,12 @@ def show_review_dialog(app, findings: list[dict[str, str]]):
                        selectforeground=es.TEXTO, relief="flat", highlightthickness=1,
                        highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
                        borderwidth=0, font=es.fuente(), activestyle="none")
-    items.pack(fill="both", expand=True, padx=(0, es.ESP["sm"]))
+    # Un artículo largo produce decenas de hallazgos; sin barra, las filas fuera
+    # de vista solo se alcanzaban con el teclado y nada indicaba que hubiera más.
+    items_scroll = ttk.Scrollbar(left, orient="vertical", command=items.yview)
+    items.configure(yscrollcommand=items_scroll.set)
+    items_scroll.pack(side="right", fill="y")
+    items.pack(side="left", fill="both", expand=True, padx=(0, es.ESP["sm"]))
     for item in findings:
         items.insert("end", _resumen_hallazgo(item))
     box = app._text(right, wrap="word", padx=es.ESP["md"], pady=es.ESP["sm"],

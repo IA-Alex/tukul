@@ -20,6 +20,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Convenciones de docstrings | [DOCSTRING_GUIDE.md](DOCSTRING_GUIDE.md) | desarrollo | SUPPORTING / mantenedores |
 | Auditorías puntuales | [audit/](audit/) (informes fechados) | calidad | HISTORICAL |
 | Uso rápido | [../README.md](../README.md) | usuarios | SUPPORTING / mantenedores |
+| Flujo de contribución | [../CONTRIBUTING.md](../CONTRIBUTING.md) | desarrollo, revisores | NORMATIVE / mantenedores |
 | Historial | [archive/README.md](archive/README.md) y `CHANGELOG.md` | contexto histórico | HISTORICAL |
 
 ## Clasificación

@@ -316,8 +316,13 @@ class IdeasController:
                 "publico general": "\U0001f465",
             }.get(idea.target_audience, "\U0001f464")
             confidence_pct = int(idea.confidence * 100)
+            # El emoji refuerza, pero la urgencia y la audiencia van escritas: el
+            # color del emoji no puede ser el único portador (el propio sistema
+            # de estados de la app lo prohíbe) y sin fuente de emoji de color la
+            # fila quedaría en caja vacía.
             display = (
-                f"{idx:2d}. [{urgency_icon}{audience_label}] "
+                f"{idx:2d}. {urgency_icon} {idea.urgency} · "
+                f"{audience_label} {idea.target_audience} — "
                 f"{idea.title[:80]} "
                 f"({confidence_pct}% confianza)"
             )

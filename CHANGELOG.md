@@ -4,6 +4,64 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.4.1] - 2026-11-12
+
+Cierra la auditoría de escritorio + diseño del 2026-11-12
+(`docs/audit/auditoria-2026-11-12.md`) y la reparación de residuos y pendientes
+derivada (`docs/audit/reparacion-2026-11-12.md`). Seis defectos confirmados de
+interfaz, más residuos y pendientes de auditorías previas. Sin cambios en el
+comportamiento del núcleo.
+
+### Corregido
+
+- **Zoom coherente (DF-001).** `Ctrl+=` / `Ctrl+-` escalaba la prosa y los
+  controles ttk, pero dejaba al tamaño anterior la línea de estado, la barra de
+  aprobación y los menús (Barra, Recientes), cuyas fuentes son explícitas y no
+  dependen de `ttk.Style`. Ahora se repintan en `_repintar_fuentes_fijas`.
+- **Scrollbars y cantos de las áreas de texto (DF-002).** `ScrolledText` usa
+  `tkinter.Frame` y `tkinter.Scrollbar` clásicos, que ignoran los estilos
+  `*.TScrollbar`: editor, campo de mensaje e historial mostraban el gris por
+  defecto de Tk (`#d9d9d9` / `#b3b3b3`) dentro del tema oscuro. Nuevo
+  `tema.estilizar_area_texto`, aplicado al construir y al cambiar de tema.
+- **Listado de la revisión sin scroll (DF-003).** El `Listbox` de hallazgos no
+  tenía barra: con un artículo largo las filas fuera de vista solo se alcanzaban
+  con el teclado. Se añade `ttk.Scrollbar` enlazada.
+- **Urgencia y audiencia solo por emoji (DF-004).** La lista de ideas señalaba
+  urgencia y audiencia únicamente con emoji (color y posible caja vacía). Ahora
+  van escritas junto al emoji, como exige el propio sistema de estados.
+- **Narración en los paneles (DF-005).** Se retiran los subtítulos «Tu espacio
+  de escritura» y «Tu compañero de escritura»; queda la etiqueta del panel y una
+  sola línea de alcance en el asistente.
+- **Recorte del nombre del artículo (DF-006).** Se medía por caracteres
+  (`nombre[:41]`) mientras el chip de modelo se medía por píxeles; ahora ambos
+  usan píxeles, de modo que el recorte no desborda con fuentes anchas o zoom.
+- **Lockfiles divergentes (auditoría 2026-11-04).** `uv.lock` estaba obsoleto:
+  fijaba `tukul 0.3.2` y no conocía `pytest-timeout` ni `locust` añadidos después
+  a `pyproject.toml`, con versiones de `pytest`/`ruff`/`mypy` distintas de
+  `requirements-dev.lock`. Regenerado con `uv lock --upgrade` y
+  `requirements-dev.lock` con `uv export` (derivado de `uv.lock` por
+  construcción). `tests/test_lockfiles_equivalentes.py` falla si vuelven a
+  divergir.
+
+### Añadido
+
+- `tukul_core/version.py`: versión del paquete (metadatos) y commit (`TUKUL_COMMIT`
+  o `git`). `--health` los imprime, para que un reporte de soporte sepa qué
+  compilación falló.
+- `CONTRIBUTING.md`: preparación del entorno, quality gate, convenciones de
+  commit (Conventional Commits), ramas, versionado semántico y regla documental.
+- `tests/test_lockfiles_equivalentes.py`: garantiza que las dependencias directas
+  coinciden entre `uv.lock` y `requirements-dev.lock` y que `uv.lock` conoce lo
+  declarado en `pyproject.toml`.
+- `tests/_regresion_helpers.py` y los seis `tests/test_*_regresion.py`: el
+  archivo `test_auditoria_regresion.py` (1.544 líneas, 22 clases de dominios
+  distintos) se dividió por dominio, sin perder ninguna de las 69 pruebas.
+
+### Eliminado
+
+- Estilo ttk `PanelTitulo.TLabel`, sin uso tras retirar la narración de los
+  paneles (DF-005).
+
 ## [0.4.0] - 2026-11-10
 
 Esta versión cierra la auditoría arquitectónica del 2026-11-10: retira código
