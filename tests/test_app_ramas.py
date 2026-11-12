@@ -314,6 +314,25 @@ class TestRecientesYDocumentos(_BaseApp):
 class TestEnvioDesdeElInput(_BaseApp):
     """Validaciones que evitan turnos fantasma en el historial."""
 
+    def test_enter_envia_dos_mensajes_seguidos_sin_requerir_otro_focus_in(self):
+        self.app.input.focus_force()
+        self._asentar()
+
+        with patch.object(self.app, "request") as enviar:
+            self.app.input.insert("1.0", "Primer mensaje")
+            self.app.input.event_generate("<Return>")
+
+            # El primer envío deja el Text enfocado y listo para escribir el
+            # segundo mensaje sin depender de un segundo FocusIn.
+            self.assertFalse(self.app._placeholder_activo)
+            self.assertEqual(self.app.input.get("1.0", "end-1c"), "")
+
+            self.app.input.insert("1.0", "Segundo mensaje")
+            self.app.input.event_generate("<Return>")
+
+        self.assertEqual([llamada.args[0] for llamada in enviar.call_args_list],
+                         ["Primer mensaje", "Segundo mensaje"])
+
     def test_enter_con_el_placeholder_activo_no_envia(self):
         self.app._placeholder_activo = True
         with patch.object(self.app, "request") as enviar:

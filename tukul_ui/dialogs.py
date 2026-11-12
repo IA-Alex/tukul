@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from pathlib import Path
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from tukul_core import storage
 from tukul_core.llm import PROVIDERS, LlmError, provider_spec, validate_endpoint
 from tukul_core.logging_config import setup_logging
+from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.models import LlmProfile
 from tukul_ui import estilo as es
+from tukul_ui.worker_threads import WorkerThreads
 
 logger = setup_logging()
 
@@ -409,6 +412,56 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     ttk.Button(barra_perfil, text="Borrar", command=lambda: _borrar()).pack(
         side="left", padx=(es.ESP["xs"], 0))
 
+    # --- Memoria local ------------------------------------------------------
+    memoria = ttk.Frame(frame, style="Superficie.TFrame")
+    memoria.pack(fill="x", pady=(0, es.ESP["md"]))
+    ttk.Label(memoria, text="MEMORIA LOCAL", style="Tenue.TLabel").grid(
+        row=0, column=0, columnspan=3, sticky="w", pady=(0, es.ESP["sm"]))
+    memoria.columnconfigure(1, weight=1)
+    memoria_root = tk.StringVar(value=str(app.memory_root))
+    memoria_estado = ttk.Label(memoria, text="Se indexa al buscar un tema.", style="Tenue.TLabel")
+    ttk.Label(memoria, text="Carpeta de artículos").grid(
+        row=1, column=0, sticky="w", padx=(0, es.ESP["md"]))
+    ttk.Entry(memoria, textvariable=memoria_root).grid(
+        row=1, column=1, sticky="ew", pady=es.ESP["xs"])
+
+    def elegir_memoria() -> None:
+        seleccionada = filedialog.askdirectory(
+            parent=dialog, title="Elegir carpeta de memoria",
+            initialdir=memoria_root.get() or str(Path.home()),
+        )
+        if seleccionada:
+            memoria_root.set(seleccionada)
+
+    def reindexar_memoria() -> None:
+        raiz = Path(memoria_root.get()).expanduser()
+        if not raiz.is_dir():
+            messagebox.showerror("Memoria local", "La carpeta indicada no existe.", parent=dialog)
+            return
+        memoria_estado.config(text="Reindexando artículos…")
+
+        def work() -> None:
+            try:
+                repository = FileMemoryRepository(
+                    MemoryPolicy(root=raiz, max_file_bytes=50_000)
+                )
+                with CorpusIndex(app.memory_index_path) as index:
+                    stats = index.refresh(repository)
+                detail = (f"Índice actualizado: {stats.scanned} revisados, "
+                          f"{stats.indexed} actualizados, {stats.unchanged} sin cambios.")
+            except (OSError, ValueError) as error:
+                detail = f"No se pudo indexar: {error}"
+            if not app.closing:
+                dialog.after(0, lambda: memoria_estado.config(text=detail))
+
+        WorkerThreads.start(work)
+
+    ttk.Button(memoria, text="Elegir…", command=elegir_memoria).grid(
+        row=1, column=2, padx=(es.ESP["sm"], 0))
+    ttk.Button(memoria, text="Reindexar", command=reindexar_memoria).grid(
+        row=2, column=1, sticky="w", pady=(0, es.ESP["xs"]))
+    memoria_estado.grid(row=2, column=2, sticky="w", padx=(es.ESP["sm"], 0))
+
     # El formulario tiene más campos que caben en una pantalla pequeña. El
     # canvas conserva todas las acciones alcanzables sin imponer una ventana
     # mínima enorme.
@@ -618,6 +671,12 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         active = selected.get()
         if not _aplicar_a_working(active):
             return
+        nueva_memoria = Path(memoria_root.get()).expanduser()
+        if not nueva_memoria.is_dir():
+            messagebox.showerror(
+                "Memoria local", "La carpeta de artículos indicada no existe.", parent=dialog
+            )
+            return
 
         # Transaccional: persistir PRIMERO, actualizar app solo si éxito.
         try:
@@ -641,6 +700,12 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         # ese modal bloqueaba la app esperando un clic que nunca llega).
         try:
             _persistir_credencial(app, active, key.get().strip(), remember.get())
+            app.memory_root = nueva_memoria.resolve()
+            app.ui_state["memory_root"] = str(app.memory_root)
+            controller = getattr(app, "_contexto_ctrl", None)
+            if controller is not None:
+                controller._memory_root = app.memory_root
+            storage.save_ui_state(app._snapshot_estado_ui(), app.config_path)
             messagebox.showinfo("Configuración", "Perfil guardado.", parent=dialog)
         except (OSError, RuntimeError) as error:
             logger.warning("La key no se pudo recordar; queda solo en sesión: %s", error)

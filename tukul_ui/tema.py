@@ -126,10 +126,9 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
               background=[("active", es.SUPERFICIE_ACTIVA), ("pressed", es.SUPERFICIE)],
               foreground=[("disabled", es.TEXTO_TENUE), ("active", es.TEXTO)],
               bordercolor=[("focus", es.FOCO)])
-    # «Cancelar» en reposo: se queda visible (así se descubre la salida)
-    # pero sin relieve ni borde, como una palabra y no como un botón
-    # apagado. Deshabilitado no dice «Revisar está roto»: dice «aquí no hay
-    # nada que cancelar». Al haber una consulta vuelve el botón normal.
+    # «Cancelar» usa un estilo propio durante la petición. En reposo el
+    # control permanece oculto, así que no se confunde una etiqueta inerte con
+    # una acción disponible.
     style.configure("Inactivo.TButton", background=es.SUPERFICIE,
                     foreground=es.TEXTO_TENUE, bordercolor=es.SUPERFICIE,
                     lightcolor=es.SUPERFICIE, darkcolor=es.SUPERFICIE,

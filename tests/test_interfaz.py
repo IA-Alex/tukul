@@ -10,6 +10,7 @@ constantes copiadas. Cubren los criterios de aceptación:
 """
 import sys
 import tempfile
+import threading
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -155,11 +156,10 @@ class TestVentanaReal(unittest.TestCase):
             cancelar_desactivado = "disabled" in self.app.cancel_button.state()
             self.assertEqual(enviar_desactivado, activo,
                              f"{estado.name}: Enviar debe estar {'inhabilitado' if activo else 'disponible'}")
-            # «Cancelar» siempre ocupa su sitio (así se descubre la salida)
-            # pero solo se viste de botón cuando hay algo que cancelar: en
-            # reposo usa el estilo «Inactivo», sin relieve.
-            self.assertTrue(self.app.cancel_button.winfo_ismapped(),
-                            f"{estado.name}: Cancelar debe seguir visible")
+            # «Cancelar» solo ocupa espacio cuando existe una petición viva;
+            # en reposo no debe parecer una acción disponible.
+            self.assertEqual(self.app.cancel_button.winfo_ismapped(), activo,
+                             f"{estado.name}: visibilidad incorrecta de Cancelar")
             self.assertEqual(cancelar_desactivado, not activo,
                              f"{estado.name}: Cancelar debe estar {'disponible' if activo else 'inhibido'}")
             estilo_esperado = "TButton" if activo else "Inactivo.TButton"
@@ -223,15 +223,13 @@ class TestVentanaReal(unittest.TestCase):
                             f"{boton.cget('text')} quedó fuera de la vista")
             self.assertGreater(boton.winfo_height(), 1)
         self.assertTrue(self.app.input.winfo_ismapped(), "El campo de mensaje debe verse")
-        # Cancelar ya ocupa su sitio en reposo (apagado, sin relieve): al
-        # iniciar la consulta no empuja a los demás controles.
-        self.assertTrue(self.app.cancel_button.winfo_ismapped())
-        ancho_reposo = self.app.cancel_button.winfo_width()
+        # Cancelar aparece solo durante una consulta y no debe mover los
+        # controles primarios cuando cambia de estado.
+        self.assertFalse(self.app.cancel_button.winfo_ismapped())
         self.app.set_estado(EstadoUI.TRANSMITIENDO)
         self._asentar()
         self.assertTrue(self.app.cancel_button.winfo_ismapped())
-        self.assertAlmostEqual(self.app.cancel_button.winfo_width(), ancho_reposo, delta=1,
-                               msg="Cancelar no debe cambiar de ancho al activarse")
+        self.assertGreater(self.app.cancel_button.winfo_width(), 1)
 
     def test_cerrar_la_peticion_libera_todas_las_acciones(self):
         """`_reset_request_ui` devuelve Enviar y Revisar a disponible.
@@ -248,9 +246,25 @@ class TestVentanaReal(unittest.TestCase):
         for boton in (self.app.send_button, self.app.review_button):
             self.assertNotIn("disabled", boton.state(),
                              f"{boton.cget('text')} quedó inhabilitado tras cerrar la petición")
-        self.assertTrue(self.app.cancel_button.winfo_ismapped(),
-                        "Cancelar debe seguir visible para descubrir la salida")
+        self.assertFalse(self.app.cancel_button.winfo_ismapped(),
+                         "Cancelar no debe quedar visible sin petición viva")
         self.assertEqual(str(self.app.cancel_button.cget("style")), "Inactivo.TButton")
+
+    def test_cancelar_invoca_la_cancelacion_real_durante_una_peticion(self):
+        self.app.session.request_active = True
+        self.app.cancel_event = threading.Event()
+        self.app.generation_counter = 7
+        self.app.request_types[7] = "normal"
+        with patch.object(self.app.llm.client, "cancel") as cancelar:
+            self.app.set_estado(EstadoUI.TRANSMITIENDO)
+            self._asentar()
+            self.app.cancel_button.invoke()
+            self._asentar()
+
+        self.assertTrue(self.app.cancel_event.is_set())
+        cancelar.assert_called_once_with(7)
+        self.assertIs(self.app.estado_actual, EstadoUI.CANCELADO)
+        self.assertFalse(self.app.cancel_button.winfo_ismapped())
 
     # --- confirmación no invasiva ---------------------------------------
     def test_la_confirmacion_de_contexto_no_es_un_modal(self):

@@ -65,8 +65,8 @@ class AssistantPanel(ttk.Labelframe):
         self.fila_acciones = ttk.Frame(self, style="Superficie.TFrame")
         self.fila_acciones.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
 
-        # Nace inactivo pero visible (estilo «Inactivo», sin relieve): se
-        # descubre que se puede cancelar sin que parezca un botón roto.
+        # Nace oculto: solo aparece cuando existe una petición cancelable.
+        # Así «Respuesta completa» no deja un botón visible que ya no puede actuar.
         self.cancel_button = ttk.Button(self.fila_acciones, text="Cancelar",
                                         style="Inactivo.TButton",
                                         command=self.callbacks["cancel_request"], state="disabled")

@@ -200,6 +200,9 @@ class TukulApp(tk.Tk):
         # conversaciones. Vive junto al config para que una instalación tenga un
         # único directorio de estado y los tests puedan aislarlo.
         self.ui_state = storage.load_ui_state(config_path)
+        configured_memory_root = self.ui_state.get("memory_root", str(MEMORY_ROOT))
+        self.memory_root = Path(configured_memory_root).expanduser()
+        self.memory_index_path = MEMORY_INDEX_PATH
         # El zoom se aplica antes del tema para que las fuentes nazcan escaladas.
         es.ZOOM = self._zoom_validado(self.ui_state.get("zoom"))
         # El tema se valida de forma defensiva antes de pintar nada: un valor
@@ -877,6 +880,7 @@ class TukulApp(tk.Tk):
         self.input.bind("<FocusIn>", _on_input_focus_in)
         self.input.bind("<FocusOut>", _on_input_focus_out)
         self.input.bind("<Return>", self._on_input_return)
+        self.input.bind("<KP_Enter>", self._on_input_return)
         self.input.bind("<Control-Return>", lambda e: self.input.insert("insert", "\n") or "break")
         self.input.bind("<Button-3>", self.text_menu)
         self.history.bind("<Button-3>", self.history_menu)
@@ -1123,10 +1127,18 @@ class TukulApp(tk.Tk):
         self._sincronizar_acciones(estado)
 
     def _vestir_cancelar(self, activo: bool) -> None:
-        """Reusa el traje del botón «Cancelar» para el widget real de la app."""
+        """Visibiliza «Cancelar» solo mientras existe una petición cancelable."""
         cancelar = _widget_propio(self, "cancel_button")
         if cancelar is not None and callable(getattr(cancelar, "configure", None)):
             _vestir_cancelar(cancelar, activo)
+            try:
+                if activo:
+                    if not cancelar.winfo_ismapped():
+                        cancelar.pack(side="right", padx=(0, es.ESP["sm"]))
+                else:
+                    cancelar.pack_forget()
+            except (tk.TclError, AttributeError, TypeError):
+                pass
 
     def _sincronizar_acciones(self, estado: EstadoUI) -> None:
         """Habilita las acciones según haya o no una consulta viva.
@@ -1143,12 +1155,12 @@ class TukulApp(tk.Tk):
         # Cancelar se fija ANTES que las demás: el foco de ttk al habilitarlo
         # se lleva al primer widget enfocable posterior del recorrido, y la
         # sincronización no debe cambiar dónde está el foco más de una vez.
-        #          «Cancelar» se queda visible en reposo, pero sin relieve
-        #          («aquí no hay nada que cancelar») en vez de gris y con borde.
+        #          «Cancelar» desaparece en reposo: no hay una acción cancelable
+        #          y dejarla visible daba una affordance falsa.
         cancelar = _widget_propio(self, "cancel_button")
         if cancelar is not None:
             _aplicar_estado_ttk(cancelar, activo)
-            _vestir_cancelar(cancelar, activo)
+            self._vestir_cancelar(activo)
         for nombre, disponible in (
             ("send_button", not activo),
             ("review_button", not activo),
@@ -1514,10 +1526,17 @@ class TukulApp(tk.Tk):
                 self.append("Tukul", "Configura un perfil LLM y una key para responder.")
             return
         self.input.delete("1.0", "end")
-        # Restaurar placeholder tras enviar
-        self._placeholder_activo = True
-        self.input.insert("1.0", self._placeholder_texto)
-        self.input.config(foreground=es.TEXTO_TENUE)
+        # Si el envío llegó desde Enter, el foco sigue en el Text y el usuario
+        # empezará a escribir inmediatamente. En ese caso no se debe volver a
+        # insertar el placeholder: no habrá otro FocusIn que lo retire y el
+        # siguiente Enter quedaría bloqueado como si el campo estuviera vacío.
+        if self.focus_get() == self.input:
+            self._placeholder_activo = False
+            self.input.config(foreground=es.TEXTO)
+        else:
+            self._placeholder_activo = True
+            self.input.insert("1.0", self._placeholder_texto)
+            self.input.config(foreground=es.TEXTO_TENUE)
         self.append("Tú", message)
         self.request(message)
 
@@ -2149,8 +2168,8 @@ class TukulApp(tk.Tk):
                 threat_feed_hours=THREAT_FEED_HOURS,
                 threat_feed_source_id=THREAT_FEED_SOURCE_ID,
                 max_indexed_file_bytes=MAX_INDEXED_FILE_BYTES,
-                memory_root=MEMORY_ROOT,
-                memory_database_path=MEMORY_INDEX_PATH,
+                memory_root=self.memory_root,
+                memory_database_path=self.memory_index_path,
             )
             self._contexto_ctrl = ctrl
         return ctrl
@@ -2471,6 +2490,7 @@ class TukulApp(tk.Tk):
         estado["panel_visible"] = self.asistente_visible
         estado["zoom"] = es.ZOOM
         estado["theme"] = self.theme
+        estado["memory_root"] = str(self.memory_root)
         estado["recent"] = self.recent_paths
         conversaciones = estado.get("conversations", {})
         if not isinstance(conversaciones, dict):
