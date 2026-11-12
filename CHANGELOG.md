@@ -10,7 +10,7 @@ Cierra la auditoría de escritorio + diseño del 2026-11-12
 (`docs/audit/auditoria-2026-11-12.md`), la reparación de residuos y pendientes
 derivada (`docs/audit/reparacion-2026-11-12.md`) y la auditoría
 conector-proveedor del pipeline de fuentes (`docs/audit/auditoria-conector-2026-11-12.md`).
-Seis defectos confirmados de interfaz, cinco de la integración con proveedores
+Seis defectos confirmados de interfaz, siete de la integración con proveedores
 externos, más residuos y pendientes de auditorías previas.
 
 ### Corregido (integración con proveedores externos)
@@ -42,6 +42,15 @@ externos, más residuos y pendientes de auditorías previas.
   seleccionables (el README afirmaba lo contrario). Se corrige el texto para
   describir lo ofrecido y cómo usar un endpoint compatible con OpenAI para el
   resto (DeepSeek, OpenRouter, Ollama…).
+- **Enlaces de arXiv en HTTP (H-06).** El `atom:id` de arXiv es
+  `http://arxiv.org/abs/…` y se copiaba tal cual a `FeedEntry.url`, que viaja al
+  contexto y al caché. Se publica en HTTPS (el `source_id` se mantiene intacto
+  para no romper la correlación por id).
+- **El perfil de ejemplo declaraba un proveedor genérico (H-07).**
+  `tukul.example.toml` usaba `provider = "openai_compatible"` en los perfiles
+  DeepInfra y Novita, perdiendo la identidad del proveedor: el hint del
+  selector, la validación del endpoint base y el aviso de `--health`. Ahora cada
+  perfil declara su id real.
 
 ### Corregido (interfaz)
 

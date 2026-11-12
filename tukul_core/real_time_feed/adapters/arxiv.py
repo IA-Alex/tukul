@@ -144,7 +144,10 @@ class ArxivAdapter(SourceAdapter):
                 source="arxiv",
                 title=title[:200],
                 description=summary[:500],
-                url=paper_id,
+                # `atom:id` viene como `http://arxiv.org/abs/…`; se publica en
+                # HTTPS para que el enlace del contexto no degrade la conexión
+                # (el resto de fuentes ya usan https y `SearchResult` lo exige).
+                url=_arxiv_url_https(paper_id),
                 published=published,
                 severity=None,
                 confidence=0.85,
@@ -172,3 +175,21 @@ class ArxivAdapter(SourceAdapter):
         jitter = delay * 0.25 * random.random()  # nosec B311 - jitter de backoff, no criptográfico
         delay = min(delay + jitter, BACKOFF_MAX * 1.25)
         time.sleep(delay)
+
+
+def _arxiv_url_https(paper_id: str) -> str:
+    """Devuelve la URL HTTPS del paper a partir del `atom:id` de arXiv.
+
+    arXiv publica el id como `http://arxiv.org/abs/…`. Se fuerza HTTPS (y se
+    aceptan también entradas ya en https o sin esquema). Si el id no es una URL
+    reconocible, se devuelve tal cual: no se inventa un enlace.
+    """
+    if not paper_id:
+        return paper_id
+    if paper_id.startswith("http://"):
+        return "https://" + paper_id[len("http://"):]
+    if paper_id.startswith("https://"):
+        return paper_id
+    if paper_id.startswith("arxiv.org/"):
+        return "https://" + paper_id
+    return paper_id

@@ -461,6 +461,31 @@ class TestArxivAdapterFetch:
         assert entradas[0].source == "arxiv"
         assert "inteligencia_artificial" in entradas[0].topics
 
+    def test_normalize_publica_la_url_en_https(self):
+        """El `atom:id` de arXiv es `http://`; la entrada debe llevar HTTPS.
+
+        El enlace viaja al contexto y al caché; publicarlo en `http://` degrada
+        la conexión y contradice al resto de fuentes (y a `SearchResult`, que
+        exige https). El `source_id` se mantiene intacto para no romper la
+        correlación por id.
+        """
+        crudo = [{
+            "id": "http://arxiv.org/abs/2601.00001", "title": "Paper",
+            "summary": "s", "published": "2026-01-01T00:00:00Z", "category": "cs.CR",
+        }]
+        entrada = ArxivAdapter().normalize(crudo)[0]
+        assert entrada.url == "https://arxiv.org/abs/2601.00001"
+        assert entrada.source_id == "arxiv:http://arxiv.org/abs/2601.00001"
+
+    def test_arxiv_url_https_tolera_formas_no_url(self):
+        """Id vacío o no reconocible se devuelve tal cual: no se inventa enlace."""
+        from tukul_core.real_time_feed.adapters.arxiv import _arxiv_url_https
+
+        assert _arxiv_url_https("") == ""
+        assert _arxiv_url_https("raro-sin-esquema") == "raro-sin-esquema"
+        assert _arxiv_url_https("https://arxiv.org/abs/9") == "https://arxiv.org/abs/9"
+        assert _arxiv_url_https("arxiv.org/abs/2") == "https://arxiv.org/abs/2"
+
     def test_sleep_aplica_backoff_con_jitter_acotado(self):
         """El backoff nunca supera `BACKOFF_MAX * 1.25`, aun con jitter máximo."""
         from tukul_core.real_time_feed.adapters.arxiv import BACKOFF_MAX

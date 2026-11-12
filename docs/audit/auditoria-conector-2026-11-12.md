@@ -62,10 +62,18 @@ enriquecimiento NVD∩EPSS nunca cruzaba. Severidad: crítico 1 · alto 1 · med
   con OpenAI» para el resto.
 
 ### H-06 — [BAJO] arXiv expone URLs `http://` como `url` de `FeedEntry`
-- No corregido en esta pasada (fuera del alcance elegido).
+- **Evidencia:** `arxiv.py:147` `url=paper_id`, con `paper_id` = `atom:id`
+  (`http://arxiv.org/abs/…`).
+- **Corrección:** `_arxiv_url_https` publica el enlace en HTTPS; `source_id`
+  intacto. Verificado: 100/100 entradas reales en https.
 
-### H-07 — [BAJO] El perfil LLM se rotula `openai_compatible`, perdiendo la identidad del proveedor
-- No corregido en esta pasada (fuera del alcance elegido).
+### H-07 — [BAJO] El perfil de ejemplo declaraba un proveedor genérico
+- **Evidencia:** `tukul.example.toml` usaba `provider = "openai_compatible"` en
+  los perfiles `deepinfra`/`novita`, perdiendo identidad, hint y validación de
+  endpoint.
+- **Corrección:** cada perfil declara su id real; test de regresión que verifica
+  que todo perfil del ejemplo usa un `provider` de `PROVIDERS` y una ruta de
+  chat completa.
 
 ## 5. Operaciones sin correspondencia
 - Protocolos Anthropic/Gemini: implementados pero sin proveedor seleccionable en
@@ -89,8 +97,10 @@ enriquecimiento NVD∩EPSS nunca cruzaba. Severidad: crítico 1 · alto 1 · med
 | 3 | H-04 | `**kwargs` en el ABC | mypy limpio; test de contrato |
 | 4 | H-02 | techo 64 MB + cache de técnicas | MITRE produce técnicas; test de cache |
 | 5 | H-05 | README fiel | — |
+| 6 | H-06 | URL https del `atom:id` | 100/100 entradas arXiv en https |
+| 7 | H-07 | ids reales en el ejemplo | test sobre `tukul.example.toml` |
 
 ## Estado
 
-Corregidos y verificados H-01 a H-05. H-06 y H-07 quedan documentados como
-pendientes no bloqueantes (bajos).
+Corregidos y verificados H-01 a H-07. Cobertura 87.75 %, 707 pruebas, ruff y
+mypy limpios, quality gate local verde.
