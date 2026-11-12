@@ -18,6 +18,7 @@ from typing import Any
 from tukul_core.http_safety import NO_REDIRECT_OPENER, xml_fromstring_seguro
 from tukul_core.models import FeedEntry
 
+from .._dates import parse_feed_date
 from .base import SourceAdapter
 
 # https, no http: arXiv responde 301 hacia https y NO_REDIRECT_OPENER rechaza
@@ -132,12 +133,11 @@ class ArxivAdapter(SourceAdapter):
             title = paper.get("title", "")
             summary = paper.get("summary", "")
             category = paper.get("category", "cs.CR")
-            try:
-                published = datetime.fromisoformat(
-                    paper.get("published", "").replace("Z", "+00:00")
-                )
-            except (ValueError, TypeError):
-                published = datetime.now(UTC)
+            # Normalización común del feed: garantiza zona horaria (UTC si la
+            # fuente no la declara) y cae a `now` si la fecha es inválida.
+            published = parse_feed_date(
+                paper.get("published", ""), default=datetime.now(UTC)
+            )
             topic_label = "seguridad" if category == "cs.CR" else "inteligencia_artificial"
             entries.append(FeedEntry(
                 source_id=f"arxiv:{paper_id}",

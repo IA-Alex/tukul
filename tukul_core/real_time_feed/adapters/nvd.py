@@ -18,6 +18,7 @@ from typing import Any
 from tukul_core.http_safety import NO_REDIRECT_OPENER
 from tukul_core.models import FeedEntry
 
+from .._dates import parse_feed_date
 from .base import SourceAdapter
 
 NVD_ENDPOINT = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -158,14 +159,10 @@ class NvdAdapter(SourceAdapter):
 def _parse_nvd_date(raw: str) -> datetime:
     """Parsea fecha ISO de NVD garantizando un datetime con zona.
 
-    NVD devuelve `published` sin sufijo de zona (`2026-11-11T22:17:10.820`),
-    así que `replace("Z", …)` no basta y `fromisoformat` producía un datetime
-    NAIVE. `normalize_all` lo compara contra un `since` aware y lanzaba
-    `TypeError`, tumbando todo el pipeline de ideas. Se asume UTC cuando no
-    viene offset (las fechas de NVD son UTC).
+    NVD devuelve `published` sin sufijo de zona (`2026-11-11T22:17:10.820`), así
+    que `fromisoformat` produciría un datetime NAIVE: `normalize_all` lo compara
+    contra un `since` aware y lanzaría `TypeError`, tumbando el pipeline de
+    ideas. La normalización vive en `_dates.parse_feed_date` (única fuente de
+    verdad para las cinco fuentes del feed).
     """
-    try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return datetime.now(UTC)
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+    return parse_feed_date(raw, default=datetime.now(UTC))

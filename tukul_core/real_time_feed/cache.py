@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from tukul_core.logging_config import setup_logging
 from tukul_core.models import FeedEntry
 from tukul_core.storage import atomic_write
+
+from ._dates import parse_feed_date
 
 logger = setup_logging()
 
@@ -164,9 +166,9 @@ def _aware_o_ahora(raw: str) -> datetime:
     """Parsea una fecha ISO del caché garantizando un datetime con zona.
 
     Un caché escrito antes de la corrección de KEV guarda timestamps naive
-    (`isoformat()` sin offset). Releerlos tal cual reintroducía el
-    `TypeError` de comparación naive/aware en `normalize_all`. Aquí se
-    completan a UTC en vez de rechazarlos: el dato sigue siendo válido.
+    (`isoformat()` sin offset). Releerlos tal cual reintroducía el `TypeError` de
+    comparación naive/aware en `normalize_all`. Se delega en
+    `_dates.parse_feed_date` (única fuente de verdad del feed), que completa a
+    UTC en vez de rechazar el dato.
     """
-    parsed = datetime.fromisoformat(raw)
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+    return parse_feed_date(raw)

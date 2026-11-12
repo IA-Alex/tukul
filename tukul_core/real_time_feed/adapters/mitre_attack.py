@@ -7,7 +7,6 @@ con el lenguaje común de la industria.
 
 from __future__ import annotations
 
-import json
 import random
 import time
 import urllib.error
@@ -18,6 +17,8 @@ from typing import Any
 from tukul_core.http_safety import NO_REDIRECT_OPENER
 from tukul_core.models import FeedEntry
 
+from .._dates import parse_feed_date
+from ._stix_stream import iter_stix_objects
 from .base import SourceAdapter
 
 ATTACK_ENTERPRISE_URL = (
@@ -59,12 +60,11 @@ class MitreAttackAdapter(SourceAdapter):
         """Obtiene técnicas ATT&CK, con cache interno de 1 hora.
 
         El bundle STIX completo pesa ~49 MB con ~26 000 objetos, de los que solo
-        un puñado son técnicas. El cache (de clase, con TTL de 1 h) guarda SOLO
-        los `attack-pattern` ya filtrados por tipo, no el bundle crudo: retener
-        todos los objetos mantendría decenas de MB de RAM durante una hora sin
-        aportar nada. El camino de cache también filtra por tipo y ventana; antes
-        devolvía los objetos crudos sin filtrar, colando entidades que no son
-        técnicas (`campaign--…`).
+        un puñado son técnicas. Se extrae de forma incremental
+        (`iter_stix_objects`): solo se materializa un objeto a la vez, así que el
+        pico de memoria lo fija el objeto más grande, no el bundle. El cache (de
+        clase, con TTL de 1 h) guarda SOLO los `attack-pattern` ya filtrados por
+        tipo. El camino de cache también filtra por tipo y ventana.
         """
         now = datetime.now(UTC)
         if self._cache is not None and self._cache_ts is not None:
@@ -79,15 +79,15 @@ class MitreAttackAdapter(SourceAdapter):
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 response = NO_REDIRECT_OPENER.open(request, timeout=HTTP_TIMEOUT)
-                data = json.loads(self._read_bounded(response))
+                # Extracción incremental: no se materializa el bundle completo.
+                tecnicas = [
+                    obj for obj in iter_stix_objects(response, MAX_RESPONSE_BYTES)
+                    if obj.get("type") == "attack-pattern"
+                ]
                 # El cache es de CLASE, no de instancia: el orquestador crea un
                 # adaptador nuevo por consulta (`adapter_cls()`), así que un
                 # atributo de instancia no se compartía y cada consulta volvía
                 # a descargar el bundle de ~49 MB. Se escribe en el tipo.
-                tecnicas = [
-                    obj for obj in data.get("objects", [])
-                    if obj.get("type") == "attack-pattern"
-                ]
                 cls = type(self)
                 cls._cache = tecnicas
                 cls._cache_ts = now
@@ -202,8 +202,11 @@ class MitreAttackAdapter(SourceAdapter):
 
 
 def _parse_stix_date(raw: str, default: datetime) -> datetime:
-    """Parsea fecha STIX (ISO 8601)."""
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return default
+    """Parsea fecha STIX (ISO 8601) con la normalización común del feed.
+
+    Delega en `_dates.parse_feed_date` (única fuente de verdad): garantiza zona
+    horaria y devuelve `default` ante una fecha inválida. Un tipo no textual
+    sigue propagando `AttributeError` (contrato probado en
+    `TestParseStixDate`).
+    """
+    return parse_feed_date(raw, default=default)

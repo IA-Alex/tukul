@@ -18,6 +18,8 @@ CI usa Python 3.11, 3.12 y 3.13, instala Tk/Xvfb, lockfile con hashes, ejecuta `
 
 `./scripts/quality-gate.sh` replica esos pasos en local: comprueba que `tukul_core` se importa (con el `pip install -e` exacto si no) antes de pytest, ejecuta `--health`, el contrato CLI, `pip-audit` y `bandit -lll -ii`. `tests/test_quality_gate_parity.py` fija esa paridad: si un paso de CI desaparece del gate, el test falla.
 
+Si un run de CI sale rojo, `./scripts/diagnose-ci.sh [run-id]` lo clasifica: distingue un fallo de código (algún job ejecutó pasos) de un bloqueo de cuenta por facturación de Actions (ningún job obtiene runner: `steps=0`, `runner` vacío). Ver `docs/audit/hallazgos-abiertos-2026-11-04.md` (H0).
+
 `tests/test_llm_http_contract.py` levanta un servidor HTTP local y valida el transporte real del cliente LLM (SSE, `Retry-After`, 3xx sin seguimiento, techo de cuerpo y cabecera de credencial por protocolo). No usa red externa y tarda milisegundos.
 
 `scripts/verify-install.sh` instala el paquete en un venv temporal, lo importa desde fuera del checkout y ejecuta `tukul --health`. Cubre el hueco que dejaban `pip install -e .` y `conftest.py`: con ambos, un paquete movido o mal declarado pasaba lint y tests mientras `pip install` fallaba para cualquiera. `tests/test_installation_integrity.py` fija ese contrato dentro de la suite.

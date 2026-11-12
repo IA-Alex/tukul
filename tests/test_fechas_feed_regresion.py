@@ -14,11 +14,41 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from tukul_core.models import FeedEntry
+from tukul_core.real_time_feed._dates import parse_feed_date
 from tukul_core.real_time_feed.adapters.kev import KevAdapter
 from tukul_core.real_time_feed.adapters.nvd import _parse_nvd_date
 from tukul_core.real_time_feed.cache import FeedCache, _aware_o_ahora
 from tukul_core.real_time_feed.normalizer import FeedNormalizer
+
+
+class TestParseFeedDate:
+    """La normalización común cubre las tres variantes de las fuentes."""
+
+    def test_sin_zona_se_asume_utc(self):
+        assert parse_feed_date("2026-11-11T22:17:10.820") == datetime(
+            2026, 11, 11, 22, 17, 10, 820000, tzinfo=UTC)
+
+    def test_solo_fecha_se_asume_utc(self):
+        assert parse_feed_date("2026-11-10") == datetime(2026, 11, 10, tzinfo=UTC)
+
+    def test_con_z(self):
+        assert parse_feed_date("2026-11-04T10:00:00Z") == datetime(
+            2026, 11, 4, 10, 0, tzinfo=UTC)
+
+    def test_con_offset(self):
+        assert parse_feed_date("2026-11-04T10:00:00+01:00") == datetime(
+            2026, 11, 4, 9, 0, tzinfo=UTC)
+
+    def test_invalida_devuelve_default(self):
+        centinela = datetime(2000, 1, 1, tzinfo=UTC)
+        assert parse_feed_date("no-es-fecha", default=centinela) is centinela
+
+    def test_invalida_sin_default_lanza(self):
+        with pytest.raises(ValueError):
+            parse_feed_date("no-es-fecha")
 
 
 class TestFechasDeAdaptadores:

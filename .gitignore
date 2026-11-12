@@ -64,3 +64,8 @@ htmlcov/
 
 # Salida del navegador automatizado (Playwright MCP)
 .playwright-mcp/
+
+# Material de trabajo personal pesado (no versionado: mantiene el repo liviano).
+# Si necesitas compartir artículos, usa un repositorio o almacenamiento aparte.
+Articulos/
+.superdesign/

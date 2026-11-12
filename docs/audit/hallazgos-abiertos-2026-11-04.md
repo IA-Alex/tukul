@@ -23,6 +23,20 @@ Estado al 2026-11-10, tras la auditoría arquitectónica y su reparación.
   los nuevos módulos. Coherencia productor↔consumidor mantenida.
 - **Cierre:** `app.py` < 2.300 líneas y cobertura del nuevo módulo ≥ 90 %.
 
+## S1 — Binarios sin firma ni notarización: RIESGO ACEPTADO
+- **Qué falta:** los ejecutables se publican con `SHA256SUMS` y SBOM, pero sin
+  firma criptográfica (Authenticode en Windows, GPG/cosign para los adjuntos).
+- **Riesgo residual:** la integridad depende del canal HTTPS del Release; el
+  `SHA256SUMS` viaja por el mismo canal, así que no permite verificar procedencia
+  más allá de detectar corrupción. Un atacante con control del canal puede
+  sustituir ambos.
+- **Decisión:** **aceptado conscientemente** (ver `docs/RELEASE.md`, nota de
+  riesgo residual). Implementarlo exige una decisión de producto sobre el
+  mecanismo (clave GPG, cosign o certificado Authenticode) y la gestión de sus
+  secretos, fuera del alcance actual.
+- **Cierre:** implementar la firma, documentar el procedimiento de verificación
+  para el usuario y retirar la nota de `docs/RELEASE.md`.
+
 ## M4 — Contraste no textual de los bordes: RESUELTO (2026-11-04, segunda pasada)
 
 - **Origen:** el token `borde` hacía tres trabajos a la vez (divisoria, fondo de
@@ -81,3 +95,32 @@ Reproducido con `gh` sobre `master` y un `workflow_dispatch` fresco
   el log.
 - **Verificación de cierre:** `gh run list --limit 1` con un run en `success`,
   `steps > 0` y `runner_name` no vacío.
+
+### Causa confirmada (2026-11-12)
+
+La anotación del propio job nombra la causa, sin ambigüedad:
+
+```text
+The job was not started because recent account payments have failed or your
+spending limit needs to be increased. Please check the 'Billing & plans'
+section in your settings
+```
+
+- **Evidencia:** `gh api repos/IA-Alex/tukul/actions/runs/<id>/jobs` sobre el run
+  `43318920600` (push de `0840558`): los cuatro jobs con
+  `conclusion=failure`, `runner_name=''`, `steps=0`, y esa anotación en
+  `security` y los tres `test (3.11/3.12/3.13)`.
+- **Naturaleza:** bloqueo de **facturación de la cuenta**, no del workflow ni del
+  código. El `ci.yml` es correcto (el paso «Runner asignado» está bien definido;
+  solo no llega a ejecutarse porque no hay runner).
+- **Acción (cuenta):** *Settings → Billing & plans* de `IA-Alex` — método de pago
+  y límite de gasto de Actions. No modificable desde el repositorio.
+- **Alternativas sin minutos de pago:** runner `self-hosted`, o hacer público el
+  repositorio (Actions es gratis en repos públicos).
+- **Repro del diagnóstico:**
+  `gh run list --limit 1` y
+  `gh api repos/IA-Alex/tukul/actions/runs/$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')/jobs`
+  → buscar `steps=0` y la anotación de facturación.
+- **Ayuda en el repositorio:** `./scripts/diagnose-ci.sh` clasifica el último run
+  (o uno por id) como bloqueo de cuenta vs. fallo de código, sin depender de
+  inspección manual de la API.

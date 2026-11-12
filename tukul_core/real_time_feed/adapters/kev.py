@@ -18,6 +18,7 @@ from typing import Any
 from tukul_core.http_safety import NO_REDIRECT_OPENER
 from tukul_core.models import FeedEntry
 
+from .._dates import parse_feed_date
 from .base import SourceAdapter
 
 KEV_ENDPOINT = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
@@ -82,15 +83,11 @@ class KevAdapter(SourceAdapter):
 
             description = vuln.get("shortDescription", "")
             date_added = vuln.get("dateAdded", "")
-            try:
-                # `dateAdded` llega como fecha sin hora ("2026-11-10"):
-                # `fromisoformat` produce un datetime NAIVE y `normalize_all`
-                # lo compara contra un `since` aware → TypeError que tumbaba
-                # TODO el pipeline de ideas. Se fija UTC, igual que el resto
-                # de adaptadores (NVD/EPSS/arXiv/MITRE).
-                published = datetime.fromisoformat(date_added).replace(tzinfo=UTC)
-            except (ValueError, TypeError):
-                published = datetime.now(UTC)
+            # `dateAdded` llega como fecha sin hora ("2026-11-10"): sin
+            # normalizar saldría NAIVE y `normalize_all` lanzaría TypeError al
+            # compararla contra un `since` aware. `parse_feed_date` fija UTC,
+            # igual que el resto de adaptadores (NVD/EPSS/arXiv/MITRE).
+            published = parse_feed_date(date_added, default=datetime.now(UTC))
 
             entries.append(FeedEntry(
                 source_id=f"kev:{cve_id}",
