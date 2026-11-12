@@ -88,6 +88,45 @@ class TestContratoDeRevision(unittest.TestCase):
         sin_prompt = build_editor_prompt(ARTICULO, "", [])
         self.assertNotEqual(sin_prompt, build_review_prompt(ARTICULO))
 
+    def test_un_array_raiz_de_hallazgos_se_acepta_como_contrato(self):
+        """El modelo a veces devuelve `[{…}]` sin el envoltorio `{"findings": …}`.
+
+        Se observó contra DeepInfra (eval 2026-11-12): pese a que REVIEW_PROMPT
+        pide literalmente `{"findings":[…]}` y el modelo lo cumple casi siempre,
+        de forma esporádica responde con un array raíz. Antes, `_decode_payload`
+        buscaba el primer `{` y decodificaba SOLO el primer elemento, así que
+        `diagnose_findings` lo clasificaba `esquema_ajeno` y los hallazgos se
+        perdían en silencio. La aplicación no puede depender de la obediencia del
+        modelo para la forma: un array de hallazgos válidos debe reconocerse.
+        """
+        array_raiz = json.dumps([
+            {"category": "ortografía", "severity": "alta", "original": "erro",
+             "suggestion": "error", "reason": "falta la r"},
+            {"category": "gramática", "severity": "baja", "original": "deben de",
+             "suggestion": "deben", "reason": "obligación"},
+        ], ensure_ascii=False)
+
+        causa, hallazgos = diagnose_findings(array_raiz)
+        self.assertEqual(causa, "ok")
+        self.assertEqual(len(hallazgos), 2)
+        self.assertEqual(len(parse_findings(array_raiz)), 2)
+
+    def test_un_array_raiz_envuelto_se_acepta(self):
+        """Un array tras un prefijo de prosa («Aquí va:») también se reconoce."""
+        con_prosa = "Aquí está la revisión:\n" + json.dumps([
+            {"category": "estructura", "severity": "media", "original": "x",
+             "suggestion": "y", "reason": "z"},
+        ], ensure_ascii=False)
+        causa, hallazgos = diagnose_findings(con_prosa)
+        self.assertEqual(causa, "ok")
+        self.assertEqual(len(hallazgos), 1)
+
+    def test_un_array_de_prosa_no_se_confunde_con_hallazgos(self):
+        """Un array que no son objetos de hallazgo no produce revisiones."""
+        causa, hallazgos = diagnose_findings('["uno", "dos", "tres"]')
+        self.assertEqual(hallazgos, [])
+        self.assertNotEqual(causa, "ok")
+
     def test_una_obediencia_a_inyeccion_se_detecta_fuera_del_rol(self):
         """Red de seguridad: si el prompt falla y el modelo obedece, se descarta.
 

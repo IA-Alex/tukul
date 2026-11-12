@@ -45,21 +45,43 @@ def _validated_finding(item: object) -> dict[str, str] | None:
 
 
 def _decode_payload(result: str) -> tuple[str, object | None]:
-    """Localiza y decodifica el objeto JSON; devuelve la causa si no se puede."""
+    """Localiza y decodifica el JSON de la respuesta; devuelve la causa si no.
+
+    Acepta tanto el objeto del contrato (`{"findings": [...]}`) como un **array
+    raíz** de hallazgos. El segundo caso se observó contra DeepInfra: el modelo
+    devuelve de forma esporádica `[{...}]` sin el envoltorio que pide el
+    contrato. Antes, al buscar solo el primer `{`, se decodificaba **un único
+    elemento** del array y `diagnose_findings` lo descartaba como
+    `esquema_ajeno`, perdiendo los hallazgos en silencio. La aplicación no puede
+    depender de la obediencia del modelo para la forma, así que un array de
+    objetos de hallazgo se normaliza al contrato canónico.
+    """
     clean = result.strip()
     if clean.startswith("```"):
         clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
     if len(clean) > MAX_RESULT_CHARS:
         return "truncado", None
-    start = clean.find("{")
-    if start < 0:
+    # El JSON raíz puede empezar por «{» (contrato) o por «[» (array de
+    # hallazgos). Se toma el que aparezca antes: decodificar desde el «{» de un
+    # array devolvería solo su primer elemento.
+    inicio_objeto = clean.find("{")
+    inicio_array = clean.find("[")
+    candidatos = [i for i in (inicio_objeto, inicio_array) if i >= 0]
+    if not candidatos:
         return "sin_json", None
+    start = min(candidatos)
     try:
         payload, _end = json.JSONDecoder().raw_decode(clean[start:])
     except ValueError:
-        # Hay una llave de apertura pero no un objeto completo: corte o
+        # Hay una llave de apertura pero no un valor completo: corte o
         # respuesta a medias, que es información distinta de una prosa.
         return "truncado", None
+    if isinstance(payload, list):
+        # Un array de objetos de hallazgo es el contrato sin el envoltorio:
+        # se normaliza. Un array de otra cosa (p. ej. cadenas) se deja tal cual
+        # para que `diagnose_findings` lo clasifique como esquema ajeno.
+        if payload and all(isinstance(item, dict) for item in payload):
+            payload = {"findings": payload}
     return "ok", payload
 
 
