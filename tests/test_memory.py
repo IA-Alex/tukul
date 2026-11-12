@@ -113,6 +113,26 @@ def test_search_ignores_fts_operators_and_returns_traceable_excerpt(tmp_path):
     assert "criterio" in results[0].excerpt.lower()
 
 
+def test_el_recorte_no_se_desalinea_con_texto_que_casefold_expande(tmp_path):
+    """El fragmento debe contener el término aunque casefold cambie la longitud.
+
+    Defecto observado: `_excerpt` buscaba la posición sobre `content.casefold()`
+    y rebanaba el contenido original. `casefold` puede alargar la cadena («ß»→
+    «ss», «İ»→«i̇»), así que la ventana se corría y podía quedar vacía, omitiendo
+    el término buscado en el fragmento mostrado al usuario.
+    """
+    (tmp_path / "ruido.md").write_text(
+        "ß" * 500 + " alpha",  # 506 chars; casefold alarga a ~1007
+        encoding="utf-8",
+    )
+    with CorpusIndex(tmp_path / "memory.sqlite3") as index:
+        index.refresh(_repository(tmp_path))
+        results = index.search("alpha")
+
+    assert len(results) == 1
+    assert "alpha" in results[0].excerpt
+
+
 def test_search_validates_limit(tmp_path):
     with CorpusIndex(tmp_path / "memory.sqlite3") as index:
         try:

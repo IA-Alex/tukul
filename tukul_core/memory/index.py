@@ -143,9 +143,21 @@ class CorpusIndex:
 
 
 def _excerpt(content: str, tokens: list[str], radius: int = 180) -> str:
-    """Devuelve un fragmento legible alrededor del primer término encontrado."""
-    lowered = content.casefold()
-    position = min((lowered.find(token) for token in tokens if lowered.find(token) >= 0), default=0)
+    """Devuelve un fragmento legible alrededor del primer término encontrado.
+
+    La posición se busca en el contenido ORIGINAL con `re.IGNORECASE`, no sobre
+    `casefold()`. Buscar en el casefold y rebanar el original desalineaba el
+    recorte: `casefold` puede cambiar la longitud (p. ej. «ß»→«ss», «İ»→«i̇»),
+    así que con texto no ASCII la ventana se corría y podía quedar vacía,
+    omitiendo el término buscado.
+    """
+    position: int | None = None
+    for token in tokens:
+        match = re.search(re.escape(token), content, re.IGNORECASE)
+        if match is not None and (position is None or match.start() < position):
+            position = match.start()
+    if position is None:
+        position = 0
     start = max(0, position - radius)
     end = min(len(content), position + radius)
     excerpt = " ".join(content[start:end].split())
