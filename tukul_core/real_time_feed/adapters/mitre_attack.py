@@ -80,13 +80,17 @@ class MitreAttackAdapter(SourceAdapter):
             try:
                 response = NO_REDIRECT_OPENER.open(request, timeout=HTTP_TIMEOUT)
                 data = json.loads(self._read_bounded(response))
-                # Solo se cachean las técnicas: el bundle completo (decenas de
-                # MB) no debe permanecer en memoria durante el TTL del cache.
-                self._cache = [
+                # El cache es de CLASE, no de instancia: el orquestador crea un
+                # adaptador nuevo por consulta (`adapter_cls()`), así que un
+                # atributo de instancia no se compartía y cada consulta volvía
+                # a descargar el bundle de ~49 MB. Se escribe en el tipo.
+                tecnicas = [
                     obj for obj in data.get("objects", [])
                     if obj.get("type") == "attack-pattern"
                 ]
-                self._cache_ts = now
+                cls = type(self)
+                cls._cache = tecnicas
+                cls._cache_ts = now
                 break
             except urllib.error.HTTPError as error:
                 if error.code in RETRYABLE_STATUS and attempt < MAX_ATTEMPTS:
@@ -114,7 +118,7 @@ class MitreAttackAdapter(SourceAdapter):
                 "No se pudo obtener MITRE ATT&CK tras los reintentos."
             )
 
-        return self._techniques_in_window(self._cache, hours, now)
+        return self._techniques_in_window(tecnicas, hours, now)
 
     @staticmethod
     def _techniques_in_window(

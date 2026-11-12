@@ -10,7 +10,7 @@ Cierra la auditoría de escritorio + diseño del 2026-11-12
 (`docs/audit/auditoria-2026-11-12.md`), la reparación de residuos y pendientes
 derivada (`docs/audit/reparacion-2026-11-12.md`) y la auditoría
 conector-proveedor del pipeline de fuentes (`docs/audit/auditoria-conector-2026-11-12.md`).
-Seis defectos confirmados de interfaz, siete de la integración con proveedores
+Seis defectos confirmados de interfaz, ocho de la integración con proveedores
 externos, más residuos y pendientes de auditorías previas.
 
 ### Corregido (integración con proveedores externos)
@@ -51,6 +51,12 @@ externos, más residuos y pendientes de auditorías previas.
   DeepInfra y Novita, perdiendo la identidad del proveedor: el hint del
   selector, la validación del endpoint base y el aviso de `--health`. Ahora cada
   perfil declara su id real.
+- **El cache de MITRE no se compartía entre consultas (H-08).**
+  `MitreAttackAdapter.fetch` escribía `self._cache`, creando un atributo de
+  instancia. Como `FeedOrchestrator` instancia un adaptador NUEVO por consulta,
+  el cache de 1 hora documentado nunca se aprovechaba: cada consulta volvía a
+  descargar el bundle STIX de ~49 MB. Ahora se escribe en la clase; dos
+  consultas hacen una sola descarga (verificado en vivo: 5,57 s → 0,3 ms).
 
 ### Corregido (interfaz)
 

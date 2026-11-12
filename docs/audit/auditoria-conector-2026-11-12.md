@@ -75,6 +75,16 @@ enriquecimiento NVD∩EPSS nunca cruzaba. Severidad: crítico 1 · alto 1 · med
   que todo perfil del ejemplo usa un `provider` de `PROVIDERS` y una ruta de
   chat completa.
 
+### H-08 — [MEDIO] El cache de MITRE no se compartía entre consultas
+- **Evidencia (runtime, debugger + ejecución):** tras `fetch()`,
+  `adaptador._cache` tiene datos pero `MitreAttackAdapter._cache` es `None`:
+  `self._cache = [...]` creaba un atributo de instancia. Como el orquestador hace
+  `adapter_cls()` por consulta, el cache de 1 h nunca se aprovechaba y cada
+  consulta re-descargaba ~49 MB. Medido en vivo: 5,57 s por descarga; con el
+  cache, la 2.ª instancia responde en 0,3 ms.
+- **Corrección:** escribir en la clase (`cls = type(self); cls._cache = …`).
+  Regresión con dos instancias (patrón real del orquestador).
+
 ## 5. Operaciones sin correspondencia
 - Protocolos Anthropic/Gemini: implementados pero sin proveedor seleccionable en
   la UI (ver H-05).
@@ -99,8 +109,9 @@ enriquecimiento NVD∩EPSS nunca cruzaba. Severidad: crítico 1 · alto 1 · med
 | 5 | H-05 | README fiel | — |
 | 6 | H-06 | URL https del `atom:id` | 100/100 entradas arXiv en https |
 | 7 | H-07 | ids reales en el ejemplo | test sobre `tukul.example.toml` |
+| 8 | H-08 | cache de clase en MITRE | 2 consultas → 1 descarga (5,57 s → 0,3 ms) |
 
 ## Estado
 
-Corregidos y verificados H-01 a H-07. Cobertura 87.75 %, 707 pruebas, ruff y
+Corregidos y verificados H-01 a H-08. Cobertura 87.75 %, 709 pruebas, ruff y
 mypy limpios, quality gate local verde.

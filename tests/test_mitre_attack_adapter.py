@@ -158,6 +158,24 @@ class TestFetch:
         assert primera == segunda
         assert abrir.call_count == 1, "Dentro del TTL no debe haber segunda descarga."
 
+    def test_el_cache_se_comparte_entre_instancias(self):
+        """El cache es de CLASE: el orquestador crea un adaptador por consulta.
+
+        Defecto observado: `fetch` escribía `self._cache`, creando un atributo de
+        instancia que no se compartía. Como `FeedOrchestrator` instancia un
+        adaptador NUEVO por consulta, el cache de 1 hora nunca se aprovechaba y
+        cada consulta volvía a descargar el bundle STIX de ~49 MB.
+        """
+        objetos = [_tecnica()]
+        with patch.object(NO_REDIRECT_OPENER, "open", return_value=_response(objetos)) as abrir:
+            MitreAttackAdapter().fetch(24)   # primera consulta (descarga)
+            MitreAttackAdapter().fetch(24)   # instancia nueva: debe servir del cache
+
+        assert abrir.call_count == 1, (
+            "Una instancia nueva dentro del TTL no debe volver a descargar: "
+            "el cache es de clase."
+        )
+
     def test_el_cache_hit_tambien_filtra_por_tipo_y_ventana(self):
         """El camino de cache no puede devolver el bundle crudo sin filtrar.
 
