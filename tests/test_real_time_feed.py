@@ -30,6 +30,7 @@ from tukul_core.real_time_feed import FeedCache, FeedNormalizer, FeedOrchestrato
 from tukul_core.real_time_feed import orchestrator as orchestrator_module
 from tukul_core.real_time_feed.adapters.arxiv import (
     ARXIV_API_URL,
+    ARXIV_MIN_REQUEST_INTERVAL,
     MAX_ATTEMPTS,
     NO_REDIRECT_OPENER,
     ArxivAdapter,
@@ -316,6 +317,19 @@ class TestArxivAdapterFetch:
     el adaptador fallaba SIEMPRE. Estos tests fijan el contrato que faltaba.
     """
 
+    @pytest.fixture(autouse=True)
+    def _reset_throttle(self):
+        """Aísla el estado de rate limiting entre tests.
+
+        La marca de tiempo de la última petición es un atributo de clase (el
+        límite de arXiv es por cliente, no por objeto). Sin reiniciarlo, el
+        primer test que consulte dejaría a los siguientes esperando los 3 s y
+        la suite se volvería lenta y dependiente del orden.
+        """
+        ArxivAdapter._last_request_at = None
+        yield
+        ArxivAdapter._last_request_at = None
+
     def test_el_endpoint_usa_https(self):
         """https es obligatorio: con http:// el 301 de arXiv rompe el fetch."""
         assert ARXIV_API_URL.startswith("https://"), (
@@ -497,6 +511,90 @@ class TestArxivAdapterFetch:
                    return_value=1.0):
             ArxivAdapter()._sleep(1)
         assert capturado and capturado[0] <= BACKOFF_MAX * 1.25
+
+    def test_la_primera_peticion_no_espera(self):
+        """Sin petición previa no hay nada que esperar: no se duerme."""
+        capturado: list[float] = []
+        with patch("tukul_core.real_time_feed.adapters.arxiv.time.sleep",
+                   side_effect=lambda s: capturado.append(s)):
+            ArxivAdapter()._wait_for_rate_limit()
+        assert capturado == [], (
+            "La primera petición no debe pagar el intervalo: no hay anterior."
+        )
+
+    def test_dos_peticiones_seguidas_respetan_el_minimo_de_tres_segundos(self):
+        """Entre dos peticiones consecutivas se espera lo que falta del mínimo.
+
+        Es el incumplimiento real que corrige este cambio: `fetch()` consulta
+        cs.CR y cs.AI seguidas y arXiv exige «no más de una petición cada tres
+        segundos». Aquí se simula que la anterior fue hace 1 s, así que debe
+        dormir ~2 s (3 - 1) para completar el intervalo.
+        """
+        import tukul_core.real_time_feed.adapters.arxiv as arxiv_mod
+
+        capturado: list[float] = []
+        # `_wait_for_rate_limit` llama a monotonic() una sola vez (para "ahora").
+        # La anterior quedó en t=100; ahora es t=101 → pasó 1 s de los 3 exigidos.
+        with patch.object(arxiv_mod.time, "monotonic", return_value=101.0), \
+             patch.object(arxiv_mod.time, "sleep", side_effect=lambda s: capturado.append(s)):
+            ArxivAdapter._last_request_at = 100.0
+            ArxivAdapter()._wait_for_rate_limit()
+
+        assert len(capturado) == 1, "Debe esperar exactamente una vez."
+        assert capturado[0] == pytest.approx(
+            ARXIV_MIN_REQUEST_INTERVAL - 1.0, abs=0.01
+        ), "La espera debe ser el resto del intervalo, no el intervalo entero."
+
+    def test_una_peticion_tras_el_intervalo_no_espera(self):
+        """Si ya pasó el mínimo desde la anterior, no se duerme nada."""
+        import tukul_core.real_time_feed.adapters.arxiv as arxiv_mod
+
+        capturado: list[float] = []
+        ahora = 100.0 + ARXIV_MIN_REQUEST_INTERVAL + 0.5
+        with patch.object(arxiv_mod.time, "monotonic", return_value=ahora), \
+             patch.object(arxiv_mod.time, "sleep", side_effect=lambda s: capturado.append(s)):
+            ArxivAdapter._last_request_at = 100.0
+            ArxivAdapter()._wait_for_rate_limit()
+
+        assert capturado == [], (
+            "Pasado el intervalo mínimo no hay motivo para dormir."
+        )
+
+    def test_fetch_espacia_las_dos_categorias(self):
+        """`fetch()` (cs.CR + cs.AI) no dispara dos peticiones sin esperar.
+
+        Es la garantía de extremo a extremo: las dos categorías se piden con el
+        throttle activo, así que la segunda llama a `_wait_for_rate_limit`
+        antes de salir a la red.
+        """
+        atom = (
+            b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+            b"<entry><id>http://arxiv.org/abs/1</id><title>P</title>"
+            b"<summary>r</summary>"
+            b"<published>2026-01-01T00:00:00Z</published></entry></feed>"
+        )
+
+        def _open(request, timeout=None):
+            respuesta = MagicMock()
+            cuerpo = iter([atom, b""])
+            respuesta.read.side_effect = lambda *_a: next(cuerpo)
+            respuesta.headers = {}
+            return respuesta
+
+        llamadas: list[str] = []
+        original = ArxivAdapter._wait_for_rate_limit
+
+        def _espiar(self):
+            llamadas.append("wait")
+            return original(self)
+
+        with patch.object(ArxivAdapter, "_wait_for_rate_limit", _espiar), \
+             patch.object(NO_REDIRECT_OPENER, "open", side_effect=_open):
+            ArxivAdapter().fetch(24)
+
+        assert llamadas == ["wait", "wait"], (
+            "Cada categoría debe pasar por el throttle antes de salir a la red."
+        )
 
 
 # ─── Tests de FeedOrchestrator ─────────────────────────────────────────────

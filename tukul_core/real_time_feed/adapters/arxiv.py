@@ -31,6 +31,13 @@ MAX_ATTEMPTS = 2
 BACKOFF_BASE = 0.5
 BACKOFF_MAX = 2.0
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+# arXiv exige, por sus Terms of Use, «no más de una petición cada tres
+# segundos» (contadas entre todas las máquinas bajo tu control). El adaptador
+# consulta dos categorías seguidas (cs.CR y cs.AI), así que sin esta pausa
+# incumplía el límite y arriesgaba un bloqueo de la fuente. El mínimo se aplica
+# entre CUALQUIER par de peticiones consecutivas (categorías distintas o
+# reintentos de la misma), no solo entre categorías.
+ARXIV_MIN_REQUEST_INTERVAL = 3.0
 USER_AGENT = (
     "Tukul/ThreatFeed (+https://github.com/; "
     "contacto: mantenedor del repositorio)"
@@ -40,6 +47,12 @@ ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom"}
 
 class ArxivAdapter(SourceAdapter):
     """Consulta papers de arXiv por categoría."""
+
+    # Marca de tiempo (monotónica) de la última petición lanzada a arXiv. Es de
+    # clase, no de instancia, para que el intervalo mínimo se respete aunque el
+    # orquestador cree un adaptador por consulta (el límite de arXiv es por
+    # cliente, no por objeto).
+    _last_request_at: float | None = None
 
     @classmethod
     def source_id(cls) -> str:
@@ -70,6 +83,7 @@ class ArxivAdapter(SourceAdapter):
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
+                self._wait_for_rate_limit()
                 response = NO_REDIRECT_OPENER.open(request, timeout=HTTP_TIMEOUT)
                 body = self._read_bounded(response)
                 return self._parse_atom(body, category)
@@ -175,6 +189,22 @@ class ArxivAdapter(SourceAdapter):
         jitter = delay * 0.25 * random.random()  # nosec B311 - jitter de backoff, no criptográfico
         delay = min(delay + jitter, BACKOFF_MAX * 1.25)
         time.sleep(delay)
+
+    def _wait_for_rate_limit(self) -> None:
+        """Espera lo necesario para respetar el intervalo mínimo de arXiv.
+
+        Deja pasar al menos `ARXIV_MIN_REQUEST_INTERVAL` segundos desde la
+        petición anterior (sea de otra categoría o un reintento) antes de
+        lanzar la siguiente. Actualiza la marca de tiempo al salir, de modo que
+        toda petición posterior cuente desde esta.
+        """
+        previous = ArxivAdapter._last_request_at
+        if previous is not None:
+            elapsed = time.monotonic() - previous
+            remaining = ARXIV_MIN_REQUEST_INTERVAL - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+        ArxivAdapter._last_request_at = time.monotonic()
 
 
 def _arxiv_url_https(paper_id: str) -> str:
