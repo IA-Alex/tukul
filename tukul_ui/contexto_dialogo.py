@@ -26,6 +26,8 @@ from typing import Any, Protocol, cast
 
 from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.memory.models import MemorySearchResult
+from tukul_core.search import SearchOrchestrator, SearchQuery
+from tukul_core.search.models import SearchResult
 from tukul_core.threat_feed import ThreatFeedError, build_threat_context
 from tukul_ui import estilo as es
 from tukul_ui.contexto import ContextArticle
@@ -343,6 +345,95 @@ class ContextController:
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         host._registrar_reaplicar_tema(
             dialog, lambda: self.reaplicar_tema_memoria(dialog, entries))
+        entries.focus_set()
+
+    def search_web(self, parent: tk.Misc) -> None:
+        """Consulta Internet solo por acción explícita y muestra resultados trazables."""
+        query = simpledialog.askstring(
+            "Buscar en Internet",
+            "Tema, pregunta o idea que quieres validar:",
+            parent=parent,
+        )
+        if not query or not query.strip():
+            return
+        query_obj = SearchQuery(query.strip(), max_results=20)
+        host = self._host
+        host.status.set("Consultando Internet bajo demanda…")
+
+        def work() -> None:
+            try:
+                results = SearchOrchestrator().search(query_obj)
+            except RuntimeError as error:
+                detail = str(error)
+                if not host.closing:
+                    host.after(0, lambda: messagebox.showerror(
+                        "Búsqueda no disponible", detail, parent=parent))
+                return
+            if not host.closing:
+                host.after(0, lambda: self._show_web_results(parent, query_obj.text, results))
+
+        WorkerThreads.start(work)
+
+    def _show_web_results(
+        self, parent: tk.Misc, query: str, results: list[SearchResult]
+    ) -> None:
+        """Permite seleccionar señales web; nada se envía al modelo automáticamente."""
+        host = self._host
+        host.status.set(f"Internet: {len(results)} resultado(s) para «{query}».")
+        if not results:
+            messagebox.showinfo(
+                "Sin resultados",
+                f"No encontré resultados para «{query}».",
+                parent=parent,
+            )
+            return
+        dialog = tk.Toplevel(cast("tk.Tk", parent))
+        dialog.title("Resultados de Internet")
+        dialog.transient(cast("tk.Tk", parent))
+        dialog.configure(bg=es.SUPERFICIE)
+        dialog.minsize(680, 380)
+        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=f"Resultados para «{query}»", style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="Son señales de descubrimiento. Revisa las fuentes antes de usarlas como contexto.",
+            style="TenueSuperficie.TLabel",
+        ).pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
+        entries = tk.Listbox(
+            frame, selectmode="extended", exportselection=False,
+            background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+            selectbackground=es.SELECCION, selectforeground=es.TEXTO,
+            relief="flat", highlightthickness=1,
+            highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
+            borderwidth=0, font=es.fuente(), activestyle="none",
+        )
+        entries.pack(fill="both", expand=True)
+        for result in results:
+            entries.insert("end", f"{result.title} · {result.domain} · {result.url}")
+
+        def add_selected() -> None:
+            selected = list(entries.curselection())
+            if not selected:
+                return
+            for index in selected:
+                result = results[index]
+                content = (
+                    f"Fuente de descubrimiento (pendiente de verificación): {result.title}\n"
+                    f"Dominio: {result.domain}\nURL: {result.url}\n\n{result.snippet}"
+                )
+                host._upsert_context_article(
+                    ContextArticle(f"web:{result.result_id}", result.title, content))
+            host._authorize_context_articles()
+            host.status.set(f"{len(selected)} señal(es) web añadida(s) y autorizada(s).")
+            dialog.destroy()
+
+        ttk.Button(frame, text="Añadir seleccionados", style="Primaria.TButton",
+                   command=add_selected).pack(side="right", pady=(es.ESP["lg"], 0))
+        ttk.Button(frame, text="Cerrar", command=dialog.destroy).pack(
+            side="right", padx=(0, es.ESP["sm"]), pady=(es.ESP["lg"], 0))
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        host._registrar_reaplicar_tema(dialog, lambda: self.reaplicar_tema_memoria(dialog, entries))
         entries.focus_set()
 
     @staticmethod

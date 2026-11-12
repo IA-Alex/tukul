@@ -787,6 +787,7 @@ class TukulApp(tk.Tk):
             None,
             ("Configurar modelo…", self.settings, ""),
             ("Contexto de artículos…", self.manage_references, ""),
+            ("Buscar en Internet…", self.search_web, ""),
             ("Limpiar conversación", self.clear_history, ""),
         ]
         for entrada in entradas:
@@ -2280,6 +2281,10 @@ class TukulApp(tk.Tk):
     def manage_references(self) -> None:
         """Delega en `ContextController.manage_references`."""
         self._contexto.manage_references()
+
+    def search_web(self) -> None:
+        """Inicia una búsqueda externa únicamente por acción del usuario."""
+        self._contexto.search_web(self)
 
     def _reaplicar_tema_contexto(self, dialog: tk.Toplevel, entries: tk.Listbox) -> None:
         """Delega en `ContextController.reaplicar_tema_contexto`."""
