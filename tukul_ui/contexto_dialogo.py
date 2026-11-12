@@ -21,9 +21,11 @@ import threading
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any, Protocol, cast
 
+from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
+from tukul_core.memory.models import MemorySearchResult
 from tukul_core.threat_feed import ThreatFeedError, build_threat_context
 from tukul_ui import estilo as es
 from tukul_ui.contexto import ContextArticle
@@ -81,11 +83,15 @@ class ContextController:
     """Diálogo de contexto y fetch de amenazas, con la ventana inyectada."""
 
     def __init__(self, host: ContextHost, *, threat_feed_hours: int,
-                 threat_feed_source_id: str, max_indexed_file_bytes: int) -> None:
+                 threat_feed_source_id: str, max_indexed_file_bytes: int,
+                 memory_root: Path | None = None,
+                 memory_database_path: Path | None = None) -> None:
         self._host = host
         self._threat_feed_hours = threat_feed_hours
         self._threat_feed_source_id = threat_feed_source_id
         self._max_indexed_file_bytes = max_indexed_file_bytes
+        self._memory_root = memory_root
+        self._memory_database_path = memory_database_path
 
     # ─── Mutadores del conjunto de contexto ─────────────────────────────────
 
@@ -213,6 +219,142 @@ class ContextController:
         host.status.set("Contexto de CVEs recientes añadido y autorizado.")
         on_done()
 
+    # ─── Memoria local ──────────────────────────────────────────────────────
+
+    def search_memory(self, parent: tk.Misc) -> None:
+        """Busca en el corpus local y ofrece resultados seleccionables."""
+        if self._memory_root is None or self._memory_database_path is None:
+            messagebox.showinfo(
+                "Memoria local no configurada",
+                "Configura TUKUL_MEMORY_ROOT para seleccionar una carpeta de memoria.",
+                parent=parent,
+            )
+            return
+        query = simpledialog.askstring(
+            "Buscar en memoria",
+            "Tema o palabras clave del artículo:",
+            parent=parent,
+        )
+        if not query or not query.strip():
+            return
+        host = self._host
+        root = self._memory_root
+        database = self._memory_database_path
+        host.status.set("Buscando en la memoria local…")
+
+        def work() -> None:
+            repository = FileMemoryRepository(
+                MemoryPolicy(root=root, max_file_bytes=self._max_indexed_file_bytes)
+            )
+            try:
+                with CorpusIndex(database) as index:
+                    index.refresh(repository)
+                    results = index.search(query.strip(), limit=20)
+            except (OSError, ValueError) as error:
+                detail = str(error)
+                if not host.closing:
+                    host.after(0, lambda: self._memory_error(parent, detail))
+                return
+            if not host.closing:
+                host.after(0, lambda: self._show_memory_results(
+                    parent, query.strip(), results, repository))
+
+        WorkerThreads.start(work)
+
+    def _memory_error(self, parent: tk.Misc, detail: str) -> None:
+        """Reporta un fallo de lectura/indexación sin tumbar el diálogo."""
+        self._host.status.set("No se pudo consultar la memoria local.")
+        messagebox.showerror(
+            "Memoria local no disponible",
+            f"No se pudo consultar la carpeta de memoria:\n\n{detail}",
+            parent=parent,
+        )
+
+    def _show_memory_results(
+        self,
+        parent: tk.Misc,
+        query: str,
+        results: list[MemorySearchResult],
+        repository: FileMemoryRepository,
+    ) -> None:
+        """Muestra resultados trazables y permite añadir solo los seleccionados."""
+        host = self._host
+        host.status.set(f"Memoria local: {len(results)} resultado(s) para «{query}».")
+        if not results:
+            messagebox.showinfo(
+                "Sin resultados",
+                f"No encontré documentos relacionados con «{query}».",
+                parent=parent,
+            )
+            return
+        dialog = tk.Toplevel(cast("tk.Tk", parent))
+        dialog.title("Resultados de memoria")
+        dialog.transient(cast("tk.Tk", parent))
+        dialog.configure(bg=es.SUPERFICIE)
+        dialog.minsize(560, 320)
+        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=f"Resultados para «{query}»", style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="Selecciona documentos para agregarlos al contexto. Todavía no se envían al modelo.",
+            style="TenueSuperficie.TLabel",
+        ).pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
+        entries = tk.Listbox(
+            frame, selectmode="extended", exportselection=False,
+            background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+            selectbackground=es.SELECCION, selectforeground=es.TEXTO,
+            relief="flat", highlightthickness=1,
+            highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
+            borderwidth=0, font=es.fuente(), activestyle="none",
+        )
+        entries.pack(fill="both", expand=True)
+        for result in results:
+            entries.insert("end", f"{result.title} · {result.relative_path} · {result.category}")
+
+        actions = ttk.Frame(frame, style="Superficie.TFrame")
+        actions.pack(fill="x", pady=(es.ESP["lg"], 0))
+
+        def add_selected() -> None:
+            selected = list(entries.curselection())
+            if not selected:
+                return
+            added = 0
+            for index in selected:
+                result = results[index]
+                document = repository.read_document(result.relative_path)
+                if document is None:
+                    continue
+                if host._upsert_context_article(ContextArticle(
+                    f"memory:{result.document_id}",
+                    result.title,
+                    document.content,
+                )):
+                    added += 1
+            if added:
+                host._authorize_context_articles()
+                host.status.set(f"{added} documento(s) de memoria añadido(s) y autorizado(s).")
+            dialog.destroy()
+
+        ttk.Button(actions, text="Añadir seleccionados", style="Primaria.TButton",
+                   command=add_selected).pack(side="right")
+        ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="right",
+                                                                           padx=(0, es.ESP["sm"]))
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        host._registrar_reaplicar_tema(
+            dialog, lambda: self.reaplicar_tema_memoria(dialog, entries))
+        entries.focus_set()
+
+    @staticmethod
+    def reaplicar_tema_memoria(dialog: tk.Toplevel, entries: tk.Listbox) -> None:
+        """Repinta el diálogo de resultados de memoria."""
+        dialog.configure(bg=es.SUPERFICIE)
+        entries.configure(
+            background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
+            selectbackground=es.SELECCION, selectforeground=es.TEXTO,
+            highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
+        )
+
     # ─── Diálogo de contexto ────────────────────────────────────────────────
 
     def manage_references(self) -> None:
@@ -238,6 +380,10 @@ class ContextController:
         # lo colocado después es lo que se recorta al estrechar la ventana.
         actions = ttk.Frame(frame, style="Superficie.TFrame")
         actions.pack(side="bottom", fill="x", pady=(es.ESP["lg"], 0))
+        primary_actions = ttk.Frame(actions, style="Superficie.TFrame")
+        primary_actions.pack(fill="x")
+        secondary_actions = ttk.Frame(actions, style="Superficie.TFrame")
+        secondary_actions.pack(fill="x", pady=(es.ESP["sm"], 0))
         entries = tk.Listbox(frame, selectmode="extended", exportselection=False,
                              background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
                              selectbackground=es.SELECCION, selectforeground=es.TEXTO,
@@ -294,19 +440,20 @@ class ContextController:
             host.status.set("Artículo activo añadido al contexto." if added
                             else "Artículo activo actualizado en el contexto.")
 
-        ttk.Button(actions, text="Añadir artículos…", style="Primaria.TButton",
-                   command=add).pack(side="right")
-        ttk.Button(actions, text="Quitar seleccionadas", command=remove).pack(
+        ttk.Button(primary_actions, text="Añadir artículos…", command=add).pack(side="right")
+        ttk.Button(primary_actions, text="Buscar en memoria…", style="Primaria.TButton",
+                   command=lambda: self.search_memory(dialog)).pack(side="left")
+        ttk.Button(primary_actions, text="Añadir artículo activo", command=add_current).pack(
+            side="left", padx=(0, es.ESP["sm"]))
+        ttk.Button(secondary_actions, text="Cerrar", command=dialog.destroy).pack(side="right")
+        ttk.Button(secondary_actions, text="Quitar seleccionadas", command=remove).pack(
             side="right", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Añadir artículo activo", command=add_current).pack(
-            side="left", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Añadir CVEs recientes…",
+        ttk.Button(secondary_actions, text="Añadir CVEs recientes…",
                    command=lambda: self.fetch_threat_feed(dialog, refresh)).pack(
-            side="left", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Generar sugerencia de impacto…",
+            side="left")
+        ttk.Button(secondary_actions, text="Generar sugerencia de impacto…",
                    command=lambda: host._fetch_impact_suggestion(dialog, refresh)).pack(
             side="left", padx=(0, es.ESP["sm"]))
-        ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="left")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         refresh()
         host._registrar_reaplicar_tema(

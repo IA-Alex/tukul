@@ -74,6 +74,10 @@ KEYRING_TIMEOUT_SECONDS = 3.0
 # usuario, igual que añadir un artículo de contexto.
 THREAT_FEED_HOURS = 24
 THREAT_FEED_SOURCE_ID = "threat-feed:cve-recientes"
+# Corpus editorial local. La variable permite usar una carpeta externa sin
+# mezclar documentos personales con el código de Tukul.
+MEMORY_ROOT = Path(os.environ.get("TUKUL_MEMORY_ROOT", str(Path.home() / "Articulos"))).expanduser()
+MEMORY_INDEX_PATH = Path.home() / ".local" / "state" / "tukul" / "memory.sqlite3"
 # Caché local de entradas de fuentes oficiales para evitar consultas repetidas.
 FEED_CACHE_DIR = Path.home() / ".local" / "state" / "tukul" / "feed_cache"
 # Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
@@ -2145,6 +2149,8 @@ class TukulApp(tk.Tk):
                 threat_feed_hours=THREAT_FEED_HOURS,
                 threat_feed_source_id=THREAT_FEED_SOURCE_ID,
                 max_indexed_file_bytes=MAX_INDEXED_FILE_BYTES,
+                memory_root=MEMORY_ROOT,
+                memory_database_path=MEMORY_INDEX_PATH,
             )
             self._contexto_ctrl = ctrl
         return ctrl
