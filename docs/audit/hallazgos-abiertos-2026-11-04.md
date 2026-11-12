@@ -124,3 +124,25 @@ section in your settings
 - **Ayuda en el repositorio:** `./scripts/diagnose-ci.sh` clasifica el último run
   (o uno por id) como bloqueo de cuenta vs. fallo de código, sin depender de
   inspección manual de la API.
+
+### RESUELTO (2026-11-12)
+
+Se adoptó la alternativa «repositorio público»: Actions es gratis en repos
+públicos, así que los runners vuelven a asignarse sin minutos de pago.
+
+- **Acción:** visibilidad cambiada a pública (`gh api -X PATCH repos/IA-Alex/tukul
+  -f visibility=public`). Antes se verificó que no hubiera secretos versionados:
+  `.env` nunca se commiteó (ni en el historial) y las únicas menciones de
+  `DEEPINFRA_API_KEY` son el *nombre* de la variable en docs, no el valor.
+- **Evidencia de cierre:** run `43328734310` (push de `50df582`) →
+  `conclusion=success`; los cuatro jobs con `runner_name` no vacío y `steps` 20
+  (test 3.11/3.12/3.13) y 10 (security). Se cumple el criterio de cierre original
+  (`success`, `steps > 0`, `runner_name` no vacío).
+- **Higiene pendiente:** rotar la `DEEPINFRA_API_KEY` usada en evals locales, ya
+  que el repositorio es ahora público (la key no estuvo expuesta, pero conviene
+  rotarla por precaución).
+- **Hallazgo destapado al desbloquear:** al arrancar el CI apareció un fallo real
+  en `tests/test_auditoria_2026_11_12.py` — `_tamano` hacía `split()` del string
+  de `cget("font")` y con una familia con espacios («{Nimbus Sans} 12») tomaba
+  «Sans}» como tamaño. Solo se manifestaba en entornos sin la fuente del tema
+  (el runner), no en local. Corregido en `50df582` con `tkfont.Font.actual("size")`.
