@@ -4,6 +4,19 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.4.4] - 2026-11-12
+
+### Cambiado (interfaz)
+
+- **Blancos del tema claro rebajados un escalón.** Las capas del tema claro eran
+  casi blanco puro (`fondo #F2F3EC`, `superficie #E7E9E0`, `superficie_alta
+  #FAFBF7`) y resultaban estridentes en pantalla. Ahora son
+  `#E9EBE1`, `#DDDFD3` y `#F1F3EC`; el hover pasa de `#D7DCD0` a `#CFD4C6`. Se
+  conserva el tinte cálido-verdoso (R>B, G>B) y el contraste AA: texto ≥ 4.5:1 y
+  bordes/acento ≥ 3:1 sobre cada capa. `estado_neutro` se oscurece a `#4F5E6D`
+  para mantener AA sobre la `superficie` rebajada. La hoja de muestras del README
+  se regeneró.
+
 ## [0.4.3] - 2026-11-12
 
 ### Cambiado (alcance de distribución)

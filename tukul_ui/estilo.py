@@ -89,12 +89,16 @@ PALETAS: dict[str, dict[str, str]] = {
     },
     "light": {
         # --- Capas: caña al sol -------------------------------------------
-        "fondo": "#F2F3EC",
-        "superficie": "#E7E9E0",
-        "superficie_alta": "#FAFBF7",
+        # Blancos rebajados un escalón (2026-11-12): los anteriores
+        # (#F2F3EC / #E7E9E0 / #FAFBF7) eran casi blanco puro y resultaban
+        # estridentes en pantalla. Se mantiene el tinte cálido-verdoso (R>B, G>B)
+        # y el contraste AA: texto ≥ 4.5:1 y bordes/acento ≥ 3:1 sobre cada capa.
+        "fondo": "#E9EBE1",
+        "superficie": "#DDDFD3",
+        "superficie_alta": "#F1F3EC",
         "borde": "#7D6C57",
         "borde_control": "#766651",
-        "superficie_activa": "#D7DCD0",
+        "superficie_activa": "#CFD4C6",
         "foco": "#0F6B5F",
         "acento": "#0B655C",
         "acento_activo": "#084C46",
@@ -102,7 +106,7 @@ PALETAS: dict[str, dict[str, str]] = {
         "texto": "#15202B",
         "texto_tenue": "#455463",
         "seleccion": "#BCE3DE",
-        "estado_neutro": "#566575",
+        "estado_neutro": "#4F5E6D",
         "estado_proceso": "#0F5E70",
         "estado_exito": "#146B3A",
         "estado_error": "#B4233A",
