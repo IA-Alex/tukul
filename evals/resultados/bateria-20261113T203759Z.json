@@ -1,0 +1,82 @@
+{
+  "modelo": "deepseek-ai/DeepSeek-V4-Flash",
+  "fecha": "20261113T203759Z",
+  "temperature": 0,
+  "seed": 7,
+  "casos": [
+    {
+      "id": "I-01",
+      "palabras_antes": 962,
+      "palabras_despues": 476,
+      "ratio": 0.49,
+      "entidades_perdidas": [
+        "Por"
+      ],
+      "pass": false,
+      "latencia": 4.8043602269972325
+    },
+    {
+      "id": "I-03",
+      "parrafos_original": 11,
+      "parrafos_salida": 1,
+      "intactos": 0,
+      "esperados_intactos": 10,
+      "truncado": true,
+      "pass": false,
+      "latencia": 1.5953542849965743
+    },
+    {
+      "id": "I-06",
+      "avisa_contradiccion": false,
+      "edito_igual": true,
+      "pass": false,
+      "latencia": 4.326718317999621,
+      "muestra": "# Por qué los vecinos se saludan menos en los edificios grandes\n\nDos vecinos entran al ascensor, se miran, asienten apenas y esperan en silencio hasta que se abren las puertas. Nadie se ha enfadado, p"
+    },
+    {
+      "id": "I-10",
+      "muletillas_antes": 10,
+      "muletillas_despues": 0,
+      "pues_conservados": 0,
+      "pass": true,
+      "latencia": 6.10225721700408
+    },
+    {
+      "id": "R-01",
+      "causa": "truncado",
+      "n_hallazgos": 0,
+      "duras_sobre_texto_correcto": [],
+      "citas_reales": true,
+      "pass": true,
+      "latencia": 5.878945971002395
+    },
+    {
+      "id": "R-02",
+      "causa": "ok",
+      "n_hallazgos": 12,
+      "detectados": [
+        "decada",
+        "efiziencia",
+        "adminstración"
+      ],
+      "esperados": [
+        "decada",
+        "efiziencia",
+        "adminstración"
+      ],
+      "pass": true,
+      "latencia": 6.234129541000584
+    },
+    {
+      "id": "F-01",
+      "cifras_nuevas": [],
+      "fechas_nuevas": [],
+      "pass": true,
+      "latencia": 5.837295392004307
+    }
+  ],
+  "resumen": {
+    "pass": 4,
+    "total": 7
+  }
+}
