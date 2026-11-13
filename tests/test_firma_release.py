@@ -96,6 +96,34 @@ class TestFirmaObligatoria(unittest.TestCase):
                 self.assertIn("--bundle", guion)
 
 
+class TestEnsayoConOidcReal(unittest.TestCase):
+    """El ensayo permite probar la firma con OIDC real sin publicar Release."""
+
+    def setUp(self):
+        self.datos = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.ensayo = self.datos["jobs"]["firma-ensayo"]
+
+    def test_solo_corre_en_disparo_manual(self):
+        self.assertEqual(self.ensayo["if"], "github.event_name == 'workflow_dispatch'")
+
+    def test_pide_oidc_y_no_permiso_de_escritura(self):
+        permisos = self.ensayo["permissions"]
+        self.assertEqual(permisos.get("id-token"), "write")
+        self.assertEqual(
+            permisos.get("contents"), "read",
+            "El ensayo no debe poder publicar un Release: sin `contents: write` "
+            "no hay forma de crear ni modificar uno.",
+        )
+
+    def test_firma_y_verifica_sin_publicar(self):
+        pasos = self.ensayo["steps"]
+        guiones = " ".join(paso.get("run", "") for paso in pasos)
+        self.assertIn("sign-blob", guiones)
+        self.assertIn("verify-blob", guiones)
+        nombres = " ".join(str(paso) for paso in pasos).lower()
+        self.assertNotIn("action-gh-release", nombres)
+
+
 class TestDocumentoYScriptCoinciden(unittest.TestCase):
     """El usuario verifica con el comando del documento; debe ser el del CI."""
 
@@ -112,7 +140,13 @@ class TestDocumentoYScriptCoinciden(unittest.TestCase):
         return coincidencia.group(1).rstrip("\\")
 
     def test_documentado_trabajo_script_verifican_la_misma_identidad(self):
-        del_workflow = self._regex_identidad(self.workflow)
+        # Solo el job `release`: el ensayo usa otra ref (`refs/heads/...`),
+        # por diseño, para que no pueda confundirse con un tag firmado.
+        datos = yaml.safe_load(self.workflow)
+        del_release = "\n".join(
+            paso.get("run", "") for paso in datos["jobs"]["release"]["steps"]
+        )
+        del_workflow = self._regex_identidad(del_release)
         # En el documento el repo va literal; el workflow y el script lo
         # interpolan, así que parte de su variable `REPO` (que vale el repo).
         con_repo = del_workflow.replace("${REPO}", "${REPO}")

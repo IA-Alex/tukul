@@ -139,6 +139,52 @@ jobs:
           path: dist/${{ matrix.asset_name }}
           if-no-files-found: error
 
+  # Ensayo de la firma: obtiene un certificado OIDC REAL y verifica el bundle,
+  # pero NO publica Release (la copia firmada vive solo como artifact del run).
+  # Existe porque el job `release` solo corre en tags y la firma keyless no se
+  # puede validar sin un token de GitHub; así el contrato C1 se comprueba sin
+  # cortar ninguna versión.
+  firma-ensayo:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tukul-linux-x86_64
+          path: dist
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: "v3.1.4"
+
+      - name: Sign in rehearsal mode (keyless, no Release)
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes --bundle dist/tukul-linux-x86_64.bundle dist/tukul-linux-x86_64
+          ls -l dist/*.bundle
+
+      - name: Verify against this workflow's OIDC identity
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cosign verify-blob \
+            --bundle dist/tukul-linux-x86_64.bundle \
+            --certificate-identity-regexp "^https://github.com/${REPO}/.github/workflows/build-release.yml@refs/heads/[^ ]+$" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            dist/tukul-linux-x86_64
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: firma-ensayo
+          path: dist/tukul-linux-x86_64.bundle
+          if-no-files-found: error
+
   release:
     # Solo al publicar un tag real: workflow_dispatch deja los binarios como
     # artefactos del run, sin crear un Release de GitHub por cada prueba.
