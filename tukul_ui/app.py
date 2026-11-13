@@ -21,6 +21,7 @@ from tukul_core.config_validator import validate_startup_config
 from tukul_core.impact_analyzer import CorrelationEngine, IdeaGenerator  # noqa: F401
 from tukul_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 from tukul_core.logging_config import setup_logging
+from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.models import (
     ArticleIdea,
     ArticleSession,
@@ -688,6 +689,9 @@ class TukulApp(tk.Tk):
             self.toggle_asistente()
         self._preparar_enunciado_inicial()
         self.editor.focus_set()
+        # Autoindexado de la carpeta de memoria, ya con la ventana construida:
+        # corre en segundo plano y no bloquea el arranque.
+        self._autoindexar_memoria()
         # `_theme()` corre ANTES de `_build()` (los widgets aún no existen), así
         # que el vestido inicial de las áreas de texto —que no son ttk— se hace
         # aquí una vez, ya con los tres widgets creados.
@@ -1583,6 +1587,48 @@ class TukulApp(tk.Tk):
             return
         hay_conversacion = bool(self.session.conversation)
         panel.set_clear_enabled(hay_conversacion)
+
+    def _autoindexar_memoria(self) -> None:
+        """Indexa la carpeta de memoria en segundo plano, sin bloquear la UI.
+
+        Reusa `CorpusIndex.refresh`, que es incremental: solo procesa archivos
+        nuevos o cambiados, así que reinicios posteriores son baratos. El envío
+        del contenido al modelo sigue requiriendo aprobación explícita; aquí
+        solo se deja el índice listo.
+        """
+        root = self.memory_root
+        database = self.memory_index_path
+        if root is None:
+            return
+
+        def work() -> None:
+            try:
+                repository = FileMemoryRepository(
+                    MemoryPolicy(root=root, max_file_bytes=MAX_INDEXED_FILE_BYTES)
+                )
+                with CorpusIndex(database) as index:
+                    stats = index.refresh(repository)
+                total = stats.scanned
+            except (OSError, ValueError):
+                return
+            if not self.closing:
+                try:
+                    self.after(0, lambda: self._avisar_memoria_lista(total))
+                except (RuntimeError, tk.TclError):
+                    # La ventana pudo destruirse mientras el hilo indexaba: el
+                    # aviso es informativo y no debe abortar el intérprete.
+                    return
+
+        WorkerThreads.start(work)
+
+    def _avisar_memoria_lista(self, total: int) -> None:
+        """Publica en el estado el resultado del autoindexado, si sigue vivo."""
+        if self.closing:
+            return
+        try:
+            self.status.set(f"Memoria lista: {total} documento(s).")
+        except tk.TclError:
+            return
     def _enviar_desde_input(self) -> None:
         """Extrae el mensaje del input respetando el placeholder y lo envía."""
         if self._placeholder_activo:
