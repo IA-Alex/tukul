@@ -19,7 +19,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Decisiones significativas | [decisions/](decisions/) | arquitectura | SUPPORTING / mantenedores |
 | Convenciones de docstrings | [DOCSTRING_GUIDE.md](DOCSTRING_GUIDE.md) | desarrollo | SUPPORTING / mantenedores |
 | Auditorías puntuales | [audit/](audit/) (informes fechados) | calidad | HISTORICAL |
-| Dictamen de cierre vigente | [audit/cierre-2026-11-13.md](audit/cierre-2026-11-13.md) | calidad | NORMATIVE / mantenedores |
+| Dictamen de cierre vigente | [audit/cierre-2026-11-13-final.md](audit/cierre-2026-11-13-final.md) | calidad | NORMATIVE / mantenedores |
 | Contratos posteriores a 0.5.2 | [contracts/contratos-0.6.md](contracts/contratos-0.6.md) | calidad | NORMATIVE / mantenedores |
 | Uso rápido | [../README.md](../README.md) | usuarios | SUPPORTING / mantenedores |
 | Flujo de contribución | [../CONTRIBUTING.md](../CONTRIBUTING.md) | desarrollo, revisores | NORMATIVE / mantenedores |
