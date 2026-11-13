@@ -18,6 +18,10 @@ sobre el artefacto descargado, no sobre el código del repositorio.
   3.11/3.12/3.13; build `ubuntu-22.04` (glibc 2.35).
 - **Nivel de madurez:** Operativo controlado.
 
+> **Entrega vigente:** el parche **`0.6.1`** (tag `v0.6.1`, commit `98015b5`)
+> sustituye a `0.6.0` como última entrega publicada y verificada. Detalle en
+> «Correcciones posteriores sobre `0.6.0`», al final de este documento.
+
 ## Evaluación de los 16 criterios
 
 | # | Criterio | Estado | Evidencia |
@@ -89,8 +93,16 @@ reabrirla.
 - **Evidencia previa al tag:** gate verde — **780 pruebas, 0 omitidas,
   cobertura 88.58 %**; `ruff` y `mypy` limpios. La regresión de C-01 se comprobó
   en ambas direcciones (falla con la doc anterior, pasa con la corrección).
-- **Publicación:** parche `0.6.1` (tag `v0.6.1`), sin funciones nuevas. La
-  verificación en destino (`sha256sum -c`, `--health`, `cosign verify-blob`
-  sobre el artefacto descargado) se registra al completarse el ciclo.
+- **Publicación:** parche `0.6.1` (tag `v0.6.1`), sin funciones nuevas. Release
+  publicada por el run `43516865385` (success: build, smoke test, glibc floor,
+  firma keyless, verificación y publicación).
+- **Verificación en destino (paso 6, sobre lo descargado, no lo construido):**
+  - `sha256sum -c SHA256SUMS` → «La suma coincide».
+  - `./tukul-linux-x86_64 --health` → `Tukul 0.6.1`, exit 0.
+  - `cosign verify-blob --bundle …` → **Verified OK**; certificado con SAN
+    `…build-release.yml@refs/tags/v0.6.1`, emisor `sigstore-intermediate`,
+    1 entrada Rekor (`logIndex 3863539296`).
+- **Versión:** `pyproject.toml` y `uv.lock` pasan a `0.6.1` para que el binario
+  publicado corresponda al tag; verificado por el `--health` del artefacto.
 - **Registro:** entrada `[0.6.1]` en [`CHANGELOG.md`](../../CHANGELOG.md).
 
