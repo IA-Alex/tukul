@@ -114,8 +114,9 @@ class IdeasController:
 
         if not messagebox.askyesno(
             "Generar ideas de artículo",
-            "Tukul consultará fuentes oficiales (NVD, EPSS, KEV, MITRE ATT&CK, arXiv) "
-            "y correlacionará las entradas para generar ideas de artículo. "
+            "Tukul consultará fuentes oficiales (NVD, EPSS, KEV, MITRE ATT&CK, "
+            "arXiv, HuggingFace Papers, OpenAlex) y correlacionará las entradas "
+            "para generar ideas de artículo. "
             "El resultado se mostrará para que selecciones la que quieras desarrollar.\n\n"
             "Es una conexión saliente iniciada por la aplicación. "
             "¿Continuar?",
