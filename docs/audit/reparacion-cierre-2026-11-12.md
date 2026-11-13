@@ -104,3 +104,18 @@ sección anterior y el resultado anotado al pie).
 - El suelo de glibc 2.35 excluye distros más antiguas (Ubuntu 20.04, Debian 11);
   se documenta en el README en vez de ocultarse.
 - DF-C3 (Windows real) permanece como riesgo no verificado.
+
+## Incidencia durante la reparación: lockfile desincronizado
+
+Al subir la versión a `0.4.2` en `pyproject.toml` sin regenerar `uv.lock`, la
+suite local pasó (compara lockfiles, que no se tocaron) pero **CI falló** en
+`test (3.11/3.12/3.13)` con
+`AssertionError: '0.4.1' != '0.4.2'` en
+`tests/test_lockfiles_equivalentes.py`. Causa: la regla del proyecto exige que
+`uv.lock` declare la misma versión que `pyproject.toml`. Corrección: `uv lock`
+(actualiza solo `tukul 0.4.1 → 0.4.2`, dos líneas) y
+`uv export --format requirements-txt --no-emit-project --extra dev --extra
+keyring --output-file requirements-dev.lock` (sin cambios). Verificado: el test
+de lockfiles y el quality gate completo quedan verdes. **Nota:** los binarios
+del Release `v0.4.2` se publicaron correctamente porque `build-release.yml` no
+ejecuta la suite; el fallo fue exclusivo del workflow de CI sobre `master`.
