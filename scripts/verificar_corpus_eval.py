@@ -4,7 +4,8 @@
 Comprueba lo que se puede comprobar sin juicio humano: existencia, longitud,
 estructura, presencia/ausencia de cifras, fechas, nombres propios, títulos,
 muletillas, marcas coloquiales, los tres errores sembrados de A-07 y la
-integridad de la copia de A-04.
+integridad de la copia de A-04 (contra el hash versionado en
+`A-04.origen.sha256`, y contra el original si está presente).
 
 NO evalúa al modelo, NO ejecuta Yachay y NO escribe en el corpus. Solo lee.
 
@@ -23,6 +24,7 @@ pendientes humanos); 1 si alguna falla.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -32,6 +34,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
 CORPUS = RAIZ / "Articulos" / "_eval"
+HASH_A04 = CORPUS / "A-04.origen.sha256"
 ORIGINAL_A04 = (
     RAIZ
     / "Articulos"
@@ -381,16 +384,43 @@ def verificar_a07(r: Resultado, texto: str) -> dict:
 
 
 def verificar_a04_copia(r: Resultado, texto: str) -> None:
+    """Comprueba que A-04 es copia íntegra de su original.
+
+    El original es material personal NO versionado: en un clon limpio no existe
+    y la comprobación no puede depender de él, o la puerta de calidad falla sin
+    que nada esté mal. La copia se verifica por tanto contra el hash versionado
+    (`A-04.origen.sha256`), y se refresca la comparación byte a byte cuando el
+    original sí está presente, que es la comprobación más fuerte.
+    """
+    copia = (CORPUS / "A-04.md").read_bytes()
+    esperado = _hash_a04_registrado()
+    if esperado is None:
+        r.check("A-04 tiene hash de referencia versionado", False,
+                f"falta {HASH_A04}")
+        return
+    r.check("A-04 tiene hash de referencia versionado", True, HASH_A04.name)
+    r.check("A-04 idéntico byte a byte al original", hashlib.sha256(copia).hexdigest() == esperado,
+            f"sha256 {hashlib.sha256(copia).hexdigest()[:12]} vs {esperado[:12]}")
     original = next(
         (p for p in (ORIGINAL_A04, ORIGINAL_A04_ALTERNATIVO) if p.is_file()), None
     )
-    if original is None:
-        r.check("original A-04 localizable", False, f"no existe {ORIGINAL_A04}")
-        return
-    r.check("original A-04 localizable", True, str(original))
-    copia = (CORPUS / "A-04.md").read_bytes()
-    r.check("A-04 idéntico byte a byte al original", original.read_bytes() == copia,
-            f"{len(original.read_bytes())} vs {len(copia)} bytes")
+    if original is not None:
+        r.check("A-04 idéntico al original en disco", original.read_bytes() == copia,
+                f"{len(original.read_bytes())} vs {len(copia)} bytes")
+
+
+def _hash_a04_registrado() -> str | None:
+    """SHA-256 de A-04 registrado en el corpus, o None si el archivo no está."""
+    if not HASH_A04.is_file():
+        return None
+    for linea in HASH_A04.read_text(encoding="utf-8").splitlines():
+        linea = linea.split("#", 1)[0].strip()
+        if not linea:
+            continue
+        partes = linea.split()
+        if len(partes) == 2 and len(partes[0]) == 64:
+            return partes[0]
+    return None
 
 
 def main() -> int:

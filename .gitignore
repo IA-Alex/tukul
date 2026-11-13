@@ -68,5 +68,10 @@ htmlcov/
 # Material de trabajo personal pesado (no versionado: mantiene el repo liviano).
 # Si necesitas compartir artículos, usa un repositorio o almacenamiento aparte.
 Articulos/*
-!.gitkeep
+!Articulos/.gitkeep
+# Excepción: el corpus de evaluación SÍ se versiona. `tests/test_corpus_eval.py`
+# está commiteado y lee estos ficheros; sin ellos, un `git clone` limpio rompe
+# la puerta de calidad (8 de 10 pruebas fallan con FileNotFoundError).
+!Articulos/_eval/
+!Articulos/_eval/**
 .superdesign/
