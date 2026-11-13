@@ -3,8 +3,8 @@
 **Revisor:** evaluación independiente (no autor del corpus).
 **Alcance:** verificar las afirmaciones del autor y cerrar las dos revisiones
 humanas pendientes (`A-06`, `A-07`).
-**Resultado:** **corpus apto con una corrección obligatoria en A-06** y dos
-limitaciones aceptadas.
+**Resultado:** **corpus apto.** La corrección obligatoria en A-06 se aplicó y
+se verificó el 2026-11-13.
 
 ---
 
@@ -47,16 +47,16 @@ en muchos sistemas. No es un error ortográfico ni gramatical, pero **un revisor
 de `semántica` legítimo puede señalarlo**, y R-01 lo contaría como «hallazgo
 inventado» —el falso positivo exacto que el propio autor temía.
 
-### 2.3 Corrección mínima
-
-Reemplazar el sujeto por uno neutro:
+### 2.3 Corrección **aplicada** (2026-11-13)
 
 ```diff
 - El agua llega del río a la planta con una carga variable de partículas,
 + El agua llega a la planta con una carga variable de partículas,
 ```
 
-Una sola línea. No obliga a tocar el resto y elimina la contradicción.
+Aplicado en `Articulos/_eval/A-06.md` (línea 5). Evidencia:
+`scripts/verificar_corpus_eval.py` → **PASS** y exit 0; `tests/test_corpus_eval.py`
+→ 10/10. El resto del artículo quedó intacto.
 
 ### 2.4 Aclaración que debe quedar escrita
 
@@ -134,10 +134,10 @@ perder la prueba.
 | Cantidad y estructura | ✅ 10/10 |
 | Controles automáticos | ✅ 10/10 |
 | A-07 (errores sembrados) | ✅ apto |
-| **A-06 (artículo correcto)** | ❌ **una imprecisión factual**: corregir una línea |
+| **A-06 (artículo correcto)** | ✅ corregido y verificado |
 | Criterio R-01 | ⚠️ ajustar a «cita correcta como errónea» |
 | Reproducibilidad (git) | ⚠️ corpus no versionado |
 
-Con la corrección de la línea 5 de A-06 y el ajuste de R-01, el corpus queda
-**listo para ejecutar D1, D2 y D3**. Seguimos sin ejecutar ningún modelo: no hay
+A-06 corregido; falta únicamente aplicar a la batería el ajuste de R-01
+(§4). Con eso, el corpus queda **listo para ejecutar D1, D2 y D3**. Seguimos sin ejecutar ningún modelo: no hay
 resultados que reportar.
