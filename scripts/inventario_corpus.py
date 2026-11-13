@@ -15,7 +15,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1] / "Articulos"
 EXTENSIONES = {".md", ".txt"}
 
-# Umbrales de la batería (sección 5): 500–1500 palabras, español, prosa.
+# Umbrales de la batería (sección 5): 500-1500 palabras, español, prosa.
 MIN_PALABRAS = 500
 MAX_PALABRAS = 1500
 
