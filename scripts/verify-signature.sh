@@ -11,7 +11,7 @@
 # Uso: scripts/verify-signature.sh [TAG] [REPO]
 set -euo pipefail
 
-TAG="${1:-v0.5.2}"
+TAG="${1:-v0.6.0}"
 REPO="${2:-IA-Alex/tukul}"
 DESTINO="$(mktemp -d)"
 trap 'rm -rf "$DESTINO"' EXIT

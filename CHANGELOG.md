@@ -4,7 +4,11 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [Sin publicar]
+## [0.6.0] - 2026-11-13
+
+Primera versión posterior a la congelación de `0.5.2`. Incluye los contratos C1
+(firma keyless) y C2 (extracción de los flujos de proyecto) de
+`docs/contracts/contratos-0.6.md`.
 
 ### Añadido (distribución, contrato C1)
 

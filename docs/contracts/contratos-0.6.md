@@ -1,6 +1,6 @@
 # Modelo — Cuatro contratos de cierre para después de `0.5.2`
 
-Estado: **C1-C4 con decisión tomada; C2 ejecutado y verificado** (2026-11-13).
+Estado: **C1 implementado y verificado con OIDC real; C2 ejecutado (parcial); C3 y C4 no abiertos** (2026-11-13).
 La versión congelada `0.5.2` no se toca. Las decisiones de C1, C3 y C4 las fijó
 el mantenedor; C2 se ejecutó en la rama de trabajo y queda pendiente de release.
 
@@ -12,7 +12,7 @@ dependen de decisiones o recursos que hoy no existen:
 
 | Contrato | Bloqueo externo real | Consecuencia |
 |---|---|---|
-| **C1** — Firma de binarios | Decidido: cosign keyless | **Implementado**; falta el primer run OIDC real |
+| **C1** — Firma de binarios | Decidido: cosign keyless | **Implementado y verificado**; se estrena en `v0.6.0` |
 | **C2** — `app.py` bajo 2.300 líneas | Ninguno | **Ejecutado**: 2.640 → 2.590 (−50) |
 | **C3** — Accesibilidad con lector de pantalla | Sin host con Orca | Solo cerrable como Experimental, con limitación declarada |
 | **C4** — Sostenibilidad de proveedores | Sin umbral por decisión | Descriptivo; no se puede dictaminar |
