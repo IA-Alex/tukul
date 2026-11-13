@@ -4,6 +4,23 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.5.1] - 2026-11-12
+
+### Corregido
+
+- **Logotipo simétrico y proporcionado (DF-C4 de la reauditoría de cierre).**
+  `docs/assets/tukul-logo.svg` se rediseña con simetría especular respecto al eje
+  vertical: las dos alas jade son espejos exactos, el libro abierto blanco queda
+  centrado, los nodos de inspiración forman un arco simétrico y la base del
+  tunkul se centra. El isotipo de la cabecera sigue el mismo concepto (dos alas
+  en espejo + libro central). Esta release se corta sobre el HEAD que la contiene
+  para que el código declarado, el binario distribuido y la versión ejecutada
+  coincidan.
+- **Test de la barra determinista.** `test_el_nombre_largo_se_recorta_en_la_barra`
+  afirmaba un conteo de caracteres sobre un recorte por píxeles y fallaba en CI
+  según el ancho del display; ahora prueba el contrato con el límite fijo
+  `ANCHO_DOCUMENTO` y no depende de la geometría del entorno.
+
 ## [0.5.0] - 2026-11-12
 
 ### Cambiado (identidad visual)
