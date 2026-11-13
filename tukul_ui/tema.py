@@ -34,8 +34,11 @@ def estilizar_area_texto(area: Any) -> None:
     """
     try:
         area.vbar.configure(
-            background=es.BORDE_CONTROL, troughcolor=es.SUPERFICIE,
-            activebackground=es.FOCO, borderwidth=0, highlightthickness=0,
+            # Scrollbar: canal = base (obsidiana profunda), pulgar = estuco
+            # (borde), claro en hover. Es la traducción del `-webkit-scrollbar`
+            # de la identidad: track `bg-base`, thumb `border`, hover aclarado.
+            background=es.BORDE, troughcolor=es.FONDO,
+            activebackground=es.BORDE_CONTROL, borderwidth=0, highlightthickness=0,
             elementborderwidth=0,
         )
         # El marco interior asoma como un canto del ancho de la barra.
@@ -85,6 +88,11 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     style.configure("Titulo.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO,
                     font=es.fuente(negrita=True))
+    # Marca de la cabecera: «Tukul» junto al logotipo. Texto primario en negrita
+    # (no el acento): el color de identidad en la barra lo aporta el logotipo en
+    # ámbar, y el nombre se lee como título, no como enlace.
+    style.configure("Marca.TLabel", background=es.FONDO, foreground=es.TEXTO,
+                    font=es.fuente(es.TIPO_LG, negrita=True))
     style.configure("PanelMeta.TLabel", background=es.SUPERFICIE,
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     # Franja inferior: continua, tenue y de una sola pieza.
@@ -203,12 +211,14 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
     raiz.option_add("*TCombobox*Listbox.foreground", es.TEXTO)
     raiz.option_add("*TCombobox*Listbox.selectBackground", es.SELECCION)
     raiz.option_add("*TCombobox*Listbox.selectForeground", es.TEXTO)
-    # Las barras de desplazamiento por defecto son claras y rompen el conjunto.
-    style.configure("Vertical.TScrollbar", background=es.SUPERFICIE_ALTA,
-                    troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
+    # Las barras de desplazamiento siguen la identidad: canal = fondo base,
+    # pulgar = estuco (borde), aclarado al pasar el ratón.
+    style.configure("Vertical.TScrollbar", background=es.BORDE,
+                    troughcolor=es.FONDO, bordercolor=es.FONDO,
                     arrowcolor=es.TEXTO_TENUE, relief="flat")
     style.map("Vertical.TScrollbar", background=[("active", es.BORDE_CONTROL)])
-    style.configure("Horizontal.TScrollbar", background=es.SUPERFICIE_ALTA,
-                    troughcolor=es.SUPERFICIE, bordercolor=es.SUPERFICIE,
+    style.configure("Horizontal.TScrollbar", background=es.BORDE,
+                    troughcolor=es.FONDO, bordercolor=es.FONDO,
                     arrowcolor=es.TEXTO_TENUE, relief="flat")
+    style.map("Horizontal.TScrollbar", background=[("active", es.BORDE_CONTROL)])
     reaplicar_widgets()

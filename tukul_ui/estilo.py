@@ -1,24 +1,22 @@
-"""Sistema visual de Tukul: el tambor maya que da nombre al proyecto.
+"""Sistema visual de Tukul: identidad «Obsidiana y Jade».
 
 El nombre viene del *tunkul*: un instrumento de percusión maya hecho con un
-canuto de bambú cerrado por ambos extremos, con dos lengüetas talladas —una
-más gruesa que otra— que al golpearlas con un bolillo emiten dos tonos, uno
-más agudo que otro. Así lo recoge el Diccionario de americanismos (ASALE).
-
-El instrumento da nombre y metáfora: dos lengüetas, dos temas (oscuro y claro),
-una sola pieza de madera que suena igual golpeada por cualquier lado.
+canuto cerrado por ambos extremos, con dos lengüetas talladas —una más gruesa
+que otra— que al golpearlas con un bolillo emiten dos tonos, uno más agudo que
+otro. Así lo recoge el Diccionario de americanismos (ASALE).
 
 De ahí sale la paleta, y solo la paleta: el comportamiento no cambia.
 
-- **Madera y médula** (`fondo`, `superficie`, `superficie_alta`): la caña de
-  bambú, del tono quemado por el fuego a la médula clara de la lengüeta.
-- **Fibra de bambú**, un ocre apagado y cálido, para las divisorias (`borde`)
-  y algo más firme para los controles (`borde_control`).
-- **Lengüeta que vibra**: un verde de bambú joven, el único acento frío.
-  Es el sonido agudo de la lengüeta fina frente al grave de la gruesa, y no
-  un guiño a ninguna puerta.
-- **Dos lengüetas, dos temas**: oscuro y claro nacen del mismo instrumento,
-  como las dos incisiones que dan dos tonos al golpearlo.
+- **Obsidiana** (`fondo`, `superficie`, `superficie_alta`): la piedra volcánica
+  del altiplano, del negro profundo al gris piedra, con un matiz azul frío.
+- **Estuco sombra** (`borde`): la junta entre los bloques de piedra; es
+  divisoria, no pieza accionable, así que puede ser sutil.
+- **Jade** (`acento`): el verde de la piedra tallada, reservado a la acción
+  primaria y a la identidad. Su texto va en verde muy oscuro para máximo
+  contraste sobre el jade.
+- **Ámbar tunkul** (`acento_secundario`, expuesto como `VOZ_ASISTENTE`): el
+  color de la madera del tambor, que nombra al asistente en el chat y marca las
+  alertas.
 
 Reglas del sistema, deliberadamente estrechas para que la interfaz se lea como
 una sola pieza:
@@ -28,18 +26,18 @@ una sola pieza:
   `aplicar_tema()` los reasigna en bloque, así que no hay segunda fuente de
   verdad ni copias congeladas del color.
 - **Un fondo** (`fondo`) y **dos superficies** (`superficie`, `superficie_alta`).
-  Nada más. La profundidad se expresa con esas tres capas.
+  La profundidad se expresa con esas tres capas.
 - **Dos bordes con funciones distintas**: `borde` (divisoria sutil y hover) y
   `borde_control` (borde de las piezas accionables, ≥ 3:1 contra su fondo según
-  WCAG 1.4.11). Mezclarlos fue el error que dejó el borde original sin
-  contraste: aclararlo para cumplir 1.4.11 convertía cada divisoria en una
-  línea dura y, peor, aclaraba el fondo de hover por debajo del texto.
-- **Un acento** (`acento`), reservado para la acción primaria y la identidad.
+  WCAG 1.4.11). La obsidiana de `borde` es deliberadamente tenue como divisoria;
+  las piezas que se pulsan o arrastran usan el tono más claro de `borde_control`.
+- **Un acento** (`acento`, jade), reservado para la acción primaria y la
+  identidad.
 - **Escala tipográfica de tres tamaños**: `TIPO_SM`, `TIPO_MD`, `TIPO_LG`.
 - **Espaciado de 4/8/12/16** (`ESP`). Ningún margen fuera de esa rejilla.
 
-Los colores de estado (`ESTADO_*`) NO son acentos: son señal funcional,
-desaturada, y nunca viajan solas — cada estado lleva además símbolo y texto,
+Los colores de estado (`ESTADO_*`) NO son acentos decorativos: son señal
+funcional y nunca viajan solos — cada estado lleva además símbolo y texto,
 porque el color no puede ser el único portador de información. Ambas paletas
 cumplen WCAG AA: 4.5:1 para el texto sobre cada capa, 3:1 para foco y
 `borde_control`; `tests/test_accesibilidad.py` lo mide.
@@ -56,63 +54,63 @@ TEMAS_VALIDOS = frozenset({"dark", "light"})
 
 PALETAS: dict[str, dict[str, str]] = {
     "dark": {
-        # --- Capas: madera del tunkul y sombra del interior --------------
-        "fondo": "#1D1A18",           # grafito cálido, no marrón dominante
-        "superficie": "#292622",      # panel de trabajo
-        "superficie_alta": "#39352E", # campo elevado
+        # --- Capas: obsidiana profunda -----------------------------------
+        # Los tres hex base de la identidad: `fondo` es la obsidiana del
+        # altiplano, `superficie` la piedra nocturna de los paneles y
+        # `superficie_alta` el campo elevado (historial, entradas).
+        "fondo": "#0D1117",           # Obsidiana Profunda
+        "superficie": "#161C24",      # Piedra Nocturna (paneles)
+        "superficie_alta": "#1C2430", # campo elevado
         # --- Divisorias y controles ---------------------------------------
-        "borde": "#8F7B64",           # divisor cálido con contraste real
-        # WCAG 1.4.11 exige 3:1 a los bordes de elementos accionables; este
-        # tono sube algo más que `borde` para distinguirse sobre `superficie_alta`.
-        "borde_control": "#C1AC91",
-        "superficie_activa": "#443D34",  # hover carbón cálido
-        "foco": "#64C9B3",            # foco teal
-        # --- Acento: la lengüeta que vibra -------------------------------
-        # Es el verde del bambú joven: el único tono frío, como el sonido
-        # agudo de la lengüeta fina frente al grave de la gruesa.
-        "acento": "#53C7B2",
-        "acento_activo": "#7FE1D0",
-        "acento_texto": "#0D2020",
+        "borde": "#2D3748",           # Estuco Sombra (divisoria sutil)
+        # WCAG 1.4.11 exige 3:1 a los bordes de elementos accionables; el
+        # estuco de `borde` es tenue por diseño, así que los controles usan un
+        # gris piedra más claro que sí cumple sobre las tres capas.
+        "borde_control": "#60708C",
+        "superficie_activa": "#232E3D",  # hover obsidiana
+        "foco": "#10B981",            # foco jade
+        # --- Acento: el jade tallado -------------------------------------
+        "acento": "#10B981",          # Verde Jade
+        "acento_activo": "#34D399",   # jade iluminado (hover)
+        "acento_texto": "#052E23",    # verde muy oscuro: máximo contraste
         # --- Texto -------------------------------------------------------
-        "texto": "#F3F7FA",
-        "texto_tenue": "#B9C5D1",
-        "seleccion": "#285B63",
+        "texto": "#E2E8F0",           # Blanco Ceniza
+        "texto_tenue": "#94A3B8",     # Gris Epigráfico
+        "seleccion": "#1E3A5F",
         # --- Señal de estado (funcional, no decorativa) ------------------
-        "estado_neutro": "#AEB9C6",
-        "estado_proceso": "#7CC7F2",
-        "estado_exito": "#7DDBB1",
-        "estado_error": "#F08B9A",
-        "estado_aviso": "#F2C879",
+        "estado_neutro": "#94A3B8",
+        "estado_proceso": "#38BDF8",
+        "estado_exito": "#34D399",
+        "estado_error": "#F87171",
+        "estado_aviso": "#F59E0B",    # Ámbar Tunkul
         # --- Rol conversacional -----------------------------------------
-        "voz_usuario": "#73D6C4",
-        "voz_asistente": "#C7A7F7",
+        "voz_usuario": "#34D399",     # jade: el usuario
+        "voz_asistente": "#F59E0B",   # ámbar tunkul: el asistente «Tukul»
     },
     "light": {
-        # --- Capas: caña al sol -------------------------------------------
-        # Blancos rebajados un escalón (2026-11-12): los anteriores
-        # (#F2F3EC / #E7E9E0 / #FAFBF7) eran casi blanco puro y resultaban
-        # estridentes en pantalla. Se mantiene el tinte cálido-verdoso (R>B, G>B)
-        # y el contraste AA: texto ≥ 4.5:1 y bordes/acento ≥ 3:1 sobre cada capa.
-        "fondo": "#E9EBE1",
-        "superficie": "#DDDFD3",
-        "superficie_alta": "#F1F3EC",
-        "borde": "#7D6C57",
-        "borde_control": "#766651",
-        "superficie_activa": "#CFD4C6",
-        "foco": "#0F6B5F",
-        "acento": "#0B655C",
-        "acento_activo": "#084C46",
+        # --- Capas: piedra al sol ----------------------------------------
+        # Misma identidad en clave clara: obsidiana lavada, no blanco puro, con
+        # el matiz azul frío de la piedra y contraste AA en texto y controles.
+        "fondo": "#EEF1F5",
+        "superficie": "#E3E8EF",
+        "superficie_alta": "#F7F9FC",
+        "borde": "#B4BECD",
+        "borde_control": "#6E7F97",
+        "superficie_activa": "#D5DCE6",
+        "foco": "#047857",
+        "acento": "#065F46",
+        "acento_activo": "#047857",
         "acento_texto": "#FFFFFF",
-        "texto": "#15202B",
-        "texto_tenue": "#455463",
-        "seleccion": "#BCE3DE",
-        "estado_neutro": "#4F5E6D",
-        "estado_proceso": "#0F5E70",
-        "estado_exito": "#146B3A",
-        "estado_error": "#B4233A",
-        "estado_aviso": "#8A5708",
-        "voz_usuario": "#126C64",
-        "voz_asistente": "#6843A8",
+        "texto": "#0D1117",
+        "texto_tenue": "#41506B",
+        "seleccion": "#A7D7C5",
+        "estado_neutro": "#41506B",
+        "estado_proceso": "#0369A1",
+        "estado_exito": "#065F46",
+        "estado_error": "#B42318",
+        "estado_aviso": "#92400E",
+        "voz_usuario": "#065F46",
+        "voz_asistente": "#92400E",
     },
 }
 
@@ -130,6 +128,9 @@ FOCO = PALETAS[TEMA_DEFECTO]["foco"]
 ACENTO = PALETAS[TEMA_DEFECTO]["acento"]
 ACENTO_ACTIVO = PALETAS[TEMA_DEFECTO]["acento_activo"]
 ACENTO_TEXTO = PALETAS[TEMA_DEFECTO]["acento_texto"]
+#: Ámbar tunkul: acento secundario de la identidad. Marca el nombre del
+#: asistente en el chat y el logotipo. Es el mismo tono que `voz_asistente`.
+ACENTO_AMBAR = PALETAS[TEMA_DEFECTO]["voz_asistente"]
 TEXTO = PALETAS[TEMA_DEFECTO]["texto"]
 TEXTO_TENUE = PALETAS[TEMA_DEFECTO]["texto_tenue"]
 SELECCION = PALETAS[TEMA_DEFECTO]["seleccion"]
@@ -153,7 +154,7 @@ def aplicar_tema(nombre: object) -> None:
     """Activa una paleta y reasigna los tokens de módulo (fuente única de color)."""
     global TEMA_ACTIVO, FONDO, SUPERFICIE, SUPERFICIE_ALTA, BORDE, FOCO, ACENTO
     global BORDE_CONTROL, SUPERFICIE_ACTIVA
-    global ACENTO_ACTIVO, ACENTO_TEXTO, TEXTO, TEXTO_TENUE, SELECCION
+    global ACENTO_ACTIVO, ACENTO_TEXTO, ACENTO_AMBAR, TEXTO, TEXTO_TENUE, SELECCION
     global ESTADO_NEUTRO, ESTADO_PROCESO, ESTADO_EXITO, ESTADO_ERROR, ESTADO_AVISO
     global VOZ_USUARIO, VOZ_ASISTENTE
     TEMA_ACTIVO = tema_validado(nombre)
@@ -168,6 +169,7 @@ def aplicar_tema(nombre: object) -> None:
     ACENTO = tokens["acento"]
     ACENTO_ACTIVO = tokens["acento_activo"]
     ACENTO_TEXTO = tokens["acento_texto"]
+    ACENTO_AMBAR = tokens["voz_asistente"]
     TEXTO = tokens["texto"]
     TEXTO_TENUE = tokens["texto_tenue"]
     SELECCION = tokens["seleccion"]

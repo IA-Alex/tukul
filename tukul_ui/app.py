@@ -522,6 +522,8 @@ class TukulApp(tk.Tk):
             return
         try:
             barra.actualizar_estado(self.theme)
+            # El logo es un Canvas: sus colores son directos y hay que repintarlo.
+            barra.actualizar_tema()
         except (tk.TclError, AttributeError):
             return
 

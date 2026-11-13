@@ -32,6 +32,8 @@ class TopBar(ttk.Frame):
     """
 
     TEXTO_SIN_DOCUMENTO = "Sin artículo abierto"
+    #: Lado del logotipo en píxeles. Coincide con los 24x24 del SVG original.
+    LOGO = 24
     # Ancho máximo del chip de modelo, en píxeles. La barra pide espacio antes
     # de saber qué píxel le toca a cada fuente y el nombre del modelo crece
     # con cada perfil: medido en caracteres, un id largo seguía desbordando.
@@ -67,9 +69,25 @@ class TopBar(ttk.Frame):
         self.columnconfigure(2, weight=0)   # configuración
         self.rowconfigure(0, weight=1)
 
-        # --- Zona izquierda: acciones sobre el archivo -------------------
+        # --- Zona izquierda: marca y acciones sobre el archivo -----------
         self.zona_izquierda = ttk.Frame(self, style="Cabecera.TFrame")
         self.zona_izquierda.grid(row=0, column=0, sticky="nsw")
+
+        # --- Logotipo: bloque maya/tunkul --------------------------------
+        # Va antes del menú para que la barra se lea «marca → acciones». El
+        # dibujo es un `Canvas` que reproduce el SVG del logo con los tokens
+        # del tema: se repinta en `_pintar_logo` al cambiar de tema, así que no
+        # guarda colores congelados.
+        self.logo = tk.Canvas(self.zona_izquierda, width=self.LOGO, height=self.LOGO,
+                              highlightthickness=0, borderwidth=0,
+                              background=es.FONDO)
+        self.logo.pack(side="left", padx=(0, es.ESP["xs"]))
+        self._pintar_logo()
+
+        self.logo_label = ttk.Label(self.zona_izquierda, text="Tukul",
+                                    style="Marca.TLabel")
+        self.logo_label.pack(side="left", padx=(0, es.ESP["sm"]))
+        ToolTip(self.logo_label, "Tukul, editor conversacional")
 
         # Ancho fijo: en `clam` el Menubutton se estira hasta el ancho de su
         # desplegable, así que aunque el texto sea solo «☰» medía 149 px y se
@@ -145,6 +163,33 @@ class TopBar(ttk.Frame):
         self.actualizar_estado(self.theme)
         self.winfo_toplevel().bind("<Configure>", self._ajustar_por_ancho, add="+")
         self.after_idle(lambda: self._ajustar_por_ancho())
+
+    def _pintar_logo(self) -> None:
+        """Dibuja el logotipo (bloque maya/tunkul) con los tokens del tema.
+
+        Es el equivalente en Tk del SVG del logo: el cuerpo es un bloque ámbar
+        redondeado y las dos lengüetas del tunkul son dos ranuras verticales del
+        color del fondo. Se limpia y repinta en cada cambio de tema para no
+        congelar colores.
+        """
+        self.logo.delete("all")
+        lado = self.LOGO
+        # El SVG usa viewBox 0 0 24 24; se escala al lado real del canvas.
+        def p(x: float) -> float:
+            return x / 24 * lado
+        self.logo.configure(background=es.FONDO)
+        self.logo.create_rectangle(
+            p(2), p(6), p(22), p(18), fill=es.ACENTO_AMBAR, outline="",
+        )
+        # Dos lengüetas verticales: las ranuras del tambor.
+        for x in (8, 16):
+            self.logo.create_line(
+                p(x), p(6), p(x), p(12), fill=es.FONDO, width=max(1, round(p(2))),
+            )
+
+    def actualizar_tema(self) -> None:
+        """Repinta las piezas con color directo (el logo es un `Canvas`)."""
+        self._pintar_logo()
 
     def _ajustar_por_ancho(self, evento: tk.Event | None = None) -> None:
         """Con la barra estrecha, cede primero el estado, nunca el documento.

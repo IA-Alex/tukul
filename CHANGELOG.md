@@ -4,6 +4,33 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.5.0] - 2026-11-12
+
+### Cambiado (identidad visual)
+
+- **Nueva identidad «Obsidiana y Jade».** El sistema visual deja el tema
+  madera/bambú y adopta obsidiana (piedra volcánica fría) con jade y ámbar:
+  fondo `#0D1117`, paneles `#161C24`, campo elevado `#1C2430`, estuco sombra
+  `#2D3748`, texto `#E2E8F0`, texto tenue `#94A3B8`, jade `#10B981` (acción
+  primaria, con texto `#052E23` para máximo contraste) y ámbar tunkul
+  `#F59E0B` (nombre del asistente en el chat). Se conservan los roles de token
+  (`fondo`/`superficie`/`superficie_alta`, `borde`/`borde_control`,
+  `acento`/`acento_texto`) y el contraste WCAG AA en ambas paletas.
+- **Logotipo en la cabecera.** Se añade un logotipo (bloque maya/tunkul) dibujado
+  en un `Canvas` a la izquierda de la marca «Tukul», que se repinta al cambiar
+  de tema. Es la traducción a Tk del SVG del logo (cuerpo en ámbar, dos
+  lengüetas del color del fondo).
+- **Barras de desplazamiento con la identidad.** Canal en el fondo base,
+  pulgar en el estuco sombra y aclarado al pasar el ratón, tanto en las barras
+  ttk como en las clásicas de las áreas de texto.
+- El fondo cálido, los bordes ocres y la metáfora «madera cálida / fibra de
+  bambú» desaparecen de la interfaz y de la documentación vigente.
+
+### Añadido
+
+- `ACENTO_AMBAR` en `tukul_ui/estilo.py`: acento secundario de la identidad,
+  expuesto también como `VOZ_ASISTENTE` para el nombre del asistente.
+
 ## [0.4.4] - 2026-11-12
 
 ### Cambiado (interfaz)

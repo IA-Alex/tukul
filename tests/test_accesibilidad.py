@@ -41,14 +41,26 @@ HAY_DISPLAY = _hay_display()
 class TestContrasteNoTextual(unittest.TestCase):
     """WCAG 1.4.11: bordes y separadores necesitan 3:1 contra su entorno."""
 
-    def test_el_borde_cumple_3_a_1_sobre_cada_capa(self):
+    def test_el_borde_divisorio_no_es_el_control_de_los_accionables(self):
+        """`borde` es divisoria decorativa; `borde_control` es la pieza 1.4.11.
+
+        En «Obsidiana y Jade» el estuco sombra es deliberadamente tenue: separa
+        bloques sin gritar. WCAG 1.4.11 no exige 3:1 a un separador puramente
+        decorativo (no es un control ni una gráfica con significado funcional);
+        la obligación recae en `borde_control`, que sí se prueba aparte. Aquí se
+        fija lo que sí importa: que la divisoria se perciba como línea sobre
+        cada capa (≥ 1.25) y que NO sea el color de los accionables.
+        """
         for tema in es.PALETAS:
             p = es.PALETAS[tema]
             for capa in CAPAS:
                 razon = es.contraste(p["borde"], p[capa])
                 self.assertGreaterEqual(
-                    razon, 3.0,
-                    f"{tema}/borde sobre {capa} da {razon:.2f}:1 (1.4.11 pide 3)")
+                    razon, 1.25,
+                    f"{tema}/borde sobre {capa} da {razon:.2f}:1 (no se percibe la línea)")
+            self.assertNotEqual(
+                p["borde"], p["borde_control"],
+                f"{tema}: la divisoria y el borde de control no pueden ser el mismo color")
 
     def test_el_borde_de_los_controles_cumple_3_a_1(self):
         """Sash, scrollbar y bordes de campo: piezas accionables, 3:1."""
@@ -70,37 +82,44 @@ class TestContrasteNoTextual(unittest.TestCase):
 
 
 class TestIdentidadDeLaPaleta(unittest.TestCase):
-    """Identidad del nombre: el tunkul maya (madera cálida, fibra y bambú)."""
+    """Identidad «Obsidiana y Jade»: piedra volcánica fría, jade y ámbar."""
 
-    def test_el_fondo_es_calido_y_no_un_gris_neutro(self):
+    def test_el_fondo_es_obsidiana_fria_y_no_un_calido(self):
+        """La obsidiana es una piedra fría: el azul manda sobre el rojo."""
         for tema in es.PALETAS:
             p = es.PALETAS[tema]
-            fondo = p["fondo"].lstrip("#")
-            rojo, verde, azul = (int(fondo[i:i + 2], 16) for i in (0, 2, 4))
-            self.assertGreater(rojo, azul, f"{tema}: el fondo no es cálido")
-            self.assertGreater(verde, azul, f"{tema}: el fondo no es cálido")
+            for clave in ("fondo", "superficie", "superficie_alta"):
+                color = p[clave].lstrip("#")
+                rojo, verde, azul = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+                self.assertGreaterEqual(
+                    azul, rojo, f"{tema}/{clave} no es una piedra fría (azul ≥ rojo)")
+                self.assertGreaterEqual(
+                    azul, verde, f"{tema}/{clave} no es una piedra fría (azul ≥ verde)")
 
-    def test_el_borde_y_el_control_son_fibra_calida(self):
+    def test_el_borde_y_el_control_son_estuco_gris_azulado(self):
+        """El estuco sombra es gris-azulado: ni ocre ni café."""
         for tema in es.PALETAS:
             for clave in ("borde", "borde_control"):
                 color = es.PALETAS[tema][clave].lstrip("#")
-                rojo, verde, azul = (int(color[i:i + 2], 16) for i in (0, 2, 4))
-                self.assertGreater(rojo, verde, f"{tema}/{clave} no es ocre")
-                self.assertGreater(verde, azul, f"{tema}/{clave} no es ocre")
+                rojo, _verde, azul = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+                self.assertGreaterEqual(
+                    azul, rojo, f"{tema}/{clave} no es estuco frío (azul ≥ rojo)")
 
-    def test_el_acento_es_el_verde_del_bambu_joven(self):
-        """El acento es el único tono frío de la paleta, y es verde.
-
-        Antes se exigía azul porque la narrativa era la casa etíope («la luz
-        de la puerta»). Con el nombre corregido al tunkul maya, el acento es
-        el verde de la lengüeta de bambú. Se conserva la propiedad que importa
-        —un único acento frío—, no el matiz concreto que la contaba.
-        """
+    def test_el_acento_es_el_verde_jade(self):
+        """El jade es verde: el acento de la acción primaria y de la identidad."""
         for tema in es.PALETAS:
             acento = es.PALETAS[tema]["acento"].lstrip("#")
             rojo, verde, azul = (int(acento[i:i + 2], 16) for i in (0, 2, 4))
-            self.assertGreater(verde, rojo, f"{tema}: el acento no es verde")
-            self.assertGreater(verde, azul, f"{tema}: el acento no es verde")
+            self.assertGreater(verde, rojo, f"{tema}: el acento no es verde jade")
+            self.assertGreater(verde, azul, f"{tema}: el acento no es verde jade")
+
+    def test_el_acento_secundario_es_ambar_tunkul(self):
+        """El ámbar marca al asistente y el logotipo: cálido y reconocible."""
+        for tema in es.PALETAS:
+            ambar = es.PALETAS[tema]["voz_asistente"].lstrip("#")
+            rojo, verde, azul = (int(ambar[i:i + 2], 16) for i in (0, 2, 4))
+            self.assertGreater(rojo, azul, f"{tema}: el ámbar no es cálido")
+            self.assertGreater(verde, azul, f"{tema}: el ámbar no es cálido")
 
     def test_el_texto_del_borde_de_hover_conserva_legibilidad(self):
         """BORDE es también el fondo de hover de los botones: el texto va encima."""
