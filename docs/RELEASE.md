@@ -16,6 +16,17 @@
 
 **BUILD:** `.github/workflows/build-release.yml` construye con PyInstaller en runners nativos y ejecuta `--health` del binario. Los artefactos actuales son `tukul-linux-x86_64` y `tukul-windows-x86_64.exe`; macOS no es target verificado ni soportado por este workflow.
 
+> **Imagen de build fijada (DF-C1, auditoría de cierre 2026-11-12):** el job
+> Linux usa `runs-on: ubuntu-22.04` (glibc 2.35) y el de Windows
+> `runs-on: windows-2022`, **no** `-latest`. El sello `-latest` es flotante:
+> migró a Ubuntu 26.04 (glibc 2.42) y el binario Linux pasó a exigir
+> `GLIBC_2.42`, dejando de arrancar en Debian 13 / Ubuntu 24.04 y anteriores.
+> Compilar en la imagen más antigua soportada fija el suelo de glibc. El paso
+> `Verify Linux glibc floor` extrae las bibliotecas empaquetadas del binario y
+> falla si alguna exige una glibc más nueva que la de la imagen. No usar
+> `-latest` en este workflow ni retirar ese paso sin verificar el requisito real
+> en un host más antiguo.
+
 **SMOKE_TEST / ARTIFACTS:** el smoke test es `--health`; se suben los dos binarios como artifacts y, para un tag, como GitHub Release junto a `SHA256SUMS` (verificable con `sha256sum -c`) y, best-effort, `sbom.cdx.json` (CycloneDX). El SBOM no es bloqueante: si la herramienta falla, el release sigue siendo válido con los checksums. **SIGNING_IF_AVAILABLE:** la firma de binarios no está implementada; no debe anunciarse como garantía.
 
 > **Riesgo residual aceptado (auditoría 2026-11-10, DF-002):** los ejecutables se

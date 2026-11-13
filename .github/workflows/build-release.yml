@@ -19,9 +19,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Pin deliberado a una imagen CONCRETA, no `ubuntu-latest`. El sello
+          # `-latest` es flotante: migró a una imagen con glibc más nueva y el
+          # binario Linux pasó a exigir GLIBC_2.42, dejando de arrancar en
+          # Debian 13 / Ubuntu 24.04 y anteriores (hallazgo DF-C1, auditoría de
+          # cierre 2026-11-12). Compilar en la imagen más antigua aún soportada
+          # fija el suelo de glibc que el binario puede exigir. No cambiar sin
+          # verificar el requisito real en un host viejo.
+          - os: ubuntu-22.04
             asset_name: tukul-linux-x86_64
-          - os: windows-latest
+          # Pin análogo por el mismo motivo: `windows-latest` también migra.
+          - os: windows-2022
             asset_name: tukul-windows-x86_64.exe
 
     runs-on: ${{ matrix.os }}
@@ -52,6 +60,11 @@ jobs:
       # Humo mínimo: el binario debe arrancar y correr el diagnóstico sin
       # ventana. No prueba la GUI (no hay Xvfb en Windows), pero confirma que
       # el empaquetado no dejó nada roto en el arranque.
+      #
+      # En Linux, además, esto se ejecuta sobre la imagen fijada (glibc 2.35):
+      # si el binario exigiera una glibc más nueva que la del runner, aquí
+      # fallaría en vez de publicarse roto. Es la verificación real del suelo
+      # de compatibilidad (DF-C1).
       - name: Smoke test (--health)
         shell: bash
         run: |
@@ -60,6 +73,71 @@ jobs:
           else
             ./dist/tukul --health
           fi
+
+      # Guard explícito del suelo de glibc (DF-C1). `readelf` sobre el binario
+      # externo NO ve el requisito: las bibliotecas van comprimidas dentro del
+      # archivo de PyInstaller. Hay que extraer la lib empaquetada (libtcl) y
+      # leer SU requisito. Se falla si supera el de la imagen de build: esa es
+      # la condición exacta que dejó el binario v0.4.1 inejecutable en distros
+      # anteriores (exigía GLIBC_2.42 y la imagen tenía 2.42, pero Debian 13
+      # trae 2.41). Sin este paso, un cambio de imagen reintroduce el defecto
+      # mientras el smoke test sigue verde en el runner que lo compiló.
+      - name: Verify Linux glibc floor
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys, tempfile
+          from PyInstaller.archive.readers import CArchiveReader
+
+          del_runner = subprocess.run(
+              ["ldd", "--version"], capture_output=True, text=True
+          ).stdout.splitlines()[0].split()[-1]
+
+          def glibc_max(ruta_o_datos):
+              if isinstance(ruta_o_datos, (bytes, bytearray)):
+                  with tempfile.NamedTemporaryFile(delete=False) as f:
+                      f.write(ruta_o_datos); ruta = f.name
+                  borrar = True
+              else:
+                  ruta, borrar = ruta_o_datos, False
+              try:
+                  out = subprocess.run(
+                      ["readelf", "--version-info", ruta],
+                      capture_output=True, text=True,
+                  ).stdout
+                  vers = sorted({t for t in out.replace(")", " ").split()
+                                 if t.startswith("GLIBC_2.")})
+                  return vers[-1] if vers else None
+              finally:
+                  if borrar:
+                      os.unlink(ruta)
+
+          archivo = CArchiveReader("dist/tukul")
+          incumple = []
+          for nombre in archivo.toc:
+              if not nombre.endswith(".so"):
+                  continue
+              datos = archivo.extract(nombre)
+              if not datos:
+                  continue
+              req = glibc_max(datos)
+              if req is None:
+                  continue
+              # Comparamos "2.42" vs "2.35" por tuplas numéricas.
+              par = lambda s: tuple(int(x) for x in s.split("_")[-1].split("."))
+              if par(req) > par(del_runner):
+                  incumple.append((nombre, req))
+
+          print(f"glibc de la imagen de build: {del_runner}")
+          if incumple:
+              for nombre, req in incumple:
+                  print(f"::error::{nombre} exige {req}, más nueva que la imagen "
+                        f"({del_runner}); el binario no arrancará en distros "
+                        f"anteriores (DF-C1).")
+              sys.exit(1)
+          print("✓ Ninguna biblioteca empaquetada exige una glibc más nueva "
+                "que la de la imagen.")
+          PY
 
       - name: Rename artifact
         shell: bash

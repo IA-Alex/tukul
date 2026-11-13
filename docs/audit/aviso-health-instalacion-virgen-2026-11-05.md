@@ -21,7 +21,7 @@ Sí, y está fijado por contrato en tres sitios:
    «una instalación recién estrenada (sin carpeta de config ni perfiles) ya
    cuenta como no sana». El código de salida de la CLI se decide con `has_errors`,
    y por eso un primer arranque sale con 0.
-2. `tests/test_auditoria_regresion.py::test_instalacion_nueva_tiene_avisos_pero_no_errores`
+2. `tests/test_diagnostico_regresion.py::test_instalacion_nueva_tiene_avisos_pero_no_errores`
    lo fija: `is_healthy == False` y `has_errors == False`.
 3. Los dos mensajes describen hechos reales del sistema, no fallos: la carpeta
    se crea al guardar y sin un perfil configurado Tukul no puede conversar.

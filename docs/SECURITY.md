@@ -14,7 +14,7 @@ Este documento describe controles presentes, no una certificación formal. La ap
 
 | THREAT | ASSET | ATTACK_SURFACE | CURRENT_CONTROL | RESIDUAL_RISK | TEST_EVIDENCE |
 |---|---|---|---|---|---|
-| Endpoint remoto HTTP roba key | API key | URL en TOML | HTTPS obligatorio; HTTP solo loopback | CA/TLS y proveedor comprometidos siguen fuera del control | `tests/test_auditoria_regresion.py` (`TestSeguridadDelEndpoint`) |
+| Endpoint remoto HTTP roba key | API key | URL en TOML | HTTPS obligatorio; HTTP solo loopback | CA/TLS y proveedor comprometidos siguen fuera del control | `tests/test_seguridad_red_regresion.py` (`TestSeguridadDelEndpoint`) |
 | Redirect exfiltra headers | API key | respuesta 3xx | opener sin redirects | un proxy o proveedor ya comprometido puede observar la request original | `TestNoRedireccionDeCredenciales` |
 | TOML/JSON expone secrets | API key | persistencia local | keys solo env/keyring/sesión | env y keyring son responsabilidad del host | `TestCredenciales` |
 | Prompt injection en artículo/contexto | instrucciones del sistema | contenido enviado al LLM | system prompt trata datos como no confiables y exige aprobación de contexto; los campos de idea (CVE/arXiv/MITRE) se serializan como JSON con aviso de dato no confiable, no se interpolan en la instrucción | el proveedor/modelo puede ignorar instrucciones | tests de prompting/contexto, `test_el_prompt_de_ideas_aisla_los_datos_externos_de_la_instruccion` |

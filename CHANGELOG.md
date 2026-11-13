@@ -4,6 +4,27 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.4.2] - 2026-11-12
+
+### Corregido (distribución)
+
+- **El binario Linux publicado no arrancaba en distros con glibc < 2.42
+  (DF-C1).** El job de release usaba `runs-on: ubuntu-latest`, un sello flotante
+  que migró a Ubuntu 26.04 (glibc 2.42). PyInstaller empaqueta la
+  `libtcl8.6.so` del sistema, así que el binario pasó a exigir `GLIBC_2.42` y
+  dejó de arrancar en Debian 13 (2.41), Ubuntu 24.04 (2.39) y anteriores —la
+  mayoría del parque actual—. El smoke test no lo detectaba porque corre en el
+  mismo runner que lo compila. Se fija la imagen a `ubuntu-22.04` (glibc 2.35) y
+  `windows-2022`, y se añade el paso `Verify Linux glibc floor`, que extrae las
+  bibliotecas empaquetadas del `onefile` y falla si alguna exige una glibc más
+  nueva que la de la imagen. README y `docs/RELEASE.md` declaran el suelo de
+  glibc real (≥ 2.35).
+- **Referencias obsoletas a un archivo de tests dividido (DF-C2).**
+  `docs/SECURITY.md` y el aviso de `--health` citaban
+  `tests/test_auditoria_regresion.py`, dividido por dominio en seis archivos el
+  2026-11-12. Se corrigen las rutas a `test_seguridad_red_regresion.py` y
+  `test_diagnostico_regresion.py`.
+
 ## [0.4.1] - 2026-11-12
 
 Cierra la auditoría de escritorio + diseño del 2026-11-12
