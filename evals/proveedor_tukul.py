@@ -17,6 +17,15 @@ Entrada: el prompt renderizado llega como PRIMER ARGUMENTO (contrato de
 
 Así el eval mide lo que la aplicación envía de verdad (`SYSTEM_PROMPT`,
 `build_editor_prompt`) y lo que de verdad acepta al volver (`parse_findings`).
+
+Fidelidad con la aplicación: el SYSTEM_PROMPT, el prompt de usuario (vía
+`build_editor_prompt`) y el parser de vuelta son EXACTAMENTE los de producción.
+El muestreo, en cambio, difiere a propósito: este adaptador fija
+`temperature=0` y `seed=7` para que un PASS/FAIL no dependa del azar del modelo
+(ver el comentario del cuerpo). El cliente de producto envía
+`profile.temperature` (0.5 por defecto) y no manda `seed`. El eval mide, por
+tanto, la calidad del prompt y del parser ante un muestreo determinista, no el
+request byte a byte de la aplicación.
 """
 
 from __future__ import annotations

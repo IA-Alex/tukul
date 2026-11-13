@@ -95,6 +95,39 @@ def http_error_message(status: int) -> str:
     return HTTP_ERROR_MESSAGES.get(status, f"El proveedor respondió HTTP {status}.")
 
 
+# Techos para el cuerpo de un error HTTP: el proveedor solo aporta un mensaje
+# corto, así que no se lee más allá de esto ni se confía en su forma.
+MAX_ERROR_BODY_BYTES = 8 * 1024
+MAX_ERROR_MESSAGE_CHARS = 500
+
+
+def provider_error_message(error: urllib.error.HTTPError) -> str:
+    """Mensaje del proveedor si lo trae; si no, la traducción por código.
+
+    DeepInfra (y OpenAI-compatible en general) devuelve los fallos como
+    ``{"error": {"message": …}}``. Descartarlo dejaba al usuario con
+    «El proveedor respondió HTTP 400.» ante un «modelo inexistente» o un
+    «contexto excedido», que son causas distintas que el status no distingue.
+    El cuerpo se lee con techo (nunca se confía en su tamaño ni en su forma) y
+    cualquier desvío cae al mensaje por código, sin filtrar contenido ajeno.
+    """
+    try:
+        cuerpo = error.read(MAX_ERROR_BODY_BYTES)
+    except (OSError, ValueError):
+        return http_error_message(error.code)
+    if not cuerpo:
+        return http_error_message(error.code)
+    try:
+        datos = json.loads(cuerpo.decode("utf-8", errors="replace"))
+    except ValueError:
+        return http_error_message(error.code)
+    detalle = datos.get("error") if isinstance(datos, dict) else None
+    mensaje = detalle.get("message") if isinstance(detalle, dict) else None
+    if not isinstance(mensaje, str) or not mensaje.strip():
+        return http_error_message(error.code)
+    return mensaje.strip()[:MAX_ERROR_MESSAGE_CHARS]
+
+
 def estimate_prompt_tokens(system_prompt: str, json_payload: str) -> int:
     """
     Estima tokens del prompt COMPLETO (system + payload JSON que incluye todo).
@@ -443,7 +476,7 @@ class LLMClient:
                     return
                 yield from self._consume_sse(profile, response, cancel_event)
         except urllib.error.HTTPError as error:
-            raise LlmError(http_error_message(error.code)) from error
+            raise LlmError(provider_error_message(error)) from error
         except urllib.error.URLError as error:
             raise LlmError("No se pudo conectar con el proveedor.") from error
         except (OSError, ValueError) as error:
@@ -471,7 +504,7 @@ class LLMClient:
             elif protocol == "gemini_generate_content": content = "".join(part.get("text", "") for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []) if isinstance(part, dict))
             else: content = data["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as error:
-            raise LlmError(http_error_message(error.code)) from error
+            raise LlmError(provider_error_message(error)) from error
         except (urllib.error.URLError, KeyError, IndexError, TypeError, ValueError) as error:
             raise LlmError("No se pudo obtener una respuesta válida del proveedor.") from error
         if not isinstance(content, str) or not content.strip():

@@ -93,5 +93,59 @@ class TestEjemploUsaLosProveedoresReales(unittest.TestCase):
                     _validar_endpoint_completo(perfil.provider, perfil.endpoint)
 
 
+class TestDocumentacionUsaLosProveedoresReales(unittest.TestCase):
+    """`docs/CONFIGURATION.md` no puede contradecir al ejemplo que documenta.
+
+    Defecto observado: el bloque de ejemplo de la doc declaraba
+    `provider = "openai_compatible"` para el perfil `deepinfra`, mientras
+    `tukul.example.toml` —y la tabla de la propia doc— dicen `deepinfra`. Un
+    usuario que copiara la doc perdía la identidad del proveedor y la validación
+    del endpoint base, exactamente lo que `TestEjemploUsaLosProveedoresReales`
+    impide para el TOML. Faltaba cruzar la doc con esa misma vara.
+    """
+
+    def _bloque_toml(self) -> str:
+        raiz = Path(__file__).parent.parent
+        texto = (raiz / "docs" / "CONFIGURATION.md").read_text(encoding="utf-8")
+        # Primer bloque ```toml del documento: es el ejemplo canónico.
+        inicio = texto.index("```toml") + len("```toml")
+        fin = texto.index("```", inicio)
+        return texto[inicio:fin]
+
+    def test_el_ejemplo_de_la_doc_carga_perfiles_validos(self):
+        import tempfile
+
+        from tukul_core import storage
+        from tukul_core.llm import PROVIDERS
+
+        storage.DISCARDED_PROFILE_FIELDS.clear()
+        try:
+            with tempfile.TemporaryDirectory() as directorio:
+                ruta = Path(directorio) / "doc.toml"
+                ruta.write_text(self._bloque_toml(), encoding="utf-8")
+                perfiles, _ = storage.load_profiles(ruta)
+        finally:
+            storage.DISCARDED_PROFILE_FIELDS.clear()
+
+        self.assertTrue(perfiles, "El bloque TOML de la doc no definió ningún perfil")
+        for nombre, perfil in perfiles.items():
+            if perfil.provider == "disabled":
+                continue
+            with self.subTest(perfil=nombre):
+                self.assertIn(perfil.provider, PROVIDERS)
+                _validar_endpoint_completo(perfil.provider, perfil.endpoint)
+
+    def test_el_perfil_deepinfra_de_la_doc_usa_su_propio_id(self):
+        """El perfil llamado `deepinfra` no debe caer al genérico en la doc."""
+        bloque = self._bloque_toml()
+        self.assertIn('[profiles.deepinfra]', bloque)
+        self.assertIn('provider = "deepinfra"', bloque)
+        self.assertNotIn(
+            'provider = "openai_compatible"',
+            bloque,
+            "La doc documenta DeepInfra con el id genérico: contradice al ejemplo",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,7 @@ La configuración canónica es `config.toml`, por defecto `~/.config/tukul/confi
 active_profile = "deepinfra"
 
 [profiles.deepinfra]
-provider = "openai_compatible"
+provider = "deepinfra"
 endpoint = "https://api.deepinfra.com/v1/openai/chat/completions"
 model = "modelo-del-proveedor"
 api_key_env = "DEEPINFRA_API_KEY"

@@ -20,7 +20,14 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from tukul_core.llm import PROVIDERS, LLMClient, LlmError, LlmProfile, ProviderSpec
+from tukul_core.llm import (
+    PROVIDERS,
+    LLMClient,
+    LlmError,
+    LlmProfile,
+    ProviderSpec,
+    http_error_message,
+)
 
 # `PROVIDERS` solo registra los que la UI ofrece hoy (OpenAI-compatible,
 # DeepInfra y Novita): los tres hablan el mismo protocolo. Para ejercitar las
@@ -313,6 +320,66 @@ class TestCabecerasPorProtocoloContraServidorReal(unittest.TestCase):
         cabeceras = self.servidor.peticiones[0]["headers"]
         self.assertEqual(cabeceras["x-goog-api-key"], "k-gemini")
         self.assertNotIn("authorization", cabeceras)
+
+
+class TestMensajeDeErrorDelProveedorContraServidorReal(unittest.TestCase):
+    """Un error HTTP debe propagar el `error.message` que envía el proveedor.
+
+    Antes solo se traducía por código de estado, así que un 400 por «modelo
+    inexistente» y un 400 por «contexto excedido» llegaban iguales. El cuerpo del
+    error es dato no confiable: se lee con techo y cualquier desvío cae al
+    mensaje por código.
+    """
+
+    def _servidor_con_error(self, cuerpo: bytes) -> _ServidorLocal:
+        def responder(self: BaseHTTPRequestHandler) -> None:
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            self._escribir(cuerpo)
+
+        return _ServidorLocal(responder)
+
+    def test_400_propaga_el_mensaje_del_proveedor(self):
+        servidor = self._servidor_con_error(
+            b'{"error":{"message":"model not found: deepseek-ai/Inexistente",'
+            b'"type":"invalid_request_error","code":"model_not_found"}}'
+        )
+        try:
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(_perfil(servidor.url), "k", "hola")
+        finally:
+            servidor.cerrar()
+        self.assertEqual(str(ctx.exception), "model not found: deepseek-ai/Inexistente")
+
+    def test_400_sin_mensaje_cae_al_texto_por_codigo(self):
+        servidor = self._servidor_con_error(b'{"error":{"type":"x"}}')
+        try:
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(_perfil(servidor.url), "k", "hola")
+        finally:
+            servidor.cerrar()
+        self.assertEqual(str(ctx.exception), http_error_message(400))
+
+    def test_400_con_cuerpo_no_json_cae_al_texto_por_codigo(self):
+        servidor = self._servidor_con_error(b"<html>Bad Request</html>")
+        try:
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(_perfil(servidor.url), "k", "hola")
+        finally:
+            servidor.cerrar()
+        self.assertIn("HTTP 400", str(ctx.exception))
+
+    def test_el_mensaje_del_proveedor_se_acota_en_longitud(self):
+        largo = b"x" * 5000
+        servidor = self._servidor_con_error(b'{"error":{"message":"' + largo + b'"}}')
+        try:
+            with self.assertRaises(LlmError) as ctx:
+                LLMClient().complete(_perfil(servidor.url), "k", "hola")
+        finally:
+            servidor.cerrar()
+        self.assertLessEqual(len(str(ctx.exception)), 500)
 
 
 if __name__ == "__main__":
