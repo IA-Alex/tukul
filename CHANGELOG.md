@@ -4,6 +4,30 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.5.2] - 2026-11-13
+
+Parche de consistencia de entrega (DF-C4 de la reauditoría de cierre, condición
+H-C1 del dictamen de cierre del 2026-11-13). `v0.5.1` se cortó sobre `97b62e3`;
+después quedaron en `master` dos commits sin release, uno de ellos el arreglo del
+`TclError`. Esta versión se corta sobre el HEAD que los contiene para que el
+código declarado, el binario distribuido y la versión ejecutada coincidan.
+
+### Corregido
+
+- **`TclError: bad window path name` al mapear la ventana (`7dcee7f`).** El
+  handler de `<Configure>` de la barra accedía a `self.winfo_toplevel()` y, con
+  un toplevel ya inexistente, Tk levantaba `TclError`; se propagaba como
+  excepción no controlada y llenaba el log durante el mapeo de la ventana. Ahora
+  el acceso a Tk está protegido y el ancho cae al del propio widget, con test de
+  regresión en `tests/test_interfaz.py`.
+
+### Documentación
+
+- **Estado del informe de cierre corregido.** `docs/audit/cierre-2026-11-12-rev2.md`
+  declaraba `CERRADO` y `git describe → v0.5.1` limpio, pero el HEAD ya tenía
+  dos commits por delante del tag. Se anota el estado real y se enlaza el
+  dictamen de cierre del 2026-11-13, que deja la entrega alineada.
+
 ## [0.5.1] - 2026-11-12
 
 ### Corregido
