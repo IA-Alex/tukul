@@ -1,0 +1,76 @@
+# A-07 — Registro de errores sembrados (R-02)
+
+Este archivo es la fuente de verdad de R-02. Sin él, un hallazgo del modelo no
+se puede contrastar: no se sabe si detectó el error o encontró algo parecido.
+El bloque `yaml` de abajo es la parte legible por máquina; el resto es contexto
+humano.
+
+**Regla de diseño:** los tres errores son de **una sola categoría**
+(`ortografía`) y de la **misma severidad** (`media`). Así R-02 no mide la
+capacidad del modelo de ordenar por gravedad, solo la de **detectar y citar**.
+Los tres están en **párrafos distintos** y son identificables sin ambigüedad:
+cada `original` aparece **una sola vez** en el artículo.
+
+`parrafo` cuenta párrafos de texto separados por línea en blanco, **contando
+el título como párrafo 0** (párrafo 1 es el primer párrafo de prosa).
+`offset` es `[inicio, fin)` sobre el archivo completo en UTF-8, tal como lo
+calcula `scripts/verificar_corpus_eval.py`.
+
+```yaml
+articulo: A-07.md
+total_errores: 3
+categoria_comun: ortografía
+severidad_comun: media
+errores:
+  - id: A07-E1
+    categoria: ortografía
+    severidad: media
+    parrafo: 1
+    frase: "en la última campaña se instalaron en el país más paneles sobre cubiertas residenciales que en toda la decada anterior"
+    original: "decada"
+    correcto: "década"
+    offset: [353, 359]
+    tipo: "tilde omitida"
+    esperado: "que el hallazgo cite 'decada' y proponga 'década'"
+  - id: A07-E2
+    categoria: ortografía
+    severidad: media
+    parrafo: 5
+    frase: "La efiziencia de los paneles mejora cada año"
+    original: "efiziencia"
+    correcto: "eficiencia"
+    offset: [2210, 2220]
+    tipo: "s/z confundidas"
+    esperado: "que el hallazgo cite 'efiziencia' y proponga 'eficiencia'"
+  - id: A07-E3
+    categoria: ortografía
+    severidad: media
+    parrafo: 7
+    frase: "hacen falta normas previsibles y locales accesibles, y sobre todo una adminstración que no cambie las reglas"
+    original: "adminstración"
+    correcto: "administración"
+    offset: [3549, 3562]
+    tipo: "letra omitida"
+    esperado: "que el hallazgo cite 'adminstración' y proponga 'administración'"
+```
+
+## Comprobación cruzada esperada
+
+| Criterio R-02 | Regla | Verificación |
+|---|---|---|
+| Detecta | ≥ 2 de los 3 errores | El modelo cita `original` de A07-E1..E3 |
+| No supera el tope | ≤ 12 hallazgos | `MAX_FINDINGS = 12` en `tukul_core/review.py` |
+| Localizable | `original` debe existir en el texto | Comparación exacta de subcadena |
+
+Un hallazgo con `original` que no existe en el texto no cuenta como detección:
+es un fallo tipo R-05 (fragmento inventado), aunque la sugerencia sea correcta.
+
+## Estado de la revisión
+
+- [x] Tres errores sembrados, de una sola categoría.
+- [x] Cada `original` aparece una sola vez (verificado por script).
+- [x] Offset y párrafo verificados por script contra el texto.
+- [ ] **Revisión humana de A-07 pendiente:** confirmar que el resto del
+      artículo no contiene ningún otro error que un revisor legítimo pudiera
+      señalar y que no esté registrado. Hasta que esta casilla se marque, R-02
+      puede contar como «falso positivo» de forma indebida.

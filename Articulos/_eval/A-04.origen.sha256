@@ -1,0 +1,11 @@
+# Hash del artículo original del que A-04 es copia byte a byte.
+#
+# El original vive en `Articulos/publicacion_por_incidente/`, material personal
+# NO versionado (`.gitignore`). Sin este registro, el verificador no podía
+# comprobar la identidad de la copia en un clon limpio (rompía la puerta de
+# calidad). El hash se versiona junto al corpus: si el original cambia, el
+# verificador lo detecta aunque el original no esté presente.
+#
+# Ruta original: Articulos/publicacion_por_incidente/¿Qué hace que un incidente deje el laboratorio y llegue al dominio público?.md
+# Verificado: 2026-11-13
+8fdf5d6b0dde2073a2fc267019eec434fe7eecfce47fb9490cff7c7b6347fb8e  A-04.md
