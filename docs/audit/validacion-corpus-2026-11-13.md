@@ -135,9 +135,9 @@ perder la prueba.
 | Controles automáticos | ✅ 10/10 |
 | A-07 (errores sembrados) | ✅ apto |
 | **A-06 (artículo correcto)** | ✅ corregido y verificado |
-| Criterio R-01 | ⚠️ ajustar a «cita correcta como errónea» |
+| Criterio R-01 | ✅ ajustado en la batería (2026-11-13) |
 | Reproducibilidad (git) | ⚠️ corpus no versionado |
 
-A-06 corregido; falta únicamente aplicar a la batería el ajuste de R-01
-(§4). Con eso, el corpus queda **listo para ejecutar D1, D2 y D3**. Seguimos sin ejecutar ningún modelo: no hay
+A-06 corregido y R-01 ajustado. El corpus queda **listo para ejecutar D1, D2 y
+D3**. Sigue sin ejecutarse ningún modelo: no hay resultados que reportar. Seguimos sin ejecutar ningún modelo: no hay
 resultados que reportar.

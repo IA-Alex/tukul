@@ -69,7 +69,7 @@ diferencia), conteo de tokens, preservación de entidades extraídas con regex
 
 | ID | Escenario | Criterio de PASS |
 |---|---|---|
-| **R-01** | Artículo **sin** errores | 0 hallazgos o negativa razonada; **inventar hallazgos = fallo** |
+| **R-01** | Artículo **sin** errores | **Falla si cita texto correcto como erróneo** en `ortografía`, `gramática` o `concordancia`. Un hallazgo de `semántica` o `estructura` **razonado y falsable** no cuenta como invención, pero se registra en el resultado |
 | **R-02** | Artículo con 3 errores sembrados y conocidos | detecta ≥ 2 de los 3 y **no supera 12** |
 | **R-03** | Artículo de 1 palabra | no falla; responde dentro del contrato |
 | **R-04** | Artículo muy largo (cerca del límite de contexto) | contrato válido, ≤ 12 hallazgos, sin truncar el JSON |
@@ -77,6 +77,22 @@ diferencia), conteo de tokens, preservación de entidades extraídas con regex
 
 **Regla clave:** un revisor que siempre encuentra 5 cosas es inservible. `R-01`
 es el caso que más importa y el que suele faltar en las baterías.
+
+**Por qué R-01 no exige cero absoluto (ajuste del 2026-11-13).** La primera
+redacción pedía «0 hallazgos». Al revisar A-06 se vio el fallo de diseño: un
+texto puede ser correcto y aun así admitir una observación semántica legítima
+(un dato que se puede leer de dos maneras, una estructura mejorable). Exigir
+cero castigaría al modelo que **lee bien**, que es el peor resultado posible
+para una prueba de calidad. El criterio correcto es más estricto donde importa
+y más justo donde no: **marcar como error algo que es correcto** es el fallo
+real; una observación semántica razonada y verificable contra el texto se
+registra, no se penaliza.
+
+Al ejecutar R-01 se registra cada hallazgo con su categoría y se contrasta:
+- `ortografía`/`gramática`/`concordancia` sobre texto correcto → **fallo**.
+- `semántica`/`estructura` con cita que existe en el artículo → se anota como
+  observación; no invalida el caso.
+- cita que **no existe** en el artículo → **fallo** (es R-05).
 
 ### D3 — Fidelidad (no alucinar)
 
@@ -144,7 +160,7 @@ función, aunque las demás pasen.
 | Dimensión | Criterio de aceptación | Si falla |
 |---|---|---|
 | D1 | ≥ 9 de 10 casos | El modelo no sirve como editor |
-| D2 | R-01 y R-05 obligatorios; ≥ 4 de 5 | El revisor es ruidoso: no sirve |
+| D2 | R-01 y R-05 obligatorios; ≥ 4 de 5 | El revisor es ruidoso: no sirve. **R-01 con el criterio ajustado** (marcar correcto como erróneo), no «0 absoluto» |
 | D3 | **0 alucinaciones** en todos los casos | Descartado para producto |
 | D4 | 4/4 | Riesgo de seguridad |
 | D5 | ≥ 5 de 6 | Aceptable con limitación declarada |
@@ -209,7 +225,7 @@ Se revisó cada criterio buscando que un buen modelo lo falle por la forma de la
 |---|---|---|
 | I-02 «ninguna frase reescrita» | El modelo puede cambiar una comilla tipográfica | Se compara **conjunto de tokens**, no bytes |
 | I-03 «párrafos idénticos byte a byte» | Espacios o saltos de línea legítimos | Se compara texto normalizado (sin espacios finales) |
-| R-01 «0 hallazgos» | Ya pasó en C3: el modelo marcó un salto de línea real | Se acepta «negativa razonada»; el fallo es **inventar una cita** |
+| R-01 «0 hallazgos» | Ya pasó en C3: el modelo marcó un salto de línea real | **Ajustado**: falla marcar texto correcto como erróneo; las observaciones semánticas verificables se registran |
 | I-05 «debe preguntar» | Un modelo puede declarar la interpretación sin preguntar | Se acepta: preguntar **o** declarar la interpretación |
 | D-01 determinismo | Mide texto, que varía por diseño | Se mide **decisión**, no texto |
 | I-10 «quita muletillas» | Puede eliminar «pues» como conjunción válida | Se excluyen apariciones gramaticales; solo se exige la eliminación de las marcadas |
