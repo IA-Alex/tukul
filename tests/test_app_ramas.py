@@ -93,6 +93,10 @@ class _BaseApp(unittest.TestCase):
         for _ in range(veces):
             self.app.update()
             self.app.update_idletasks()
+        # El arranque lanza el autoindexado de la memoria en un worker; las
+        # pruebas que asumen «nada vivo» deben esperar a que termine. Es local
+        # y rápido, así que un tope corto basta.
+        modulo_app.WorkerThreads.esperar(2.0)
 
 
 class TestCierreConPeticionViva(_BaseApp):
