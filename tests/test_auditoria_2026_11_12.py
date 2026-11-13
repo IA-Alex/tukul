@@ -174,10 +174,17 @@ class TestNombreDocumentoPorPixeles(unittest.TestCase):
         self.addCleanup(raiz.destroy)
         barra = TopBar.__new__(TopBar)
         barra.documento_label = tk.Label(raiz)
-        nombre = "un-articulo-con-un-nombre-extraordinariamente-largo-2026.md"
+        # El nombre debe exceder el límite en la fuente realmente activa, que
+        # varía con el entorno (Inter, Helvetica…). Un nombre fijo se quedaba
+        # corto con fuentes estrechas y la prueba fallaba según el display, el
+        # mismo defecto ya corregido en `test_interfaz` (0.5.1).
+        fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
+        nombre = "articulo"
+        while fuente.measure(nombre + "-largo") <= TopBar.ANCHO_DOCUMENTO:
+            nombre += "-largo"
+        nombre += "-extraordinariamente-largo-2026.md"
         visible = barra._nombre_recortado(nombre)
         self.assertTrue(visible.endswith("…"), "Un nombre largo se recorta")
-        fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
         self.assertLessEqual(fuente.measure(visible), TopBar.ANCHO_DOCUMENTO)
 
     def test_un_nombre_corto_no_se_toca(self):
