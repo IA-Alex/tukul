@@ -141,13 +141,21 @@ se haya observado; cada afirmación numérica se midió en este repositorio.
 - **Verificado en local:** `scripts/verify-signature.sh v0.5.2` falla en rojo
   porque la release no trae `.bundle` (exit 1); 7 pruebas nuevas sobre el YAML
   real; gate completo verde (760 pruebas).
-- **Pendiente de evidencia real:** un `workflow_dispatch` que obtenga un
-  certificado OIDC **de verdad**. Hasta entonces no se puede afirmar que la
-  cadena Fulcio/Rekor funcione: solo que el procedimiento es correcto y que
-  falla cerrado.
-- **Condición de cierre de C1:** run `workflow_dispatch` verde con los pasos
-  *Sign* y *Verify* ejecutados, y `scripts/verify-signature.sh` verde sobre la
-  primera release firmada.
+- **Verificado con evidencia real (run `43475551580`, `workflow_dispatch` sobre
+  `master`):** el job `firma-ensayo` instaló cosign, firmó el binario con
+  **certificado OIDC real** y la verificación de identidad pasó. El bundle
+  descargado del run contiene:
+  - certificado emitido por `O=sigstore.dev, CN=sigstore-intermediate`
+    (Fulcio, no un certificado local),
+  - SAN `URI:https://github.com/IA-Alex/tukul/.github/workflows/build-release.yml@refs/heads/master`
+    — la identidad exacta del workflow que firmó,
+  - 1 entrada de Rekor (transparencia) y datos de timestamp.
+  El job `release` quedó `skipped`: **no se publicó ningún Release** en el
+  ensayo, como exige el contrato.
+- **Estado:** C1 **implementado y verificado** en su cadena criptográfica. Lo
+  que solo puede demostrar el primer tag es la firma con la ref
+  `refs/tags/vX.Y.Z`, que es la misma ruta con otra ref; el ensayo probó que la
+  identidad del certificado sigue a la ref.
 
 ## Secuencia propuesta
 
