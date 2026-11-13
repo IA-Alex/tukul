@@ -69,3 +69,29 @@ La congelación **admite descongelación únicamente para correcciones** (defect
 confirmado, regresión, fallo de seguridad o fallo de entrega), publicadas como
 `0.6.x`. Procedimiento y límites en
 [`docs/POLITICA_CONGELACION.md`](../POLITICA_CONGELACION.md).
+
+## Correcciones posteriores sobre `0.6.0`
+
+El dictamen sigue siendo **CERRADO**: nada de lo observado después contradice el
+contrato de `0.6.0`, y las correcciones se aplican sobre la rama de versión, sin
+reabrirla.
+
+### Ciclo conector-proveedor (2026-11-13)
+
+- **Auditoría de origen:**
+  [`auditoria-conector-proveedor-2026-11-13.md`](auditoria-conector-proveedor-2026-11-13.md)
+  (serie `C-01..C-03`, distinta de los `H-01..H-08` de
+  [`auditoria-conector-2026-11-12.md`](auditoria-conector-2026-11-12.md) para no
+  colisionar rótulos).
+- **Correcciones:** C-01 (doc del perfil `deepinfra` con id real y regresión),
+  C-02 (docstring del adaptador de evaluación fiel a su muestreo), C-03 (el
+  cliente propaga el `error.message` del proveedor con lectura acotada).
+- **Evidencia:** gate verde — **780 pruebas, 0 omitidas, cobertura 88.58 %**;
+  `ruff` y `mypy` limpios. La regresión de C-01 se comprobó en ambas direcciones
+  (falla con la doc anterior, pasa con la corrección).
+- **Estado de publicación:** aplicado sobre `master`; `git describe --tags` →
+  `v0.6.0-13-g82d9d65` (**no limpio**). **No publicado todavía como `0.6.x`**:
+  falta tag, Release firmada y verificación en destino. Hasta entonces, `0.6.0`
+  sigue siendo la última entrega publicada y verificada.
+- **Registro:** entrada `[No publicado]` en [`CHANGELOG.md`](../../CHANGELOG.md).
+

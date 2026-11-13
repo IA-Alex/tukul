@@ -4,6 +4,37 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [No publicado] — ciclo de corrección sobre `0.6.0`
+
+Correcciones aceptadas por la política de congelación
+([`docs/POLITICA_CONGELACION.md`](docs/POLITICA_CONGELACION.md)) tras el dictamen
+[`docs/audit/cierre-2026-11-13-final.md`](docs/audit/cierre-2026-11-13-final.md).
+Auditoría de origen: [`docs/audit/auditoria-conector-proveedor-2026-11-13.md`](docs/audit/auditoria-conector-proveedor-2026-11-13.md).
+Pendiente de publicar como `0.6.x` firmada.
+
+### Corregido
+
+- **La documentación del perfil `deepinfra` contradecía al ejemplo (C-01).**
+  `docs/CONFIGURATION.md` declaraba `provider = "openai_compatible"`, así que
+  quien copiara el bloque perdía la identidad del proveedor y la validación del
+  endpoint base. Pasa a `provider = "deepinfra"`, con
+  `tests/test_validacion_perfil.py::TestDocumentacionUsaLosProveedoresReales`
+  cruzando el bloque TOML de la doc con `PROVIDERS`.
+- **El cliente descartaba el `error.message` del proveedor (C-03).** DeepInfra
+  devuelve los fallos como `{"error": {"message": …}}`; ignorarlo hacía que
+  «modelo inexistente» y «contexto excedido» llegaran idénticos como
+  «El proveedor respondió HTTP 400.». `provider_error_message` lo propaga con
+  lectura acotada (8 KiB de cuerpo, 500 caracteres de mensaje) y fallback al
+  texto por código, en los dos caminos de error del cliente.
+
+### Documentación
+
+- **Fidelidad declarada del adaptador de evaluación (C-02).** El docstring de
+  `evals/proveedor_tukul.py` afirmaba medir «lo que la app envía de verdad»,
+  pero fija `temperature=0` + `seed=7`; el cliente de producto envía
+  `profile.temperature` y no manda `seed`. Se documenta la divergencia
+  deliberada en vez de quitar el determinismo del eval.
+
 ## [0.6.0] - 2026-11-13
 
 ### Corregido (CI de release)
