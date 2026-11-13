@@ -14,12 +14,11 @@
 > (`success`, jobs con `runner_name` no vacío). Detalle en
 > `docs/audit/hallazgos-abiertos-2026-11-04.md#resuelto-2026-11-12`.
 
-**BUILD:** `.github/workflows/build-release.yml` construye con PyInstaller en runners nativos y ejecuta `--health` del binario. Los artefactos actuales son `tukul-linux-x86_64` y `tukul-windows-x86_64.exe`; macOS no es target verificado ni soportado por este workflow.
+**BUILD:** `.github/workflows/build-release.yml` construye con PyInstaller y ejecuta `--health` del binario. El único artefacto actual es `tukul-linux-x86_64` (x86_64). Windows y macOS no son targets soportados: Windows se retiró el 2026-11-12 y macOS el 2026-08-17, ambos por no poder validarse en el sistema destino ni existir necesidad declarada.
 
-> **Imagen de build fijada (DF-C1, auditoría de cierre 2026-11-12):** el job
-> Linux usa `runs-on: ubuntu-22.04` (glibc 2.35) y el de Windows
-> `runs-on: windows-2022`, **no** `-latest`. El sello `-latest` es flotante:
-> migró a Ubuntu 26.04 (glibc 2.42) y el binario Linux pasó a exigir
+> **Imagen de build fijada (DF-C1, auditoría de cierre 2026-11-12):** el job usa
+> `runs-on: ubuntu-22.04` (glibc 2.35), **no** `-latest`. El sello `-latest` es
+> flotante: migró a Ubuntu 26.04 (glibc 2.42) y el binario Linux pasó a exigir
 > `GLIBC_2.42`, dejando de arrancar en Debian 13 / Ubuntu 24.04 y anteriores.
 > Compilar en la imagen más antigua soportada fija el suelo de glibc. El paso
 > `Verify Linux glibc floor` extrae las bibliotecas empaquetadas del binario y

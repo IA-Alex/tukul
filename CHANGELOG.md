@@ -4,6 +4,22 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.4.3] - 2026-11-12
+
+### Cambiado (alcance de distribución)
+
+- **Se retira Windows del soporte de binarios.** El repositorio ya había
+  retirado macOS (`eaa14e0`) por el mismo motivo: no hay necesidad declarada
+  ni forma de validar el ejecutable en el sistema destino, y no se mantiene un
+  target que nadie prueba. El workflow de release publicaba además un
+  `tukul-windows-x86_64.exe` que solo pasaba `--health` en el propio runner de
+  build, sin verificación en un Windows real (DF-C3 de la auditoría de cierre).
+  Ahora `build-release.yml` compila **solo** `tukul-linux-x86_64`; `README.md`,
+  `docs/OPERATIONS.md`, `docs/RELEASE.md` y `docs/NAMING_AUDIT.md` reflejan el
+  único target. Reversible: si aparece un usuario de Windows, se reintroduce el
+  target junto con su prueba en un equipo real. Antecedente y evidencia del
+  binario en `docs/audit/verificacion-windows-df-c3.md`.
+
 ## [0.4.2] - 2026-11-12
 
 ### Corregido (distribución)

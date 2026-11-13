@@ -1,10 +1,13 @@
 name: Build standalone executables
 
-# Compila un ejecutable independiente (sin Python instalado) para Windows y
-# Linux. PyInstaller no compila entre sistemas operativos distintos: cada
-# binario se construye en un runner del propio SO, no en uno solo. macOS no
-# es un objetivo soportado: sin runner de Apple Silicon propio para probarlo
-# y sin necesidad declarada, no se mantiene un target que nadie valida.
+# Compila un ejecutable independiente (sin Python instalado) para Linux x86_64.
+#
+# Windows y macOS no son objetivos soportados. macOS se retiró el 2026-08-17
+# (`eaa14e0`) y Windows el 2026-11-12 (esta revisión): en ambos casos no hay
+# necesidad declarada ni forma de validar el binario en el sistema destino, y no
+# se mantiene un target que nadie prueba. El histórico está en `CHANGELOG.md`.
+# Compilar un ejecutable para un SO que no se puede verificar es un pasivo: el
+# caso vivo es el binario Linux, que llegó a publicarse roto (DF-C1).
 #
 # Se dispara al publicar un tag "vX.Y.Z" (release real) o a mano para probar
 # el empaquetado sin cortar una versión.
@@ -28,9 +31,6 @@ jobs:
           # verificar el requisito real en un host viejo.
           - os: ubuntu-22.04
             asset_name: tukul-linux-x86_64
-          # Pin análogo por el mismo motivo: `windows-latest` también migra.
-          - os: windows-2022
-            asset_name: tukul-windows-x86_64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -42,10 +42,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Solo Linux necesita las bibliotecas de sistema de Tk para compilar;
-      # Windows trae Tk en el propio instalador de Python.
-      - name: Install Tk system libraries (Linux)
-        if: runner.os == 'Linux'
+      # Bibliotecas de sistema de Tk para compilar (Linux). No hay otros targets.
+      - name: Install Tk system libraries
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-tk
 
       - name: Install project + PyInstaller
@@ -58,21 +56,15 @@ jobs:
         run: pyinstaller --onefile --name tukul --noconfirm tukul.py
 
       # Humo mínimo: el binario debe arrancar y correr el diagnóstico sin
-      # ventana. No prueba la GUI (no hay Xvfb en Windows), pero confirma que
-      # el empaquetado no dejó nada roto en el arranque.
+      # ventana. No prueba la GUI, pero confirma que el empaquetado no dejó nada
+      # roto en el arranque.
       #
-      # En Linux, además, esto se ejecuta sobre la imagen fijada (glibc 2.35):
-      # si el binario exigiera una glibc más nueva que la del runner, aquí
-      # fallaría en vez de publicarse roto. Es la verificación real del suelo
-      # de compatibilidad (DF-C1).
+      # Además, esto se ejecuta sobre la imagen fijada (glibc 2.35): si el
+      # binario exigiera una glibc más nueva que la del runner, aquí fallaría en
+      # vez de publicarse roto. Es la verificación real del suelo de
+      # compatibilidad (DF-C1).
       - name: Smoke test (--health)
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ./dist/tukul.exe --health
-          else
-            ./dist/tukul --health
-          fi
+        run: ./dist/tukul --health
 
       # Guard explícito del suelo de glibc (DF-C1). `readelf` sobre el binario
       # externo NO ve el requisito: las bibliotecas van comprimidas dentro del
@@ -83,7 +75,6 @@ jobs:
       # trae 2.41). Sin este paso, un cambio de imagen reintroduce el defecto
       # mientras el smoke test sigue verde en el runner que lo compiló.
       - name: Verify Linux glibc floor
-        if: runner.os == 'Linux'
         run: |
           python - <<'PY'
           import os, subprocess, sys, tempfile
@@ -140,13 +131,7 @@ jobs:
           PY
 
       - name: Rename artifact
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            mv dist/tukul.exe "dist/${{ matrix.asset_name }}"
-          else
-            mv dist/tukul "dist/${{ matrix.asset_name }}"
-          fi
+        run: mv dist/tukul "dist/${{ matrix.asset_name }}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

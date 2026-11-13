@@ -1,5 +1,11 @@
 # Verificación del binario Windows en un equipo real (DF-C3)
 
+> **Estado: Windows se retiró del soporte el 2026-11-12** (ver `CHANGELOG.md`
+> 0.4.3 y `docs/audit/cierre-2026-11-12.md`). Este documento se conserva como
+> referencia para una eventual reincorporación: es el procedimiento que habría
+> que ejecutar **antes** de volver a publicar un binario Windows. No se mantiene
+> un target que no se puede validar en su sistema destino.
+
 Procedimiento para cerrar el hallazgo **DF-C3** de la auditoría de cierre
 (`docs/audit/cierre-2026-11-12.md`): el binario `tukul-windows-x86_64.exe`
 pasa el smoke `--health` en el runner de CI (`windows-2022`), pero no se ha

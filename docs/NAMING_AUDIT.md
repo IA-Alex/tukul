@@ -288,7 +288,7 @@ Se verificó la consistencia del nombre `Tukul` en todas las capas del sistema:
 | Configuración (ruta de archivo) | ✅ | `~/.config/tukul/config.toml` |
 | Keyring (service name) | ✅ | `"tukul"` en `get_password`/`set_password` |
 | Persistencia (estado, autosave, feed cache) | ✅ | `estado.json`, `autosave/`, `feed_cache/` |
-| CI/CD (workflows, job names, artifacts) | ✅ | `tukul-linux-x86_64`, `tukul-windows-x86_64.exe` |
+| CI/CD (workflows, job names, artifacts) | ✅ | `tukul-linux-x86_64` |
 | Empaquetado (PyPI, pyproject.toml) | ✅ | `name = "tukul"` |
 | Documentación normativa | ✅ | `README.md`, `docs/ARCHITECTURE.md`, etc. |
 | URLs y metadata | ✅ | `github.com/IA-Alex/tukul` |

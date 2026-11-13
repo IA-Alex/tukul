@@ -14,7 +14,7 @@ madera cálida, fibra de bambú y un verde de lengüeta como único acento.
 
 ## Instalar sin Python
 
-Para Linux x86_64 y Windows x86_64 se publican ejecutables standalone (sin Python instalado) en los Releases verificados por CI. El binario Linux se compila sobre Ubuntu 22.04 (glibc 2.35), por lo que requiere glibc ≥ 2.35: funciona en Ubuntu 22.04+, Debian 12+ y RHEL/Rocky 9+. En distribuciones más antiguas usa la instalación desde fuente. macOS no es un target soportado actualmente. Ejecuta `--health` después de instalar.
+Para Linux x86_64 se publica un ejecutable standalone (sin Python instalado) en los Releases verificados por CI. Se compila sobre Ubuntu 22.04 (glibc 2.35), por lo que requiere glibc ≥ 2.35: funciona en Ubuntu 22.04+, Debian 12+ y RHEL/Rocky 9+. En distribuciones más antiguas usa la instalación desde fuente. Windows y macOS no son targets soportados actualmente. Ejecuta `--health` después de instalar.
 
 ## Ejecutar
 

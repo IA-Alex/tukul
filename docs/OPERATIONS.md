@@ -2,7 +2,7 @@
 
 ## Runbook
 
-**INSTALL:** con Python 3.11+ disponible: `pip install -e .`; para guardar keys en el llavero: `pip install -e '.[keyring]'`. Los ejecutables standalone se publican para Linux x86_64 y Windows x86_64 cuando el workflow de release se ejecuta.
+**INSTALL:** con Python 3.11+ disponible: `pip install -e .`; para guardar keys en el llavero: `pip install -e '.[keyring]'`. El ejecutable standalone se publica para Linux x86_64 cuando el workflow de release se ejecuta.
 
 **START:** `python3 tukul.py [ARTICULO.md]` o `tukul [ARTICULO.md]`. Diagnóstico: `python3 tukul.py --health`; código 1 significa error, no solo warning.
 
