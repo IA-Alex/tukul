@@ -323,29 +323,35 @@ class TestVentanaReal(unittest.TestCase):
     def test_el_nombre_largo_se_recorta_en_la_barra(self):
         """El nombre se recorta por píxeles: el visible debe caber en el label.
 
-        Antes se afirmaba `len(visible) <= 42` (un conteo de caracteres) sobre
-        un recorte que es por píxeles. La métrica real dependía de la fuente y
-        del ancho del label: con `Inter` instalada el recorte dejaba ~2
-        caracteres, pero con la fuente de reserva del runner y un label ancho el
-        mismo nombre cabía entero, y el test fallaba sin que la barra se
-        desbordara. Ahora se comprueba el invariante que el código sí garantiza:
-        un nombre claramente más ancho que el label se recorta, el visible cabe
-        en el ancho real y, al recortarse, termina en `…`.
+        Antes se afirmaba `len(visible) <= 42` (un conteo de caracteres) sobre un
+        recorte que es por píxeles. La métrica real dependía de la fuente y del
+        ancho del label, que cambia con el entorno: con `Inter` el recorte dejaba
+        unos pocos caracteres, pero en un display ancho de CI el label crecía
+        tanto que el nombre cabía entero y el test fallaba sin que la barra se
+        desbordara. Ahora el nombre se construye a partir de la medida real del
+        label (al menos el doble de ancho), así el recorte se ejerce en cualquier
+        entorno, y se comprueba el invariante que el código sí garantiza: el
+        texto visible cabe en el ancho del label y termina en `…`.
         """
         from tkinter import font as tkfont
 
         self._asentar()
-        # Un nombre mucho más ancho que cualquier label razonable, en cualquier
-        # fuente: garantiza que el recorte se ejerza siempre.
-        nombre = "artículo-con-un-nombre-absurdamente-largo-que-no-cabe-" * 8 + ".md"
+        fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
+        # Mismo criterio que `_nombre_recortado`: si el label está mapeado usa su
+        # ancho; si no, cae al ancho por defecto. El nombre debe superar ese
+        # límite en cualquier entorno para que el recorte se ejerza.
+        ancho_label = self.app.barra.documento_label.winfo_width()
+        limite = ancho_label if ancho_label > 1 else self.app.barra.ANCHO_DOCUMENTO
+        # Nombre garantizado más ancho que el límite, en cualquier fuente.
+        nombre = "artículo" * (2 * limite // max(1, fuente.measure("artículo")) + 1) + ".md"
+        self.assertGreater(fuente.measure(nombre), limite, "preparación del test")
+
         self.app.barra.actualizar_documento(nombre)
         visible = self.app.barra.documento_var.get()
         self.assertLess(len(visible), len(nombre), "Un nombre largo debe recortarse")
         self.assertTrue(visible.endswith("…"), "El recorte marca con puntos suspensivos")
-        fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
-        ancho = self.app.barra.documento_label.winfo_width()
         self.assertLessEqual(
-            fuente.measure(visible), ancho,
+            fuente.measure(visible), limite,
             "El nombre visible desborda el ancho del label")
 
     def test_la_barra_agrupa_acciones_a_la_izquierda_y_configuracion_a_la_derecha(self):
