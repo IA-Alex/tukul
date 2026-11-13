@@ -96,6 +96,58 @@ class TestFirmaObligatoria(unittest.TestCase):
                 self.assertIn("--bundle", guion)
 
 
+class TestGlobDeFirma(unittest.TestCase):
+    """Regresión de v0.6.0 (run 43480365838).
+
+    El bucle de firma usaba `dist/tukul-*`, que incluye el `.bundle` en cuanto
+    existe. En el job `release` el bundle lo crea el paso anterior, así que la
+    verificación intentó `...bundle.bundle` y el Release no se publicó —el
+    comportamiento correcto, pero por un glob equivocado—. El patrón debe
+    seleccionar el binario y NO su bundle.
+    """
+
+    def setUp(self):
+        self.datos = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _coincide(patron: str) -> list[str]:
+        """Expande el patrón en un directorio temporal, igual que bash en CI."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directorio:
+            for nombre in ("tukul-linux-x86_64", "tukul-linux-x86_64.bundle"):
+                (Path(directorio) / nombre).touch()
+            salida = subprocess.run(
+                ["bash", "-c", f'for f in {patron}; do echo "$f"; done'],
+                capture_output=True, text=True, check=True, cwd=directorio,
+            ).stdout
+        return salida.split()
+
+    def test_el_patron_de_firma_excluye_el_bundle(self):
+        for job in ("release", "firma-ensayo"):
+            for paso in self.datos["jobs"][job]["steps"]:
+                guion = paso.get("run", "")
+                if "sign-blob" not in guion and "verify-blob" not in guion:
+                    continue
+                # El archivo firmado: el último argumento que apunta a `dist/`.
+                # El primero puede ser el `--bundle` de salida, que no se firma.
+                candidatos = [
+                    palabra.rstrip(";").split("/")[-1]
+                    for palabra in guion.split()
+                    if palabra.rstrip(";").startswith("dist/tukul-")
+                ]
+                self.assertTrue(
+                    candidatos, f"{job}/{paso['name']}: sin archivo a firmar."
+                )
+                patron = candidatos[-1]
+                elegidos = self._coincide(patron)
+                self.assertEqual(
+                    elegidos, ["tukul-linux-x86_64"],
+                    f"{job}/{paso['name']}: el patrón «{patron}» firmaría el bundle.",
+                )
+
+
 class TestEnsayoConOidcReal(unittest.TestCase):
     """El ensayo permite probar la firma con OIDC real sin publicar Release."""
 

@@ -6,6 +6,16 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [0.6.0] - 2026-11-13
 
+### Corregido (CI de release)
+
+- **El job `release` no publicaba: el glob de firma incluía el propio bundle.**
+  `for archivo in dist/tukul-*` recogía `tukul-linux-x86_64.bundle` (creado por
+  el paso anterior) e intentaba verificar `...bundle.bundle`. La firma se
+  verificó correctamente y el job **falló cerrado sin publicar** (run
+  `43480365838`), que es el comportamiento diseñado. El patrón pasa a
+  `dist/tukul-*[!e]` y `tests/test_firma_release.py` lo vigila, comprobado en
+  ambas direcciones (falla con el glob antiguo, pasa con el nuevo).
+
 Primera versión posterior a la congelación de `0.5.2`. Incluye los contratos C1
 (firma keyless) y C2 (extracción de los flujos de proyecto) de
 `docs/contracts/contratos-0.6.md`.

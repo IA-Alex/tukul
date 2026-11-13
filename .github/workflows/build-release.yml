@@ -256,7 +256,10 @@ jobs:
         # de Rekor, así que `cosign verify-blob --bundle` valida todo de una vez.
         run: |
           set -euo pipefail
-          for archivo in dist/tukul-*; do
+          # `[!e]` excluye los `.bundle`: sin él, un segundo run reencontraba
+          # `tukul-linux-x86_64.bundle` y firmaba el bundle (falló en v0.6.0,
+          # run 43480365838). El binario termina en un digest (hex o '64').
+          for archivo in dist/tukul-*[!e]; do
             cosign sign-blob --yes --bundle "${archivo}.bundle" "${archivo}"
           done
           ls -l dist/*.bundle
@@ -275,14 +278,14 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          for archivo in dist/tukul-*; do
+          # Mismo patrón que la firma: el bundle no se verifica a sí mismo.
+          for archivo in dist/tukul-*[!e]; do
             cosign verify-blob \
               --bundle "${archivo}.bundle" \
               --certificate-identity-regexp "^https://github.com/${REPO}/.github/workflows/build-release.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/[^ ]+)$" \
               --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
               "${archivo}"
           done
-
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
