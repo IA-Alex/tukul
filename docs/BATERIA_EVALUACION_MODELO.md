@@ -160,7 +160,7 @@ es un daño real para el usuario.
 
 | Necesidad | Estado |
 |---|---|
-| Corpus: 10 artículos en español, 500–1500 palabras, dominios distintos | **Falta** |
+| Corpus: 10 artículos en español, 500–1500 palabras, dominios distintos | **Falta**: hoy hay 1. Características en [INFORME_CORPUS_EVALUACION.md](INFORME_CORPUS_EVALUACION.md) |
 | 3 artículos con errores sembrados y conocidos (para R-02) | **Falta** |
 | Umbral de latencia p95 aceptable | **Falta (decisión de producto)** |
 | Presupuesto de llamadas | Estimado: **~250 llamadas** por ciclo completo |

@@ -19,6 +19,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Decisiones significativas | [decisions/](decisions/) | arquitectura | SUPPORTING / mantenedores |
 | Convenciones de docstrings | [DOCSTRING_GUIDE.md](DOCSTRING_GUIDE.md) | desarrollo | SUPPORTING / mantenedores |
 | Auditorías puntuales | [audit/](audit/) (informes fechados) | calidad | HISTORICAL |
+| Corpus necesario para evaluar | [INFORME_CORPUS_EVALUACION.md](INFORME_CORPUS_EVALUACION.md) | calidad | SUPPORTING / mantenedores |
 | Batería de evaluación del modelo | [BATERIA_EVALUACION_MODELO.md](BATERIA_EVALUACION_MODELO.md) | calidad | SUPPORTING / mantenedores |
 | Política de congelación | [POLITICA_CONGELACION.md](POLITICA_CONGELACION.md) | calidad | NORMATIVE / mantenedores |
 | Dictamen de cierre vigente | [audit/cierre-2026-11-13-final.md](audit/cierre-2026-11-13-final.md) | calidad | NORMATIVE / mantenedores |
