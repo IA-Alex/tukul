@@ -1,82 +1,94 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
-    <defs>
-        <!-- Degradado Verde Jade (Acción, Vida, Escritura Creativa) -->
-        <linearGradient id="jadeGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#064E3B" />
-            <stop offset="50%" stop-color="#10B981" />
-            <stop offset="100%" stop-color="#34D399" />
-        </linearGradient>
-        
-        <!-- Degradado Ámbar Tunkul (Inspiración, Sabiduría Maya) -->
-        <linearGradient id="amberGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#B45309" />
-            <stop offset="50%" stop-color="#F59E0B" />
-            <stop offset="100%" stop-color="#FCD34D" />
-        </linearGradient>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%" role="img" aria-label="Tukul — logotipo">
+  <!--
+    Logotipo «Obsidiana y Jade», con simetría especular respecto al eje vertical
+    x=400 y composición centrada en el viewBox 800x600.
 
-        <!-- Patrón Geométrico (Fondo) -->
-        <path id="mayaGlyph" d="M0,0 h15 v-15 h15 v15 h15 v15 h-30 v15 h-15 z" fill="none" stroke="#2D3748" stroke-width="2" />
-    </defs>
+    Correcciones de simetría y proporción sobre la versión anterior:
+    - Las dos «alas de libro» son espejos exactos (antes: libro blanco a la
+      izquierda y ala jade con plumas a la derecha).
+    - El lomo central es una hoja ancha y redondeada, no una punta afilada.
+    - Los nodos de inspiración forman un arco simétrico izquierda/derecha.
+    - El isotipo y el texto se centran en el lienzo con aire vertical uniforme.
+    - Se retiran los glifos de fondo que quedaban pisados por las alas.
 
-    <!-- Fondo Obsidiana Profunda -->
-    <rect width="100%" height="100%" fill="#0D1117" />
+    Paleta (idéntica a `tukul_ui/estilo.py`):
+      obsidiana #0D1117 · piedra #161C24 · estuco #2D3748
+      texto #E2E8F0 · tenue #94A3B8 · jade #10B981 · ámbar #F59E0B
+  -->
+  <defs>
+    <linearGradient id="jadeGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#064E3B" />
+      <stop offset="50%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#34D399" />
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#B45309" />
+      <stop offset="50%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#FCD34D" />
+    </linearGradient>
 
-    <!-- CONTENEDOR DEL ISOTIPO -->
-    <g transform="translate(400, 240)">
-        
-        <!-- Círculo Base (Piedra Nocturna) -->
-        <circle cx="0" cy="0" r="140" fill="#161C24" stroke="#2D3748" stroke-width="3" />
-        
-        <!-- Glifos Estilizados en el Fondo -->
-        <g opacity="0.3">
-            <use href="#mayaGlyph" x="-90" y="-80" />
-            <use href="#mayaGlyph" x="50" y="-100" />
-            <use href="#mayaGlyph" x="-100" y="40" />
-            <use href="#mayaGlyph" x="60" y="60" />
-        </g>
+    <!-- Media ala de libro (lado derecho). El izquierdo es su espejo exacto. -->
+    <g id="alaLibro">
+      <path d="M0,66 Q48,50 106,22 L92,-14 Q42,22 0,40 Z" />
+      <path d="M0,36 Q42,18 94,-16 L80,-44 Q34,-6 0,12 Z" />
+    </g>
+  </defs>
 
-        <!-- Nodos de Inspiración (Conexiones Generativas / IA) -->
-        <g stroke="url(#amberGrad)" stroke-width="2.5" fill="url(#amberGrad)">
-            <circle cx="-15" cy="-95" r="5" />
-            <circle cx="15" cy="-75" r="7" />
-            <circle cx="-30" cy="-50" r="4" />
-            <circle cx="35" cy="-40" r="4" />
-            
-            <line x1="-15" y1="-95" x2="15" y2="-75" />
-            <line x1="15" y1="-75" x2="0" y2="-25" />
-            <line x1="15" y1="-75" x2="35" y2="-40" />
-            <line x1="15" y1="-75" x2="-30" y2="-50" />
-        </g>
+  <!-- Fondo obsidiana -->
+  <rect width="100%" height="100%" fill="#0D1117" />
 
-        <!-- Libro Izquierdo: Estructura, Lógica, El Artículo (Blanco Ceniza) -->
-        <g fill="#E2E8F0" stroke="#0D1117" stroke-width="4" stroke-linejoin="round">
-            <path d="M0,80 Q-50,60 -115,30 L-95,-10 Q-40,30 0,50 Z" />
-            <path d="M0,80 Q-50,40 -110,5 L-90,-25 Q-40,15 0,35 Z" />
-            
-            <!-- Líneas de texto del editor -->
-            <path d="M-85,10 L-35,35" stroke="#2D3748" stroke-width="4" stroke-linecap="round" />
-            <path d="M-75,-5 L-25,20" stroke="#2D3748" stroke-width="4" stroke-linecap="round" />
-        </g>
+  <!-- Isotipo, centrado en el lienzo (x=400) -->
+  <g transform="translate(400, 232)">
 
-        <!-- Libro Derecho: Alas, Creatividad, Inspiración Orgánica (Verde Jade) -->
-        <g fill="url(#jadeGrad)" stroke="#0D1117" stroke-width="4" stroke-linejoin="round">
-            <path d="M0,80 Q50,60 115,30 L95,-10 Q40,30 0,50 Z" />
-            
-            <!-- Plumas dinámicas elevándose -->
-            <path d="M0,50 Q40,20 105,-15 Q110,-25 95,-25 Q40,10 0,25 Z" />
-            <path d="M0,25 Q40,-5 90,-45 Q100,-55 85,-50 Q30,0 0,5 Z" />
-            <path d="M0,5 Q35,-30 70,-80 Q80,-90 65,-80 Q20,-25 0,-15 Z" />
-        </g>
+    <!-- Círculo de piedra nocturna -->
+    <circle cx="0" cy="0" r="132" fill="#161C24" stroke="#2D3748" stroke-width="3" />
 
-        <!-- Base Inferior: El Instrumento Tunkul que sostiene el conocimiento -->
-        <path d="M-125,40 Q-50,75 -12,100 A18,18 0 0,0 12,100 Q50,75 125,40 L105,20 Q50,55 0,80 Q-50,55 -105,20 Z" fill="url(#amberGrad)" />
-        
-        <!-- Punto de anclaje central -->
-        <circle cx="0" cy="75" r="9" fill="#0D1117" />
+    <!-- Nodos de inspiración: arco simétrico izquierda/derecha -->
+    <g stroke="url(#amberGrad)" stroke-width="2.5" fill="url(#amberGrad)">
+      <line x1="-30" y1="-82" x2="0"   y2="-100" />
+      <line x1="0"   y1="-100" x2="30" y2="-82" />
+      <line x1="-30" y1="-82" x2="-16" y2="-48" />
+      <line x1="30"  y1="-82" x2="16"  y2="-48" />
+      <line x1="-16" y1="-48" x2="16"  y2="-48" />
+      <circle cx="0"   cy="-100" r="6" />
+      <circle cx="-30" cy="-82"  r="5" />
+      <circle cx="30"  cy="-82"  r="5" />
+      <circle cx="-16" cy="-48"  r="4" />
+      <circle cx="16"  cy="-48"  r="4" />
     </g>
 
-    <!-- TIPOGRAFÍA Y TAGLINE -->
-    <text x="400" y="480" font-family="&#39;Montserrat&#39;, &#39;Inter&#39;, &#39;Helvetica Neue&#39;, sans-serif" font-size="76" font-weight="900" fill="#E2E8F0" text-anchor="middle" letter-spacing="0.12em">TUKUL</text>
-    
-    <text x="400" y="525" font-family="&#39;Montserrat&#39;, &#39;Inter&#39;, &#39;Helvetica Neue&#39;, sans-serif" font-size="18" font-weight="700" fill="#94A3B8" text-anchor="middle" letter-spacing="0.25em">INSPIRADOR GENERATIVO</text>
+    <!-- Alas de libro: derecha (jade) e izquierda (espejo exacto) -->
+    <g fill="url(#jadeGrad)" stroke="#0D1117" stroke-width="4" stroke-linejoin="round">
+      <use href="#alaLibro" />
+      <use href="#alaLibro" transform="scale(-1, 1)" />
+    </g>
+
+    <!-- Libro abierto central: dos páginas simétricas con lomo curvo -->
+    <g stroke="#0D1117" stroke-width="4" stroke-linejoin="round">
+      <!-- página izquierda -->
+      <path d="M-3,44 Q-26,36 -50,24 Q-55,-6 -43,-26 Q-22,-15 -3,7 Z" fill="#E2E8F0" />
+      <!-- página derecha (espejo) -->
+      <path d="M3,44 Q26,36 50,24 Q55,-6 43,-26 Q22,-15 3,7 Z" fill="#E2E8F0" />
+      <!-- canto/lomo central -->
+      <path d="M-3,44 L-3,5 Q0,1 3,5 L3,44 Z" fill="#94A3B8" stroke="none" />
+    </g>
+
+    <!-- Base del tunkul: travesaño centrado y una lengüeta única -->
+    <g fill="url(#amberGrad)">
+      <rect x="-58" y="40" width="116" height="11" rx="5.5" />
+      <path d="M-13,51 L-13,86 A13,13 0 0,0 13,86 L13,51 Z" />
+    </g>
+    <circle cx="0" cy="86" r="5" fill="#0D1117" />
+  </g>
+
+  <!-- Tipografía centrada -->
+  <text x="400" y="470"
+        font-family="'Montserrat','Inter','Helvetica Neue',sans-serif"
+        font-size="76" font-weight="900" fill="#E2E8F0"
+        text-anchor="middle" letter-spacing="0.12em">TUKUL</text>
+
+  <text x="400" y="516"
+        font-family="'Montserrat','Inter','Helvetica Neue',sans-serif"
+        font-size="18" font-weight="700" fill="#94A3B8"
+        text-anchor="middle" letter-spacing="0.25em">INSPIRADOR GENERATIVO</text>
 </svg>

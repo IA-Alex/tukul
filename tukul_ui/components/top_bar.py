@@ -168,9 +168,10 @@ class TopBar(ttk.Frame):
         """Dibuja el isotipo de Tukul con los tokens del tema.
 
         Es la versión compacta (24 px) del logotipo `docs/assets/tukul-logo.svg`:
-        el círculo de piedra nocturna con borde de estuco, y dentro la lengüeta
-        verde jade (el libro/lengüeta que sube). Se limpia y repinta en cada
-        cambio de tema para no congelar colores.
+        el círculo de piedra nocturna con borde de estuco, las dos alas jade
+        (espejo exacto) y el libro blanco ceniza en el centro. Simétrico respecto
+        al eje vertical. Se limpia y repinta en cada cambio de tema para no
+        congelar colores.
         """
         self.logo.delete("all")
         lado = self.LOGO
@@ -181,15 +182,15 @@ class TopBar(ttk.Frame):
             1, 1, lado - 1, lado - 1, fill=es.SUPERFICIE,
             outline=es.BORDE, width=1,
         )
-        # Lengüeta jade: la forma que sube (libro/ala), en el acento.
+        # Alas jade: dos alas simétricas que suben desde el centro.
+        ala = [(c, lado - 6), (c - 9, c - 1), (c - 8, c - 5), (c - 1, c - 1)]
+        self.logo.create_polygon(*ala, fill=es.ACENTO, outline="")
+        ala_izq = [(c, lado - 6), (c + 9, c - 1), (c + 8, c - 5), (c + 1, c - 1)]
+        self.logo.create_polygon(*ala_izq, fill=es.ACENTO, outline="")
+        # Libro blanco ceniza en el centro, sobre las alas.
         self.logo.create_polygon(
-            c, lado - 4,          # base del centro
-            c - 1, c + 1,         # cintura izquierda
-            c - 6, c - 4,         # ala izquierda
-            c, c - 8,             # punta superior izquierda
-            c + 6, c - 4,         # ala derecha
-            c + 1, c + 1,         # cintura derecha
-            fill=es.ACENTO, outline="",
+            c - 4, c + 3, c - 1, c - 3, c + 1, c - 3, c + 4, c + 3,
+            fill=es.TEXTO, outline="",
         )
 
     def actualizar_tema(self) -> None:

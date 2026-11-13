@@ -16,11 +16,11 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   `#F59E0B` (nombre del asistente en el chat). Se conservan los roles de token
   (`fondo`/`superficie`/`superficie_alta`, `borde`/`borde_control`,
   `acento`/`acento_texto`) y el contraste WCAG AA en ambas paletas.
-- **Logotipo en la cabecera.** Se añade un logotipo (bloque maya/tunkul) dibujado
-  en un `Canvas` a la izquierda de la marca «Tukul», que se repinta al cambiar
-  de tema: círculo de piedra nocturna con la lengüeta jade dentro. El isotipo es
-  la versión compacta del logotipo oficial `docs/assets/tukul-logo.svg`, que se
-  muestra en el README.
+- **Logotipo en la cabecera.** Se añade un logotipo dibujado en un `Canvas` a la
+  izquierda de la marca «Tukul», que se repinta al cambiar de tema: círculo de
+  piedra nocturna, las dos alas jade en espejo exacto y el libro blanco ceniza
+  en el centro. El isotipo es la versión compacta del logotipo oficial
+  `docs/assets/tukul-logo.svg`, que se muestra en el README.
 - **Barras de desplazamiento con la identidad.** Canal en el fondo base,
   pulgar en el estuco sombra y aclarado al pasar el ratón, tanto en las barras
   ttk como en las clásicas de las áreas de texto.
