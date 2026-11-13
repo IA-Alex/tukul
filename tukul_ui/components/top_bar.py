@@ -165,27 +165,32 @@ class TopBar(ttk.Frame):
         self.after_idle(lambda: self._ajustar_por_ancho())
 
     def _pintar_logo(self) -> None:
-        """Dibuja el logotipo (bloque maya/tunkul) con los tokens del tema.
+        """Dibuja el isotipo de Tukul con los tokens del tema.
 
-        Es el equivalente en Tk del SVG del logo: el cuerpo es un bloque ámbar
-        redondeado y las dos lengüetas del tunkul son dos ranuras verticales del
-        color del fondo. Se limpia y repinta en cada cambio de tema para no
-        congelar colores.
+        Es la versión compacta (24 px) del logotipo `docs/assets/tukul-logo.svg`:
+        el círculo de piedra nocturna con borde de estuco, y dentro la lengüeta
+        verde jade (el libro/lengüeta que sube). Se limpia y repinta en cada
+        cambio de tema para no congelar colores.
         """
         self.logo.delete("all")
         lado = self.LOGO
-        # El SVG usa viewBox 0 0 24 24; se escala al lado real del canvas.
-        def p(x: float) -> float:
-            return x / 24 * lado
+        c = lado / 2
         self.logo.configure(background=es.FONDO)
-        self.logo.create_rectangle(
-            p(2), p(6), p(22), p(18), fill=es.ACENTO_AMBAR, outline="",
+        # Círculo base: piedra nocturna sobre obsidiana, borde de estuco.
+        self.logo.create_oval(
+            1, 1, lado - 1, lado - 1, fill=es.SUPERFICIE,
+            outline=es.BORDE, width=1,
         )
-        # Dos lengüetas verticales: las ranuras del tambor.
-        for x in (8, 16):
-            self.logo.create_line(
-                p(x), p(6), p(x), p(12), fill=es.FONDO, width=max(1, round(p(2))),
-            )
+        # Lengüeta jade: la forma que sube (libro/ala), en el acento.
+        self.logo.create_polygon(
+            c, lado - 4,          # base del centro
+            c - 1, c + 1,         # cintura izquierda
+            c - 6, c - 4,         # ala izquierda
+            c, c - 8,             # punta superior izquierda
+            c + 6, c - 4,         # ala derecha
+            c + 1, c + 1,         # cintura derecha
+            fill=es.ACENTO, outline="",
+        )
 
     def actualizar_tema(self) -> None:
         """Repinta las piezas con color directo (el logo es un `Canvas`)."""
