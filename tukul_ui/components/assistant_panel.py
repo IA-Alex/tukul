@@ -84,6 +84,16 @@ class AssistantPanel(ttk.Labelframe):
                 "Revisa ortografía, gramática, semántica y estructura del artículo "
                 "completo o de la selección. No modifica nada: propone cambios uno a uno.")
 
+        # «Limpiar» se alinea con «Revisar» a la izquierda: las dos actúan sobre
+        # la conversación y comparten estilo; «Cancelar» queda solo a la derecha.
+        self.clear_button = ttk.Button(self.fila_acciones, text="Limpiar",
+                                       style="Secundaria.TButton",
+                                       command=self.callbacks["clear_history"])
+        self.clear_button.pack(side="left", padx=(es.ESP["sm"], 0))
+        ToolTip(self.clear_button,
+                "Borra la conversación de este artículo. Pide confirmación y "
+                "no actúa durante una consulta en curso.")
+
         self.estado_label = ttk.Label(self, style="Superficie.TLabel",
                                       font=es.fuente(es.TIPO_SM, negrita=True))
         self.estado_label.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
@@ -170,3 +180,7 @@ class AssistantPanel(ttk.Labelframe):
     def hide_approval(self) -> None:
         if self.barra_aprobacion.winfo_ismapped():
             self.barra_aprobacion.pack_forget()
+
+    def set_clear_enabled(self, enabled: bool) -> None:
+        """Habilita o deshabilita «Limpiar» según haya conversación."""
+        self.clear_button.config(state="normal" if enabled else "disabled")

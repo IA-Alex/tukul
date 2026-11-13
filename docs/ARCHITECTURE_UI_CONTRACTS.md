@@ -12,6 +12,7 @@ Contrato de callbacks obligatorios:
 - `send_message`: `Callable[[], None]` - Dispara el envío del mensaje actual.
 - `cancel_request`: `Callable[[], None]` - Cancela la petición activa.
 - `review`: `Callable[[], None]` - Inicia la revisión del artículo/selección.
+- `clear_history`: `Callable[[], None]` - Limpia la conversación (con confirmación).
 - `create_input`: `Callable[[tk.Misc], tk.Widget]` - Fábrica para el widget de entrada.
 - `create_history`: `Callable[[tk.Misc], tk.Widget]` - Fábrica para el widget de historial.
 

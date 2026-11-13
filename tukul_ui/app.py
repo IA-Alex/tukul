@@ -774,6 +774,7 @@ class TukulApp(tk.Tk):
                 es_respuesta=False)
         self.cost_label.pack_forget()
         self._vestir_cancelar(self.estado_actual in ESTADOS_ACTIVOS)
+        self._actualizar_boton_limpiar()
 
     def _alinear_panes_iniciales(self) -> None:
         """Da al artículo la mayor superficie inicial del espacio de trabajo."""
@@ -856,6 +857,7 @@ class TukulApp(tk.Tk):
             "send_message": self.send_message,
             "cancel_request": self.cancel_request,
             "review": self.review,
+            "clear_history": self.clear_history,
             "create_input": lambda parent: self._text(parent, height=3, wrap="word",
                                                      padx=es.ESP["sm"], pady=es.ESP["xs"],
                                                      highlightbackground=es.SUPERFICIE_ALTA),
@@ -1157,6 +1159,7 @@ class TukulApp(tk.Tk):
         self.history.see("end")
         self.history.config(state="disabled")
         if who=="Tukul" and es_respuesta: self.scope.last_response=text
+        self._actualizar_boton_limpiar()
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
         # Vaciar el historial a mitad de un streaming dejaba el texto siguiente
@@ -1568,6 +1571,18 @@ class TukulApp(tk.Tk):
         self.history.config(state="normal")
         self.history.delete("1.0", "end")
         self.history.config(state="disabled")
+        self._actualizar_boton_limpiar()
+    def _actualizar_boton_limpiar(self) -> None:
+        """Habilita «Limpiar» solo cuando hay conversación que borrar.
+
+        Es un ajuste de estado, no una acción: si el panel aún no existe (o ya
+        se destruyó) no hay nada que actualizar y no debe fallar.
+        """
+        panel = getattr(self, "panel_asistente", None)
+        if panel is None or not panel.winfo_exists():
+            return
+        hay_conversacion = bool(self.session.conversation)
+        panel.set_clear_enabled(hay_conversacion)
     def _enviar_desde_input(self) -> None:
         """Extrae el mensaje del input respetando el placeholder y lo envía."""
         if self._placeholder_activo:
