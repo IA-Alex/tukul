@@ -36,7 +36,7 @@ from tukul_core.review import diagnose_findings, parse_findings, respuesta_fuera
 # Re-exportados para los tests y consumidores que aún los parchean/importan
 # desde `tukul_ui.app`, aunque el fetch vive ya en `tukul_ui.contexto_dialogo`.
 from tukul_core.threat_feed import ThreatFeedError, build_threat_context  # noqa: F401
-from tukul_ui import contexto, ui_state, ventana
+from tukul_ui import contexto, proyectos, ui_state, ventana
 from tukul_ui import estilo as es
 from tukul_ui.chunk_buffer import ChunkBuffer
 from tukul_ui.components.assistant_panel import AssistantPanel
@@ -2384,71 +2384,21 @@ class TukulApp(tk.Tk):
         self._sincronizar_estado_sync("saved")
         self.status.set("Artículo guardado.")
         return True
-    def save_project(self):
-        """Guarda el proyecto recuperable (artículo + conversación) en un JSON."""
-        if self.session.dirty and not self.save_document():return
-        if self.session.document_path is None:
-            messagebox.showinfo("Falta el artículo","Guarda primero el artículo Markdown."); return
-        options: dict = {"defaultextension": ".tukul.json", "filetypes": [("Proyecto","*.tukul.json")]}
-        # El proyecto guarda rutas relativas: proponer la carpeta del artículo evita
-        # la ruta imposible (el artículo debe quedar bajo la carpeta del proyecto).
-        options["initialdir"] = str(self.session.document_path.parent)
-        options["initialfile"] = f"{self.session.document_path.stem}.tukul.json"
-        path=filedialog.asksaveasfilename(**options)
-        if path:
-            # Persistencia a través del DocumentManager: era el dueño declarado de esta
-            # responsabilidad, pero la app llamaba a storage por su cuenta y mantenía
-            # una segunda implementación del mismo flujo.
-            success, error = self.docs.save_project(self.session, Path(path))
-            if success:
-                self.status.set("Proyecto guardado.")
-            else:
-                messagebox.showerror(
-                    "Error al guardar proyecto",
-                    f"No se pudo guardar el proyecto:\n{error}"
-                )
-                logger.error("Error guardando proyecto: %s", error)
-    def open_project(self):
-        """Abre un proyecto y restaura el artículo y su conversación."""
-        # Cancelar cualquier solicitud activa antes de cambiar de proyecto
-        if self.session.request_active:
-            if not messagebox.askyesno("Solicitud activa", "¿Cancelar la consulta en curso?"):
-                return
-            self._cancel_active_request()
+    def save_project(self) -> None:
+        """Guarda el proyecto recuperable: delega en `proyectos.save_project`."""
+        proyectos.save_project(self)
 
-        # Verificar cambios sin guardar antes de abrir otro proyecto
-        if self.session.dirty and not messagebox.askyesno("Cambios sin guardar", "¿Descartar cambios locales?"):
-            return
-        path=filedialog.askopenfilename(filetypes=[("Proyecto Tukul","*.tukul.json")])
-        if not path:return
-        # Carga a través del DocumentManager: el flujo estaba duplicado aquí y allí,
-        # con manejo de errores divergente y la copia del manager sin usar ni probar.
-        success, error, session = self.docs.open_project(Path(path))
-        if not success:
-            messagebox.showerror("Proyecto no válido", error); return
-        self.docs.set_session(session)
-        self._replace_editor_text(self.session.article)
-        self._clear_history_widget()
-        for item in self.session.conversation:self.append("Tú" if item.role=="user" else "Tukul",item.content)
-        self._enter_document_scope(self.session.document_path)
-        self.session.dirty=False; self._sincronizar_estado_sync("clean")
-        self._mostrar_documento_activo()
-        self.update_context(); self.schedule_stats()
-        self.status.set("Proyecto abierto.")
+    def open_project(self) -> None:
+        """Abre un proyecto: delega en `proyectos.open_project`."""
+        proyectos.open_project(self)
 
     def _enter_document_scope(self, document_path: Path | None) -> None:
-        """Entra en el ámbito de un documento reemplazando el anterior por completo.
+        """Reemplaza el ámbito del documento: delega en `proyectos`.
 
-        Sustituir el objeto en vez de limpiar campo a campo es lo que hace
-        imposible olvidarse de uno: cualquier campo nuevo de DocumentScope se
-        renueva aquí sin tocar este método.
-
-        `approved_contexts` queda fuera a propósito: su clave es (endpoint,
-        proveedor, archivos, huella del paquete), todo derivado del workspace y
-        no del artículo abierto. Vaciarlo añadiría un modal por documento.
+        El contrato (objeto nuevo, no limpiar campo a campo; `approved_contexts`
+        fuera) está documentado y probado en `tukul_ui/proyectos.py`.
         """
-        self._close_review_dialogs()
-        self.scope = DocumentScope(document_path=document_path)
+        proyectos.enter_document_scope(self, document_path)
     def settings(self):
         """Abre el diálogo de configuración de perfiles LLM."""
         show_settings_dialog(self)

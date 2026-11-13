@@ -4,6 +4,34 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Cambiado (arquitectura, H2)
+
+- **Los flujos de proyecto salen de `TukulApp`.** `save_project`,
+  `open_project` y `_enter_document_scope` viven ahora en
+  `tukul_ui/proyectos.py`, con un `Protocol` (`VentanaDeProyectos`) que declara
+  la superficie que necesitan de la ventana. `TukulApp` conserva los tres
+  métodos como delegaciones de una línea. `app.py`: 2.640 → 2.590 líneas;
+  cobertura del módulo nuevo: 97 %. El objetivo de H2 (< 2.300) **no** se
+  alcanza en este paso; queda registrado como parcial en
+  `docs/contracts/contratos-0.6.md`.
+
+### Corregido
+
+- **Abrir un proyecto mostraba el artículo anterior.** Al mover el flujo, el
+  editor y el historial se rellenaban con la sesión previa en vez de la cargada
+  del proyecto. Lo destapó la prueba de contrato de la extracción
+  (`tests/test_proyectos.py::test_restaura_el_artículo_del_proyecto_y_no_el_anterior`),
+  comprobada en ambas direcciones: falla con el defecto y pasa con la
+  corrección.
+
+### Documentación
+
+- `docs/contracts/contratos-0.6.md`: cuatro contratos de cierre con las
+  decisiones del mantenedor (cosign keyless para C1; sin host con lector de
+  pantalla para C3; sin umbral para C4) y el estado real de C2.
+
 ## [0.5.2] - 2026-11-13
 
 Parche de consistencia de entrega (DF-C4 de la reauditoría de cierre, condición
