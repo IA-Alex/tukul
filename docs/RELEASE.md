@@ -26,17 +26,36 @@
 > `-latest` en este workflow ni retirar ese paso sin verificar el requisito real
 > en un host más antiguo.
 
-**SMOKE_TEST / ARTIFACTS:** el smoke test es `--health`; se suben los dos binarios como artifacts y, para un tag, como GitHub Release junto a `SHA256SUMS` (verificable con `sha256sum -c`) y, best-effort, `sbom.cdx.json` (CycloneDX). El SBOM no es bloqueante: si la herramienta falla, el release sigue siendo válido con los checksums. **SIGNING_IF_AVAILABLE:** la firma de binarios no está implementada; no debe anunciarse como garantía.
+**SMOKE_TEST / ARTIFACTS:** el smoke test es `--health`; se suben los dos binarios como artifacts y, para un tag, como GitHub Release junto a `SHA256SUMS` (verificable con `sha256sum -c`) y, best-effort, `sbom.cdx.json` (CycloneDX). El SBOM no es bloqueante: si la herramienta falla, el release sigue siendo válido con los checksums.
 
-> **Riesgo residual aceptado (auditoría 2026-11-10, DF-002):** los ejecutables se
-> publican con checksums y SBOM, pero **sin firma ni notarización** (Authenticode
-> en Windows, GPG/cosign para los adjuntos). La integridad depende del canal
-> HTTPS del Release; un usuario no puede verificar criptográficamente la
-> procedencia más allá de `sha256sum -c` contra un `SHA256SUMS` que viaja por el
-> mismo canal. Se acepta de forma consciente hasta que haya una decisión de
-> firma (clave GPG, cosign o certificado Authenticode) y su gestión de secretos.
-> Al implementarla, retirar esta nota y documentar el procedimiento de
-> verificación para el usuario.
+**FIRMA (keyless, contrato C1):** además del binario, cada Release publica
+`tukul-linux-x86_64.bundle`: firma de cosign en formato bundle con el
+certificado efímero emitido por Fulcio a partir del OIDC de GitHub y la prueba
+de Rekor. No hay clave privada que custodiar; la firma queda ligada a **este**
+repositorio, **este** workflow y la ref firmada. El workflow falla —y por tanto
+no publica Release— si la firma o su verificación no pasan. Para comprobarla:
+
+```bash
+cosign verify-blob \
+  --bundle tukul-linux-x86_64.bundle \
+  --certificate-identity-regexp "^https://github.com/IA-Alex/tukul/.github/workflows/build-release.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/[^ ]+)$" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  tukul-linux-x86_64
+```
+
+`scripts/verify-signature.sh [TAG]` descarga el binario y el bundle de una
+Release y ejecuta la verificación más `sha256sum -c`. Un Release sin `.bundle`
+no permite comprobar procedencia, solo integridad.
+
+> **Riesgo residual (auditoría 2026-11-10, DF-002) — CERRADO como contrato,
+> pendiente de primer tag firmado:** la nota anterior decía que los ejecutables
+> se publicaban «sin firma ni notarización». Desde la implementación de **C1**
+> (`docs/contracts/contratos-0.6.md`) cada Release firmada publica su `.bundle`
+> keyless y el workflow no publica nada si la firma falla. Siguen fuera de
+> alcance la **notarización de SO** (no aplica: no hay targets Windows/macOS) y
+> que, mientras la última Release publicada sea anterior a C1, sus binarios
+> históricos no tienen firma. Al cortar la primera versión posterior, esta nota
+> se retira.
 
 
 **PUBLISH:** empuja un tag `vX.Y.Z`; el job `release` publica solo en tags y requiere `contents: write`. Un `workflow_dispatch` construye artifacts sin publicar Release.

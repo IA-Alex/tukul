@@ -150,6 +150,12 @@ jobs:
     # accessible by integration" (confirmado en el run que lo disparó).
     permissions:
       contents: write
+      # Firma keyless (contrato C1): cosign obtiene un certificado efímero del
+      # servicio OIDC de GitHub y lo liga a este workflow, este repositorio y
+      # esta ref. Sin `id-token: write` la firma no se puede emitir y el job
+      # falla, que es justo el comportamiento deseado: nunca un release sin
+      # firma. No concede ningún otro acceso.
+      id-token: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -174,6 +180,62 @@ jobs:
             echo "::warning::No se pudo generar el SBOM; se publica solo SHA256SUMS."
             rm -f dist/sbom.cdx.json
           fi
+
+      # Firma keyless del release (contrato C1, docs/contracts/contratos-0.6.md).
+      #
+      # `SHA256SUMS` viaja por el mismo canal HTTPS que el binario, así que
+      # detecta corrupción pero no procedencia: quien controle el canal puede
+      # sustituir ambos. La firma keyless de cosign no depende de una clave
+      # privada custodiada: obtiene un certificado efímero del OIDC de GitHub
+      # que liga la firma a este repositorio, este workflow y esta ref, y queda
+      # registrada en el log de transparencia de Rekor.
+      #
+      # Deliberadamente SIN `|| true`: si la firma falla, el release no se
+      # publica. Un binario sin firma verificado es peor que ninguno, porque el
+      # usuario cree tener una verificación que no existe.
+      #
+      # Se ejecuta también en `workflow_dispatch`: ahí no se publica Release
+      # (el job `release` solo corre en tags), así que es el smoke test del
+      # contrato sin tocar ninguna versión publicada.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: "v3.1.4"
+
+      - name: Sign release assets (keyless)
+        # cosign 3.x firmó el bundle como única salida verificable: las flags
+        # `--output-signature`/`--output-certificate` NO existen en esta versión
+        # (comprobado con `sign-blob --help` sobre v3.1.4) y el binario no se
+        # publica sin firma. El bundle contiene firma, certificado y la prueba
+        # de Rekor, así que `cosign verify-blob --bundle` valida todo de una vez.
+        run: |
+          set -euo pipefail
+          for archivo in dist/tukul-*; do
+            cosign sign-blob --yes --bundle "${archivo}.bundle" "${archivo}"
+          done
+          ls -l dist/*.bundle
+
+      # Verificación posterior a la firma, en el mismo job y con el certificado
+      # YA emitido. Comprueba lo que va a verificar el usuario: la identidad del
+      # workflow, el emisor OIDC de GitHub y que el artefacto firmado es el
+      # mismo que se publica. Si esto no pasa, el Release no se crea.
+      #
+      # La identidad admite `workflow_dispatch` además de los tags: el disparo
+      # manual es el smoke test de este contrato y no publica Release (el job
+      # `release` solo corre en `refs/tags/v`). En un tag real, la ref del
+      # certificado y la del Release son la misma.
+      - name: Verify signatures against the release identity
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for archivo in dist/tukul-*; do
+            cosign verify-blob \
+              --bundle "${archivo}.bundle" \
+              --certificate-identity-regexp "^https://github.com/${REPO}/.github/workflows/build-release.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+|heads/[^ ]+)$" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "${archivo}"
+          done
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2

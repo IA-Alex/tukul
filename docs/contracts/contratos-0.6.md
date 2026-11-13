@@ -12,7 +12,7 @@ dependen de decisiones o recursos que hoy no existen:
 
 | Contrato | Bloqueo externo real | Consecuencia |
 |---|---|---|
-| **C1** — Firma de binarios | Decidido: cosign keyless | Verificable al implementar |
+| **C1** — Firma de binarios | Decidido: cosign keyless | **Implementado**; falta el primer run OIDC real |
 | **C2** — `app.py` bajo 2.300 líneas | Ninguno | **Ejecutado**: 2.640 → 2.590 (−50) |
 | **C3** — Accesibilidad con lector de pantalla | Sin host con Orca | Solo cerrable como Experimental, con limitación declarada |
 | **C4** — Sostenibilidad de proveedores | Sin umbral por decisión | Descriptivo; no se puede dictaminar |
@@ -129,6 +129,25 @@ se haya observado; cada afirmación numérica se midió en este repositorio.
   era el más desacoplado; llegar al objetivo exige extraer también el ciclo de
   petición, lo que toca el contrato de streaming y queda fuera de este paso.
   C2 sigue **parcial**.
+
+## Estado de C1 (implementado el 2026-11-13)
+
+- **Implementado:** `id-token: write` en el job `release`, `cosign-installer`
+  v4.1.3 fijado por SHA, `cosign sign-blob --bundle` (cosign 3.x eliminó
+  `--output-signature`/`--output-certificate`, comprobado con `sign-blob
+  --help` sobre v3.1.4), verificación en el job contra la identidad del
+  workflow y el emisor OIDC, y publicación solo si ambas pasan. Sin
+  `continue-on-error` ni `|| true`.
+- **Verificado en local:** `scripts/verify-signature.sh v0.5.2` falla en rojo
+  porque la release no trae `.bundle` (exit 1); 7 pruebas nuevas sobre el YAML
+  real; gate completo verde (760 pruebas).
+- **Pendiente de evidencia real:** un `workflow_dispatch` que obtenga un
+  certificado OIDC **de verdad**. Hasta entonces no se puede afirmar que la
+  cadena Fulcio/Rekor funcione: solo que el procedimiento es correcto y que
+  falla cerrado.
+- **Condición de cierre de C1:** run `workflow_dispatch` verde con los pasos
+  *Sign* y *Verify* ejecutados, y `scripts/verify-signature.sh` verde sobre la
+  primera release firmada.
 
 ## Secuencia propuesta
 

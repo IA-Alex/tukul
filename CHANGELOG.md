@@ -6,6 +6,21 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Añadido (distribución, contrato C1)
+
+- **Firma keyless de los binarios de release.** El job `release` obtiene un
+  certificado efímero de Fulcio con el OIDC de GitHub (`id-token: write`) y
+  publica `tukul-linux-x86_64.bundle` (firma, certificado y prueba de Rekor)
+  junto al binario. El workflow verifica la firma contra la identidad del
+  propio workflow y **falla —sin publicar— si la firma no valida**: un release
+  sin firma verificada es peor que ninguno. `docs/RELEASE.md` documenta el
+  comando `cosign verify-blob` equivalente y `scripts/verify-signature.sh`
+  permite reproducirlo sobre una Release ya publicada.
+- **`tests/test_firma_release.py`** vigila el contrato sobre el YAML real:
+  permiso OIDC, orden firma→verificación→publicación, ausencia de
+  `continue-on-error`/`|| true`, acción fijada por SHA y coincidencia de la
+  identidad entre CI, documento y script.
+
 ### Cambiado (arquitectura, H2)
 
 - **Los flujos de proyecto salen de `TukulApp`.** `save_project`,
