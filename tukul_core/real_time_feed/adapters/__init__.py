@@ -13,6 +13,7 @@ from .huggingface_papers import HuggingFacePapersAdapter
 from .kev import KevAdapter
 from .mitre_attack import MitreAttackAdapter
 from .nvd import NvdAdapter
+from .openalex import OpenAlexAdapter
 
 REGISTRY: dict[str, type[SourceAdapter]] = {
     "nvd": NvdAdapter,
@@ -21,6 +22,7 @@ REGISTRY: dict[str, type[SourceAdapter]] = {
     "mitre-attack": MitreAttackAdapter,
     "arxiv": ArxivAdapter,
     "huggingface-papers": HuggingFacePapersAdapter,
+    "openalex": OpenAlexAdapter,
 }
 
 __all__ = [
@@ -31,5 +33,6 @@ __all__ = [
     "KevAdapter",
     "MitreAttackAdapter",
     "NvdAdapter",
+    "OpenAlexAdapter",
     "SourceAdapter",
 ]
