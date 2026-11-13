@@ -353,6 +353,23 @@ class TestVentanaReal(unittest.TestCase):
             fuente.measure(visible), limite,
             "El nombre visible desborda el ancho del label")
 
+    def test_ajustar_por_ancho_sobrevive_a_un_toplevel_inexistente(self):
+        """El handler de `<Configure>` no debe lanzar si el toplevel ya no existe.
+
+        Defecto confirmado en uso real: al mapear/redimensionar la ventana, Tk
+        entrega eventos cuyo `widget` no es el toplevel y `self.winfo_toplevel()`
+        podía levantar `TclError: bad window path name`. Se propagaba como
+        excepción no controlada en bucle e inundaba el log.
+        """
+        barra = self.app.barra
+
+        class _EventoFalso:
+            width = 900
+            widget = object()  # no es el toplevel del widget
+
+        # No debe lanzar: el ancho cae al del propio widget.
+        barra._ajustar_por_ancho(_EventoFalso())  # type: ignore[arg-type]
+
     def test_la_barra_agrupa_acciones_a_la_izquierda_y_configuracion_a_la_derecha(self):
         self._asentar()
         barra = self.app.barra

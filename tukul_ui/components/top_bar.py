@@ -205,7 +205,20 @@ class TopBar(ttk.Frame):
         abierto». Cuando no caben los dos, se queda el nombre. El estado sigue
         disponible en la barra de estado inferior.
         """
-        ancho = evento.width if evento is not None and evento.widget is self.winfo_toplevel() else self.winfo_width()
+        # El handler está ligado a `<Configure>` del toplevel, que también se
+        # dispara mientras la ventana se mapea, se redimensiona o se destruye.
+        # En ese tránsito `winfo_toplevel()` puede lanzar TclError («bad window
+        # path name»): el widget ya no existe. Se toma el ancho del propio evento
+        # si viene de la ventana, y si no del widget; cualquier fallo de Tk se
+        # ignora en vez de propagarse como excepción no controlada (inundaba el
+        # log y trababa el mapeo de la ventana).
+        try:
+            if evento is not None and evento.widget is self.winfo_toplevel():
+                ancho = evento.width
+            else:
+                ancho = self.winfo_width()
+        except tk.TclError:
+            return
         if ancho <= 1:  # todavía sin geometría: no se decide nada
             return
         if ancho < self.ANCHO_ESTADO:
