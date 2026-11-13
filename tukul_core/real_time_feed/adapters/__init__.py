@@ -9,6 +9,7 @@ from __future__ import annotations
 from .arxiv import ArxivAdapter
 from .base import SourceAdapter
 from .epss import EpssAdapter
+from .huggingface_papers import HuggingFacePapersAdapter
 from .kev import KevAdapter
 from .mitre_attack import MitreAttackAdapter
 from .nvd import NvdAdapter
@@ -19,12 +20,14 @@ REGISTRY: dict[str, type[SourceAdapter]] = {
     "kev": KevAdapter,
     "mitre-attack": MitreAttackAdapter,
     "arxiv": ArxivAdapter,
+    "huggingface-papers": HuggingFacePapersAdapter,
 }
 
 __all__ = [
     "REGISTRY",
     "ArxivAdapter",
     "EpssAdapter",
+    "HuggingFacePapersAdapter",
     "KevAdapter",
     "MitreAttackAdapter",
     "NvdAdapter",
