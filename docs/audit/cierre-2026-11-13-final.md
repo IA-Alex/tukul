@@ -64,3 +64,8 @@ Congelar **`0.6.0`** y detener el desarrollo de este alcance. El contrato se
 cumple con evidencia sobre el artefacto distribuido. Cualquier trabajo posterior
 (C3, C4, H2 completo) debe abrir un contrato nuevo con su propio criterio de
 cierre, no reabrir `0.6.0`.
+
+La congelación **admite descongelación únicamente para correcciones** (defecto
+confirmado, regresión, fallo de seguridad o fallo de entrega), publicadas como
+`0.6.x`. Procedimiento y límites en
+[`docs/POLITICA_CONGELACION.md`](../POLITICA_CONGELACION.md).

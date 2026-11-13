@@ -1,7 +1,8 @@
 # Modelo — Cuatro contratos de cierre para después de `0.5.2`
 
 Estado: **C1 implementado y verificado con OIDC real; C2 ejecutado (parcial); C3 y C4 no abiertos** (2026-11-13).
-La versión congelada `0.5.2` no se toca. Las decisiones de C1, C3 y C4 las fijó
+Entregado en **`0.6.0`** (dictamen: `docs/audit/cierre-2026-11-13-final.md`).
+Las decisiones de C1, C3 y C4 las fijó
 el mantenedor; C2 se ejecutó en la rama de trabajo y queda pendiente de release.
 
 ## Por qué un modelo y no cuatro contratos definitivos
