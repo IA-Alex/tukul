@@ -4,13 +4,13 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [No publicado] — ciclo de corrección sobre `0.6.0`
+## [0.6.1] - 2026-11-13
 
 Correcciones aceptadas por la política de congelación
 ([`docs/POLITICA_CONGELACION.md`](docs/POLITICA_CONGELACION.md)) tras el dictamen
 [`docs/audit/cierre-2026-11-13-final.md`](docs/audit/cierre-2026-11-13-final.md).
 Auditoría de origen: [`docs/audit/auditoria-conector-proveedor-2026-11-13.md`](docs/audit/auditoria-conector-proveedor-2026-11-13.md).
-Pendiente de publicar como `0.6.x` firmada.
+Parche de corrección sobre `0.6.0`, sin funciones nuevas ni cambios de alcance.
 
 ### Corregido
 

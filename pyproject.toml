@@ -1,6 +1,6 @@
 [project]
 name = "tukul"
-version = "0.6.0"
+version = "0.6.1"
 description = "Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -86,12 +86,11 @@ reabrirla.
 - **Correcciones:** C-01 (doc del perfil `deepinfra` con id real y regresión),
   C-02 (docstring del adaptador de evaluación fiel a su muestreo), C-03 (el
   cliente propaga el `error.message` del proveedor con lectura acotada).
-- **Evidencia:** gate verde — **780 pruebas, 0 omitidas, cobertura 88.58 %**;
-  `ruff` y `mypy` limpios. La regresión de C-01 se comprobó en ambas direcciones
-  (falla con la doc anterior, pasa con la corrección).
-- **Estado de publicación:** aplicado sobre `master`; `git describe --tags` →
-  `v0.6.0-13-g82d9d65` (**no limpio**). **No publicado todavía como `0.6.x`**:
-  falta tag, Release firmada y verificación en destino. Hasta entonces, `0.6.0`
-  sigue siendo la última entrega publicada y verificada.
-- **Registro:** entrada `[No publicado]` en [`CHANGELOG.md`](../../CHANGELOG.md).
+- **Evidencia previa al tag:** gate verde — **780 pruebas, 0 omitidas,
+  cobertura 88.58 %**; `ruff` y `mypy` limpios. La regresión de C-01 se comprobó
+  en ambas direcciones (falla con la doc anterior, pasa con la corrección).
+- **Publicación:** parche `0.6.1` (tag `v0.6.1`), sin funciones nuevas. La
+  verificación en destino (`sha256sum -c`, `--health`, `cosign verify-blob`
+  sobre el artefacto descargado) se registra al completarse el ciclo.
+- **Registro:** entrada `[0.6.1]` en [`CHANGELOG.md`](../../CHANGELOG.md).
 
