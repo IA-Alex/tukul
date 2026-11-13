@@ -3,7 +3,7 @@
 Estado: **C1 implementado y verificado con OIDC real; C2 ejecutado (parcial); C3 y C4 no abiertos** (2026-11-13).
 Entregado en **`0.6.0`** (dictamen: `docs/audit/cierre-2026-11-13-final.md`).
 Las decisiones de C1, C3 y C4 las fijó
-el mantenedor; C2 se ejecutó en la rama de trabajo y queda pendiente de release.
+el mantenedor; C2 se ejecutó y quedó parcial (2.590 de 2.300 líneas).
 
 ## Por qué un modelo y no cuatro contratos definitivos
 
