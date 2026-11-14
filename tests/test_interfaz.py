@@ -411,10 +411,27 @@ class TestVentanaReal(unittest.TestCase):
                              "El recorte se mide en píxeles, no en caracteres")
 
     def test_el_boton_de_menu_no_hereda_el_ancho_del_desplegable(self):
-        # En `clam` el Menubutton se estira al ancho de su menú (11 entradas):
-        # 149 px para un icono. Con ancho fijo, la barra deja sitio al documento.
+        # En `clam` el Menubutton se estira hasta el ancho de su desplegable
+        # (11 entradas). El botón real lleva `width` fijo para no comerse el
+        # hueco del nombre del documento. Se compara contra el mismo botón SIN
+        # ancho fijo en vez de contra un píxel absoluto: el ancho natural
+        # depende de la fuente y del zoom, así que un umbral fijo (100 px)
+        # fallaba con métricas de fuente distintas.
         self._asentar()
-        self.assertLess(self.app.boton_menu.winfo_reqwidth(), 100)
+        natural = ttk.Menubutton(self.app.barra.zona_izquierda, text="☰  Menú",
+                                 menu=self.app.barra.menu)
+        self._asentar()
+        try:
+            self.assertLess(
+                self.app.boton_menu.winfo_reqwidth(), natural.winfo_reqwidth(),
+                "El botón con ancho fijo debe ser más estrecho que el natural",
+            )
+            # Cota superior holgada: el botón fijo no debe volver a acercarse al
+            # ancho del desplegable aunque cambien las fuentes.
+            self.assertLess(self.app.boton_menu.winfo_reqwidth(),
+                            self.app.barra.menu.winfo_reqwidth())
+        finally:
+            natural.destroy()
 
     def test_en_ventana_estrecha_cede_el_estado_y_no_el_documento(self):
         # «Sin cambios» no aporta; el nombre sí: es lo único que responde

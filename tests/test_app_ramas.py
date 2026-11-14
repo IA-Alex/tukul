@@ -758,12 +758,16 @@ class TestPipelineDeIdeas(_BaseApp):
     def setUp(self):
         super().setUp()
         self.pendientes: list = []
-        # `after(0, ...)` se sustituye por una cola: el callback se ejecuta
-        # desde el cuerpo del test, nunca desde sí mismo (un diálogo anidado
-        # programa otro `after` y un shim inmediato recursaría sin fin).
+        # Solo se encola `after(0, ...)`: son las publicaciones worker → UI que
+        # el test drena a mano. Los `after` con retardo —en particular el rearme
+        # del bombeo `process_ui_events` (50 ms) y el de estadísticas (300 ms)—
+        # se descartan con un id: si se encolaran, el bombeo se reprogramaría a sí
+        # mismo y `_drenar` no terminaría nunca (un diálogo anidado programa otro
+        # `after`, igual que un shim inmediato).
         self._parche_after = patch.object(
             self.app, "after",
-            side_effect=lambda ms, f=None, *a: self.pendientes.append((f, a)) or "id",
+            side_effect=lambda ms, f=None, *a: (
+                self.pendientes.append((f, a)) if ms == 0 else None) or "id",
         )
         self._parche_after.start()
         self.addCleanup(self._parche_after.stop)
@@ -916,7 +920,12 @@ class TestAccionesDeContexto(_BaseApp):
                              side_effect=lambda *a: recibidos.append(a)), \
                 patch.object(modulo_contexto.messagebox, "askyesno", return_value=True), \
                 patch.object(self.app, "after",
-                             side_effect=lambda ms, f=None, *a: (f(*a) if f else None) or "id"):
+                             # Solo se ejecutan los `after(0, ...)` síncronos: el
+                             # rearme del bombeo (`process_ui_events`, 50 ms) se
+                             # descarta con un id. Ejecutarlo aquí lo recursaría
+                             # sin fin dentro de `update()`.
+                             side_effect=lambda ms, f=None, *a: (
+                                 f(*a) if f and ms == 0 else None) or "id"):
             self.app._fetch_threat_feed(self.app, lambda: None)
             self._asentar(50)
             modulo_contexto.WorkerThreads.esperar(5)
