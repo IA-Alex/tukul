@@ -31,6 +31,7 @@ from tukul_ui import contexto_dialogo as modulo_contexto
 from tukul_ui import ideas as modulo_ideas
 from tukul_ui.app import TukulApp
 from tukul_ui.estado import EstadoUI
+from tukul_ui.window_shell import WindowShell
 
 CLAVE = "CLAVE_PRUEBA_APP_RAMAS"
 CONFIG = (
@@ -617,22 +618,25 @@ class TestPortapapelesDelHistorial(_BaseApp):
 
 
 class TestTamanoInicial(unittest.TestCase):
-    """`_aplicar_tamano_inicial` sin pantalla utilizable (líneas 399-400).
+    """Tamaño inicial calculado por `WindowShell` ante una pantalla no reportada.
 
-    En un escritorio real la rama normal siempre gana; la de repliegue es la
-    que se ejecuta en pantallas no reportadas (Xvfb mal configurado, CI sin
-    gestor de escritorio) y fija un mínimo que no deje la ventana inusable.
+    Extraído de `TukulApp` (DF-001, ADR-0005 paso 2). En un escritorio real la
+    rama normal siempre gana; la de repliegue es la que se ejecuta en pantallas
+    no reportadas (Xvfb mal configurado, CI sin gestor de escritorio) y fija un
+    mínimo que no deje la ventana inusable.
     """
 
     def _aplicar_con(self, ancho: int, alto: int) -> tuple[list, list]:
-        app = TukulApp.__new__(TukulApp)
+        host = object.__new__(TukulApp)
         minimos: list = []
         geometrias: list = []
-        app.minsize = lambda *a: minimos.append(a)
-        app.geometry = lambda g: geometrias.append(g)
-        with patch.object(TukulApp, "winfo_screenwidth", return_value=ancho), \
-                patch.object(TukulApp, "winfo_screenheight", return_value=alto):
-            app._aplicar_tamano_inicial()
+        host.minsize = lambda *a: minimos.append(a)
+        host.geometry = lambda g: geometrias.append(g)
+        host.winfo_screenwidth = lambda: ancho
+        host.winfo_screenheight = lambda: alto
+        shell = WindowShell.__new__(WindowShell)
+        shell._host = host
+        shell.aplicar_tamano_inicial()
         return minimos, geometrias
 
     def test_sin_pantalla_reportada_usa_el_tamano_por_defecto(self):

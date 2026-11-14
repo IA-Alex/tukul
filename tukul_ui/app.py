@@ -51,7 +51,8 @@ from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from tukul_ui.ideas import IdeasController
 from tukul_ui.llm_session_manager import LLMSessionManager
 from tukul_ui.request_lifecycle import RequestLifecycle
-from tukul_ui.tema import aplicar_estilos, estilizar_area_texto
+from tukul_ui.tema import estilizar_area_texto
+from tukul_ui.window_shell import WindowShell
 from tukul_ui.worker_threads import WorkerThreads
 
 # Límites del paquete de artículos de contexto que acompaña al artículo activo.
@@ -214,12 +215,17 @@ class TukulApp(tk.Tk):
         except tk.TclError:
             # Tema nativo ausente: se conserva el de Tk y `_theme` reintenta.
             pass
-        self._ajustar_dpi()
         self.config_path = config_path
         # Estado de interfaz persistente: zoom, geometría, tema, recientes y
         # conversaciones. Vive junto al config para que una instalación tenga un
         # único directorio de estado y los tests puedan aislarlo.
         self.ui_state = storage.load_ui_state(config_path)
+        # La ventana (DPI, geometría, tema) es una responsabilidad propia
+        # (DF-001, ADR-0005): `WindowShell` conoce la raíz Tk y el estado
+        # persistido; aquí solo se le pide que ajuste y restaure. El zoom se
+        # aplica antes del tema para que las fuentes nazcan escaladas.
+        self._shell = WindowShell(self, self.ui_state)
+        self._shell.ajustar_dpi()
         # El estado puede guardar una carpeta de memoria distinta de la actual.
         # Se respeta salvo que apunte al default antiguo (`~/Articulos`): en ese
         # caso se prefiere el nuevo default del repo, para que la herramienta
@@ -229,17 +235,15 @@ class TukulApp(tk.Tk):
             configured_memory_root = str(MEMORY_ROOT)
         self.memory_root = Path(configured_memory_root).expanduser()
         self.memory_index_path = MEMORY_INDEX_PATH
-        # El zoom se aplica antes del tema para que las fuentes nazcan escaladas.
-        es.ZOOM = self._zoom_validado(self.ui_state.get("zoom"))
         # El tema se valida de forma defensiva antes de pintar nada: un valor
         # extraño (o un estado.json corrupto) nunca rompe el arranque.
-        self.theme = self._tema_validado(self.ui_state.get("theme"))
+        self.theme = self._shell.theme
         # El tamaño se calcula UNA vez, aquí y de forma síncrona. Antes se fijaba
         # un valor y 100 ms después un `after` lo sobrescribía, pisando también
         # cualquier geometría que el usuario o quien integra la app hubiera
         # establecido entretanto.
-        self._aplicar_tamano_inicial()
-        self._restaurar_geometria()
+        self._shell.aplicar_tamano_inicial()
+        self._shell.restaurar_geometria()
         self.recent_paths = self._recientes_validados(self.ui_state.get("recent"))
         self._foco_activo = False
         self._foco_previo_asistente = True
@@ -391,111 +395,61 @@ class TukulApp(tk.Tk):
             self.session_keys.pop(next(iter(self.session_keys)), None)
         self.session_keys[profile] = key
 
-    def _ajustar_dpi(self) -> None:
-        """Declara la aplicación «DPI-aware» y calibra la escala de Tk.
+    # ─── Ventana (DPI, geometría, tema) ────────────────────────────────────
+    # La lógica vive en `tukul_ui.window_shell` (`WindowShell`) y el saneado puro
+    # en `tukul_ui.ventana`. Estas delegaciones conservan la API histórica de
+    # `TukulApp` para no romper a los consumidores ni a los tests existentes;
+    # `theme` es la única pieza de estado que se mantiene sincronizada aquí.
 
-        Sin esto, en Windows con escalado al 150-200 % el sistema reescala una
-        ventana dibujada a 96 DPI: texto borroso y controles de tamaño
-        incorrecto. En X11 se consulta el DPI del servidor para que `tk scaling`
-        coincida con la pantalla real. Todo es best-effort: sondeos de entornos
-        sin el módulo, sin soporte o con servidores que ya lo resuelven.
-        """
-        try:
-            import ctypes
-
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)  # type: ignore[attr-defined]
-        except (ImportError, AttributeError, OSError):
-            pass
-        try:
-            pulgadas = float(self.winfo_fpixels("1i"))
-            if pulgadas > 0:
-                self.tk.call("tk", "scaling", pulgadas / 72.0)
-        except (tk.TclError, ValueError):
-            pass
-        # La familia tipográfica se resuelve con la raíz ya viva.
-        try:
-            from tkinter import font as tkfont
-
-            es.resolver_familia(tkfont.families(self))
-        except tk.TclError:
-            pass
-
-    def _aplicar_tamano_inicial(self) -> None:
-        """Propone un tamaño inicial acorde a la pantalla. Se aplica una sola vez.
-
-        Cualquier `geometry()` posterior —del usuario, de una restauración de
-        sesión o de quien integre la aplicación— manda, porque aquí no hay
-        ninguna reprogramación que lo pise después.
-        """
-        ancho_pantalla = self.winfo_screenwidth()
-        alto_pantalla = self.winfo_screenheight()
-        if ancho_pantalla > 100 and alto_pantalla > 100:
-            ancho = min(int(ancho_pantalla * 0.8), 1400)
-            alto = min(int(alto_pantalla * 0.8), 900)
-            self.minsize(min(ANCHO_MINIMO_VENTANA, ancho), min(ALTO_MINIMO_VENTANA, alto))
-            self.geometry(f"{ancho}x{alto}")
-        else:
-            self.minsize(ANCHO_MINIMO_VENTANA, ALTO_MINIMO_VENTANA)
-            self.geometry("1180x760")
-
-    def _ventana_mapeada(self) -> bool:
-        """¿La ventana ya tiene tamaño y posición reales?
-
-        Antes de `update_idletasks`, `geometry()` devuelve el tamaño pedido
-        (a menudo «1x1+0+0»), no el real. Persistir ese valor convertiría una
-        ventana que aún no se pintó en una miniatura de 1120x540 al reabrir.
-        """
-        try:
-            return bool(self.winfo_ismapped() and self.winfo_width() > 1
-                        and self.winfo_height() > 1)
-        except tk.TclError:
-            return False
-
-    # La lógica de saneado vive en `tukul_ui.ventana` (funciones puras, probadas
-    # sin montar la ventana). Estas delegaciones conservan la API histórica de
-    # `TukulApp` para no romper a los consumidores ni a los tests existentes.
-    PATRON_GEOMETRIA = ventana.PATRON_GEOMETRIA
+    PATRON_GEOMETRIA = WindowShell.PATRON_GEOMETRIA
 
     @classmethod
     def _geometria_saneada(cls, guardada: object, pantalla_ancho: int,
                            pantalla_alto: int) -> str | None:
-        """Delega en `ventana.geometria_saneada` (ver ahí las reglas)."""
-        return ventana.geometria_saneada(guardada, pantalla_ancho, pantalla_alto)
+        """Delega en `WindowShell.geometria_saneada` (ver ahí las reglas)."""
+        return WindowShell.geometria_saneada(guardada, pantalla_ancho, pantalla_alto)
 
     @staticmethod
     def _zoom_validado(valor: object) -> float:
-        """Delega en `ventana.zoom_validado`."""
-        return ventana.zoom_validado(valor)
+        """Delega en `WindowShell.zoom_validado`."""
+        return WindowShell.zoom_validado(valor)
 
     @staticmethod
     def _recientes_validados(valor: object) -> list[str]:
-        """Delega en `ventana.recientes_validados`."""
-        return ventana.recientes_validados(valor)
-
-    def _restaurar_geometria(self) -> None:
-        """Restaura la geometría sin permitir que la ventana desaparezca.
-
-        Una geometría guardada puede venir de otro monitor, de un cambio de
-        resolución o de una sesión remota. Tk acepta esos valores sin error,
-        pero el resultado puede dejar controles esenciales fuera del viewport.
-        Se conserva el tamaño/posición cuando caben y se corrigen de forma
-        defensiva cuando no.
-        """
-        guardada = self.ui_state.get("geometry")
-        if not isinstance(guardada, str) or not guardada.strip():
-            return
-
-        ancho, alto = self.winfo_screenwidth(), self.winfo_screenheight()
-        if ancho <= 100 or alto <= 100:
-            return
-        saneada = self._geometria_saneada(guardada, ancho, alto)
-        if saneada is not None:
-            self.geometry(saneada)
+        """Delega en `WindowShell.recientes_validados`."""
+        return WindowShell.recientes_validados(valor)
 
     @staticmethod
     def _tema_validado(valor: object) -> str:
         """Convierte el tema persistido a uno válido; 'dark' ante basura."""
-        return es.tema_validado(valor)
+        return WindowShell.tema_validado(valor)
+
+    def _ajustar_dpi(self) -> None:
+        """Delega en `WindowShell.ajustar_dpi`."""
+        self._shell.ajustar_dpi()
+
+    def _aplicar_tamano_inicial(self) -> None:
+        """Delega en `WindowShell.aplicar_tamano_inicial`."""
+        self._shell.aplicar_tamano_inicial()
+
+    def _ventana_mapeada(self) -> bool:
+        """Delega en `WindowShell.ventana_mapeada`."""
+        return self._shell.ventana_mapeada()
+
+    def _restaurar_geometria(self) -> None:
+        """Delega en `WindowShell.restaurar_geometria`."""
+        self._shell.restaurar_geometria()
+
+    def _geometria_saneada_actual(self) -> str | None:
+        """Geometría viva normalizada para persistir; None si no es fiable.
+
+        Una ventana sin mapear devuelve su tamaño pedido (p. ej. «1x1+0+0»):
+        guardarlo encogería la próxima apertura, así que en ese caso se
+        conserva la última geometría de disco.
+        """
+        if not self._ventana_mapeada():
+            return None
+        return self._shell.saneada_actual()
 
     def _theme(self) -> None:
         """Aplica el sistema visual del tema activo: un fondo, dos superficies.
@@ -504,7 +458,8 @@ class TukulApp(tk.Tk):
         con colores directos se reconfiguran en `_reaplicar_estilos_widgets` sin
         destruir ni recrear nada.
         """
-        aplicar_estilos(self, self.theme, self._reaplicar_estilos_widgets)
+        self._shell.aplicar_theme(self._reaplicar_estilos_widgets)
+
     def _cambiar_tema(self) -> None:
         """Alterna entre oscuro y claro desde el botón de la barra."""
         self._aplicar_tema("light" if self.theme == "dark" else "dark")
@@ -517,7 +472,7 @@ class TukulApp(tk.Tk):
         abiertos (solo se repintan). La preferencia se persiste al instante con
         `_guardar_preferencia_tema`: no depende del cierre limpio de la app.
         """
-        self.theme = es.tema_validado(nombre)
+        self.theme = self._shell.fijar_tema(nombre)
         self._theme()
         self._actualizar_boton_tema()
         nombre_humano = "claro" if self.theme == "light" else "oscuro"
@@ -2565,11 +2520,9 @@ class TukulApp(tk.Tk):
         # Si la ventana no se ha mapeado, `geometry()` devuelve su tamaño
         # pedido (p. ej. «1x1+0+0») y guardarlo encogería la próxima apertura:
         # en ese caso no se toca lo que ya había en `estado.json`.
-        if self._ventana_mapeada():
-            saneada = self._geometria_saneada(self.geometry(), self.winfo_screenwidth(),
-                                              self.winfo_screenheight())
-            if saneada is not None:
-                estado["geometry"] = saneada
+        saneada = self._geometria_saneada_actual()
+        if saneada is not None:
+            estado["geometry"] = saneada
         estado["panel_visible"] = self.asistente_visible
         estado["zoom"] = es.ZOOM
         estado["theme"] = self.theme
