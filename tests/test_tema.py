@@ -207,6 +207,20 @@ class TestTemaEnVentanaReal(unittest.TestCase):
         self.assertEqual(self.app.theme, "light")
         self.assertEqual(str(self.app.editor.cget("background")), es.PALETAS["light"]["superficie"])
 
+    def test_el_tema_del_app_y_del_shell_son_una_sola_fuente(self):
+        """`TukulApp.theme` es una vista del tema del `WindowShell`, no una copia.
+
+        El tema lo posee el objeto extraído; si el app guardara su propia copia,
+        una escritura directa en `app.theme` desincronizaría el render (que lee
+        el shell) de la preferencia persistida (que lee el app).
+        """
+        self.assertEqual(self.app.theme, self.app._shell.theme)
+        self.assertIsInstance(type(self.app).theme, property)
+        self.app.theme = "light"
+        self.assertEqual(self.app._shell.theme, "light")
+        self.app.theme = "dark"
+        self.assertEqual(self.app._shell.theme, "dark")
+
     def test_un_fallo_de_escritura_no_revierte_el_cambio_visual(self):
         """Si `estado.json` no puede escribirse, la interfaz sigue funcionando."""
         with patch("tukul_core.storage.save_ui_state",

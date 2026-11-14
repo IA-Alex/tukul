@@ -17,14 +17,11 @@ los consumidores ni a los tests.
 from __future__ import annotations
 
 import tkinter as tk
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
 
 from tukul_ui import estilo as es
 from tukul_ui import tema as _tema
 from tukul_ui import ventana
-
-if TYPE_CHECKING:  # pragma: no cover - solo para anotaciones
-    from collections.abc import Mapping
 
 #: Ancho/alto por defecto cuando la pantalla no reporta dimensiones creíbles.
 ANCHO_DEFECTO = 1180
@@ -47,14 +44,18 @@ class WindowShell:
 
     PATRON_GEOMETRIA = ventana.PATRON_GEOMETRIA
 
-    def __init__(self, host: tk.Tk, ui_state: Mapping[str, object]) -> None:
+    def __init__(self, host: tk.Tk) -> None:
         self._host = host
-        self._ui_state = ui_state
-        self.theme = self.tema_validado(ui_state.get("theme"))
+        # El estado persistido se lee del host en el momento (no se guarda una
+        # copia): así una restauración posterior a una recarga del estado no
+        # trabaja sobre datos congelados del arranque.
+        # Orden del original: primero DPI/escala, y solo entonces el zoom y el
+        # tema (que dependen de la escala ya fijada).
+        self.ajustar_dpi()
         # El zoom se aplica sobre el módulo de estilo (estado global del
-        # sistema visual) porque las fuentes deben nacer escaladas; vive aquí
-        # para que la ventana no vuelva a saber de factores de zoom.
-        es.ZOOM = self.zoom_validado(ui_state.get("zoom"))
+        # sistema visual) porque las fuentes deben nacer escaladas.
+        es.ZOOM = self.zoom_validado(self._estado_guardado("zoom"))
+        self.theme = self.tema_validado(self._estado_guardado("theme"))
 
     # ─── Saneadores (delegan en `tukul_ui.ventana`, lógica pura) ─────────────
 
@@ -177,7 +178,7 @@ class WindowShell:
 
     # ─── Tema ───────────────────────────────────────────────────────────────
 
-    def aplicar_theme(self, reaplicar_widgets) -> None:
+    def aplicar_theme(self, reaplicar_widgets: Callable[[], None]) -> None:
         """Aplica el sistema visual del tema activo.
 
         Los estilos ttk se repintan en bloque (`tukul_ui.tema`); los widgets Tk
@@ -194,5 +195,8 @@ class WindowShell:
     # ─── Interno ────────────────────────────────────────────────────────────
 
     def _estado_guardado(self, clave: str) -> object:
-        """Lee una clave del estado persistido con el que se construyó el shell."""
-        return self._ui_state.get(clave)
+        """Lee una clave del estado persistido VIVO del host (no una copia)."""
+        estado = getattr(self._host, "ui_state", None)
+        if not isinstance(estado, Mapping):
+            return None
+        return estado.get(clave)

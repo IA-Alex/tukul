@@ -28,9 +28,17 @@ DF-013 (retención del historial).
 - [x] DF-014 — `dialogs_base.wraplength_para` / `SaltoDeLineaAdaptable`.
 - [x] DF-015 — nombres accesibles legibles de `boton_menu` y `boton_tema`.
 - [x] DF-016 — `CredentialStore` con `threading.Lock` propio.
-- [x] DF-001 (parcial) — extraído `credentials.py` (`CredentialStore` +
-      `resolver_key`). Pendiente: `window_shell.py` (DPI/geometría/tema). Ver
-      ADR-0005.
+- [x] DF-001 — extracción por responsabilidades de `TukulApp` (ADR-0005):
+      - Paso 1 `credentials.py` (`CredentialStore` + `resolver_key`).
+      - Paso 2 `window_shell.py` (`WindowShell`: DPI, tamaño inicial,
+        geometría guardada y tema).
+      - Paso 3 `editor_session.py` (`EditorSession`: autosave y métricas).
+      La lógica pura sigue en `ventana.py`. `TukulApp` conserva delegaciones y
+      *properties* de compatibilidad. El criterio de cierre de línea
+      (`app.py < 2 300`) no se alcanza con las delegaciones; `app.py` queda en
+      ~2 610 líneas, así que el hallazgo se marca **cerrado por
+      responsabilidades** y la métrica de líneas se reevalúa al retirar los
+      *shims* (ver ADR-0005).
 
 ## Estado
 

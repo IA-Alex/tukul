@@ -223,11 +223,10 @@ class TukulApp(tk.Tk):
         # único directorio de estado y los tests puedan aislarlo.
         self.ui_state = storage.load_ui_state(config_path)
         # La ventana (DPI, geometría, tema) es una responsabilidad propia
-        # (DF-001, ADR-0005): `WindowShell` conoce la raíz Tk y el estado
-        # persistido; aquí solo se le pide que ajuste y restaure. El zoom se
-        # aplica antes del tema para que las fuentes nazcan escaladas.
-        self._shell = WindowShell(self, self.ui_state)
-        self._shell.ajustar_dpi()
+        # (DF-001, ADR-0005): `WindowShell` conoce la raíz Tk y lee el estado
+        # persistido. El zoom se aplica antes del tema para que las fuentes
+        # nazcan escaladas.
+        self._shell = WindowShell(self)
         # El estado puede guardar una carpeta de memoria distinta de la actual.
         # Se respeta salvo que apunte al default antiguo (`~/Articulos`): en ese
         # caso se prefiere el nuevo default del repo, para que la herramienta
@@ -237,9 +236,6 @@ class TukulApp(tk.Tk):
             configured_memory_root = str(MEMORY_ROOT)
         self.memory_root = Path(configured_memory_root).expanduser()
         self.memory_index_path = MEMORY_INDEX_PATH
-        # El tema se valida de forma defensiva antes de pintar nada: un valor
-        # extraño (o un estado.json corrupto) nunca rompe el arranque.
-        self.theme = self._shell.theme
         # El tamaño se calcula UNA vez, aquí y de forma síncrona. Antes se fijaba
         # un valor y 100 ms después un `after` lo sobrescribía, pisando también
         # cualquier geometría que el usuario o quien integra la app hubiera
@@ -368,6 +364,21 @@ class TukulApp(tk.Tk):
         self._editor_session.stats_after = valor
 
     @property
+    def theme(self) -> str:
+        """Tema activo: vista del tema del `WindowShell` (único dueño).
+
+        Exponerlo como property (y no como atributo propio) evita dos copias
+        divergentes: el render lee el shell y la persistencia lee el app, así
+        que una escritura desde cualquiera de los dos lados debe verse en el
+        otro. Sin esto, un `self.theme = …` directo desincronizaba ambos.
+        """
+        return self._shell.theme
+
+    @theme.setter
+    def theme(self, valor: object) -> None:
+        self._shell.theme = self._shell.tema_validado(valor)
+
+    @property
     def key(self) -> str:
         """API key en vigor: variable de entorno > key de sesión > llavero.
 
@@ -494,7 +505,7 @@ class TukulApp(tk.Tk):
         abiertos (solo se repintan). La preferencia se persiste al instante con
         `_guardar_preferencia_tema`: no depende del cierre limpio de la app.
         """
-        self.theme = self._shell.fijar_tema(nombre)
+        self._shell.fijar_tema(nombre)
         self._theme()
         self._actualizar_boton_tema()
         nombre_humano = "claro" if self.theme == "light" else "oscuro"
@@ -2568,6 +2579,7 @@ class TukulApp(tk.Tk):
                 self.after_cancel(self._ui_events_after)
             except tk.TclError:
                 pass
+            self._ui_events_after = None
         # Autosave y métricas: sus temporizadores los cancela y limpia el objeto
         # extraído, que también tolera ids ya caducados.
         self._editor_session.cancelar_temporizadores()

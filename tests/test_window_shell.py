@@ -72,6 +72,7 @@ class TestVentanaReal(unittest.TestCase):
         no depender del ciclo idle de Tk (que difiere el tamaño solicitado).
         """
         raiz = self.raiz
+        raiz.ui_state = estado if estado is not None else {}
         for clave, valor in host_extra.items():
             setattr(raiz, clave, valor)
         raiz.tk.call("tk", "scaling", 1.0)
@@ -79,7 +80,7 @@ class TestVentanaReal(unittest.TestCase):
         self.minimos: list[tuple] = []
         raiz.geometry = lambda g="": (self.geometrias.append(g) or "")  # type: ignore[method-assign]
         raiz.minsize = lambda *a: self.minimos.append(a)  # type: ignore[method-assign]
-        return WindowShell(raiz, estado or {})
+        return WindowShell(raiz)
 
     def test_tema_inicial_desde_el_estado_persistente(self):
         shell = self._shell({"theme": "light"})
@@ -123,6 +124,15 @@ class TestVentanaReal(unittest.TestCase):
                 patch.object(self.raiz, "winfo_screenheight", return_value=50):
             shell.restaurar_geometria()
         self.assertEqual(self.geometrias, [])
+
+    def test_restaurar_geometria_lee_el_estado_vivo_del_host(self):
+        """El estado se lee del host en el momento, no de una copia congelada."""
+        shell = self._shell({})
+        self.raiz.ui_state = {"geometry": "1x1+0+0"}
+        with patch.object(self.raiz, "winfo_screenwidth", return_value=1920), \
+                patch.object(self.raiz, "winfo_screenheight", return_value=1080):
+            shell.restaurar_geometria()
+        self.assertEqual(self.geometrias, ["1120x540+0+0"])
 
     def test_ventana_no_mapeada_es_falsa_antes_de_pintarse(self):
         shell = self._shell()
