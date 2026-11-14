@@ -17,11 +17,60 @@ from __future__ import annotations
 import os
 import threading
 import time
+import tkinter as tk
 from collections.abc import Callable
+from typing import Any, Protocol
 
 #: Registro de los hilos de trabajo, para poder esperarlos o descartarlos.
 _workers: set[threading.Thread] = set()
 _lock = threading.Lock()
+
+
+class _HostUI(Protocol):
+    """Lo mínimo que un host debe exponer para publicar en el hilo de Tk.
+
+    No exige `closing`: algunos llamadores (`dialogs.py`) publican sobre un
+    `Toplevel` directo, que no lo declara; ahí se consulta de forma defensiva.
+    """
+
+    def after(self, ms: Any, func: Any, *args: Any) -> str: ...
+
+
+def en_el_hilo_de_tk() -> bool:
+    """True si el llamador es el hilo que puede tocar Tcl.
+
+    `after()` desde un worker lanza `RuntimeError: main thread is not in main
+    loop` en CPython 3.13, y ese error —surgido durante la recolección de
+    basura— puede abortar el proceso entero en lugar de propagarse. Los
+    workers son daemon: pueden sobrevivir al cierre y llegar aquí. Mejor no
+    programar nada que morir.
+    """
+    return threading.current_thread() is threading.main_thread()
+
+
+def publicar_en_hilo_ui(host: _HostUI, callback: Callable[[], Any],
+                        logger: object | None = None) -> bool:
+    """Programa `callback` en el hilo de Tk sin arriesgar el aborto del proceso.
+
+    Sustituye al patrón disperso `host.after(0, …)` desde un worker, que en
+    CPython 3.13 puede lanzar `RuntimeError` al registrar sobre un intérprete
+    Tcl ya destruido y —si surge durante la recolección de basura— abortar el
+    proceso entero (`Fatal Python error: Aborted`) en vez de propagarse.
+
+    Devuelve True si el callback quedó programado y False si se descartó por
+    ventana cerrándose o por fallo de Tk al registrar.
+    """
+    if getattr(host, "closing", False):
+        return False
+    try:
+        host.after(0, callback)
+    except (RuntimeError, tk.TclError):
+        # La ventana pudo destruirse entre la comprobación y el `after`: el
+        # aviso es informativo y no debe tumbar el intérprete.
+        if logger is not None:
+            logger.debug("Callback de UI descartado: la ventana ya no existe.")  # type: ignore[attr-defined]
+        return False
+    return True
 
 
 class WorkerThreads:

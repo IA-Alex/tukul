@@ -17,21 +17,21 @@ context_article`, etc.) para que siga siendo la ventana la dueña de su estado.
 from __future__ import annotations
 
 import logging
-import threading
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.memory.models import MemorySearchResult
 from tukul_core.search import SearchOrchestrator, SearchQuery
 from tukul_core.search.models import SearchResult
 from tukul_core.threat_feed import ThreatFeedError, build_threat_context
+from tukul_ui import dialogs_base as db
 from tukul_ui import estilo as es
 from tukul_ui.contexto import ContextArticle
-from tukul_ui.worker_threads import WorkerThreads
+from tukul_ui.worker_threads import WorkerThreads, publicar_en_hilo_ui
 
 logger = logging.getLogger("tukul")
 
@@ -74,11 +74,6 @@ class ContextHost(Protocol):
 
     def _fetch_impact_suggestion(self, dialog: tk.Toplevel,
                                  on_done: Callable[[], None]) -> None: ...
-
-
-def _en_el_hilo_de_tk() -> bool:
-    """True si el llamador es el hilo que puede tocar Tcl (ver `ideas.py`)."""
-    return threading.current_thread() is threading.main_thread()
 
 
 class ContextController:
@@ -140,6 +135,25 @@ class ContextController:
                 added += 1
         return added
 
+    def _avisar_referencias(self, añadidos: int, seleccionados: int, parent: tk.Misc) -> None:
+        """Informa del resultado de añadir archivos de contexto.
+
+        Si se eligieron archivos pero ninguno entró (no existen, no son .md/.txt
+        o no son legibles), antes el diálogo no mostraba nada: parecía no
+        reaccionar. Con este aviso la persona sabe qué pasó y por qué.
+        """
+        host = self._host
+        if añadidos:
+            host.status.set(f"{añadidos} artículo(s) añadido(s) al contexto.")
+        elif seleccionados:
+            host.status.set("No se añadió ningún archivo al contexto.")
+            messagebox.showwarning(
+                "Contexto de artículos",
+                "No se añadió ningún archivo: no era legible o ya no existe.\n\n"
+                "Solo se admiten archivos .md o .txt existentes.",
+                parent=parent,
+            )
+
     def ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
         """La autorización ocurre al añadir contexto, nunca al enviar después."""
         if not labels:
@@ -193,9 +207,11 @@ class ContextController:
                 return  # La ventana ya se está destruyendo: no tocar Tcl.
             if detail is not None:
                 message = detail
-                host.after(0, lambda: self.on_threat_feed_error(dialog, message))
+                publicar_en_hilo_ui(
+                    host, lambda: self.on_threat_feed_error(dialog, message), logger)
                 return
-            host.after(0, lambda: self.on_threat_feed_ready(packet, files, on_done))
+            publicar_en_hilo_ui(
+                host, lambda: self.on_threat_feed_ready(packet, files, on_done), logger)
 
         WorkerThreads.start(work)
 
@@ -254,12 +270,13 @@ class ContextController:
                     results = index.search(query.strip(), limit=20)
             except (OSError, ValueError) as error:
                 detail = str(error)
-                if not host.closing:
-                    host.after(0, lambda: self._memory_error(parent, detail))
+                publicar_en_hilo_ui(
+                    host, lambda: self._memory_error(parent, detail), logger)
                 return
-            if not host.closing:
-                host.after(0, lambda: self._show_memory_results(
-                    parent, query.strip(), results, repository))
+            publicar_en_hilo_ui(
+                host,
+                lambda: self._show_memory_results(parent, query.strip(), results, repository),
+                logger)
 
         WorkerThreads.start(work)
 
@@ -289,27 +306,15 @@ class ContextController:
                 parent=parent,
             )
             return
-        dialog = tk.Toplevel(cast("tk.Tk", parent))
-        dialog.title("Resultados de memoria")
-        dialog.transient(cast("tk.Tk", parent))
-        dialog.configure(bg=es.SUPERFICIE)
-        dialog.minsize(560, 320)
-        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
-        frame.pack(fill="both", expand=True)
+        dialog, frame = db.abrir_dialogo(
+            parent, "Resultados de memoria", minimo=(560, 320))
         ttk.Label(frame, text=f"Resultados para «{query}»", style="Titulo.TLabel").pack(anchor="w")
         ttk.Label(
             frame,
             text="Selecciona documentos para agregarlos al contexto. Todavía no se envían al modelo.",
             style="TenueSuperficie.TLabel",
         ).pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
-        entries = tk.Listbox(
-            frame, selectmode="extended", exportselection=False,
-            background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-            selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-            relief="flat", highlightthickness=1,
-            highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
-            borderwidth=0, font=es.fuente(), activestyle="none",
-        )
+        entries = db.crear_listbox(frame, selectmode="extended")
         entries.pack(fill="both", expand=True)
         for result in results:
             entries.insert("end", f"{result.title} · {result.relative_path} · {result.category}")
@@ -342,9 +347,7 @@ class ContextController:
                    command=add_selected).pack(side="right")
         ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(side="right",
                                                                            padx=(0, es.ESP["sm"]))
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        host._registrar_reaplicar_tema(
-            dialog, lambda: self.reaplicar_tema_memoria(dialog, entries))
+        db.registrar_reaplicar_tema(host, dialog, entries)
         entries.focus_set()
 
     def search_web(self, parent: tk.Misc) -> None:
@@ -365,12 +368,16 @@ class ContextController:
                 results = SearchOrchestrator().search(query_obj)
             except RuntimeError as error:
                 detail = str(error)
-                if not host.closing:
-                    host.after(0, lambda: messagebox.showerror(
-                        "Búsqueda no disponible", detail, parent=parent))
+                publicar_en_hilo_ui(
+                    host,
+                    lambda: messagebox.showerror(
+                        "Búsqueda no disponible", detail, parent=parent),
+                    logger)
                 return
-            if not host.closing:
-                host.after(0, lambda: self._show_web_results(parent, query_obj.text, results))
+            publicar_en_hilo_ui(
+                host,
+                lambda: self._show_web_results(parent, query_obj.text, results),
+                logger)
 
         WorkerThreads.start(work)
 
@@ -387,27 +394,15 @@ class ContextController:
                 parent=parent,
             )
             return
-        dialog = tk.Toplevel(cast("tk.Tk", parent))
-        dialog.title("Resultados de Internet")
-        dialog.transient(cast("tk.Tk", parent))
-        dialog.configure(bg=es.SUPERFICIE)
-        dialog.minsize(680, 380)
-        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
-        frame.pack(fill="both", expand=True)
+        dialog, frame = db.abrir_dialogo(
+            parent, "Resultados de Internet", minimo=(680, 380))
         ttk.Label(frame, text=f"Resultados para «{query}»", style="Titulo.TLabel").pack(anchor="w")
         ttk.Label(
             frame,
             text="Son señales de descubrimiento. Revisa las fuentes antes de usarlas como contexto.",
             style="TenueSuperficie.TLabel",
         ).pack(anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
-        entries = tk.Listbox(
-            frame, selectmode="extended", exportselection=False,
-            background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-            selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-            relief="flat", highlightthickness=1,
-            highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
-            borderwidth=0, font=es.fuente(), activestyle="none",
-        )
+        entries = db.crear_listbox(frame, selectmode="extended")
         entries.pack(fill="both", expand=True)
         for result in results:
             entries.insert("end", f"{result.title} · {result.domain} · {result.url}")
@@ -432,35 +427,16 @@ class ContextController:
                    command=add_selected).pack(side="right", pady=(es.ESP["lg"], 0))
         ttk.Button(frame, text="Cerrar", command=dialog.destroy).pack(
             side="right", padx=(0, es.ESP["sm"]), pady=(es.ESP["lg"], 0))
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        host._registrar_reaplicar_tema(dialog, lambda: self.reaplicar_tema_memoria(dialog, entries))
+        db.registrar_reaplicar_tema(host, dialog, entries)
         entries.focus_set()
-
-    @staticmethod
-    def reaplicar_tema_memoria(dialog: tk.Toplevel, entries: tk.Listbox) -> None:
-        """Repinta el diálogo de resultados de memoria."""
-        dialog.configure(bg=es.SUPERFICIE)
-        entries.configure(
-            background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-            selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-            highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
-        )
 
     # ─── Diálogo de contexto ────────────────────────────────────────────────
 
     def manage_references(self) -> None:
         """Permite conservar artículos previos al cambiar el artículo activo."""
         host = self._host
-        raiz = cast("tk.Tk", host)
-        dialog = tk.Toplevel(raiz)
-        dialog.title("Contexto de artículos")
-        dialog.transient(raiz)
-        dialog.configure(bg=es.SUPERFICIE)
-        dialog.minsize(460, 280)
-        dialog.geometry(es.tamano_ventana(580, 360, host.winfo_screenwidth(),
-                                          host.winfo_screenheight(), minimo=(460, 280)))
-        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
-        frame.pack(fill="both", expand=True)
+        dialog, frame = db.abrir_dialogo(
+            host, "Contexto de artículos", minimo=(460, 280), tamano=(580, 360))
         ttk.Label(frame, text="Artículos de contexto", style="Titulo.TLabel").pack(anchor="w")
         ttk.Label(frame, text=("El artículo de la izquierda es el activo. Añade aquí artículos previos (.md o .txt) "
                                "o un resumen de CVEs recientes: se conservan al abrir otro artículo y se autorizan al añadirlos. "
@@ -475,12 +451,7 @@ class ContextController:
         primary_actions.pack(fill="x")
         secondary_actions = ttk.Frame(actions, style="Superficie.TFrame")
         secondary_actions.pack(fill="x", pady=(es.ESP["sm"], 0))
-        entries = tk.Listbox(frame, selectmode="extended", exportselection=False,
-                             background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                             selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-                             relief="flat", highlightthickness=1,
-                             highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
-                             borderwidth=0, font=es.fuente(), activestyle="none")
+        entries = db.crear_listbox(frame, selectmode="extended")
         entries.pack(fill="both", expand=True)
 
         def refresh() -> None:
@@ -504,8 +475,7 @@ class ContextController:
             count = self.add_references(selected_paths)
             host._authorize_context_articles()
             refresh()
-            if count:
-                host.status.set(f"{count} artículo(s) añadido(s) al contexto.")
+            self._avisar_referencias(count, len(selected_paths), dialog)
 
         def remove() -> None:
             """Elimina los artículos de contexto seleccionados en la lista."""
@@ -545,15 +515,6 @@ class ContextController:
         ttk.Button(secondary_actions, text="Generar sugerencia de impacto…",
                    command=lambda: host._fetch_impact_suggestion(dialog, refresh)).pack(
             side="left", padx=(0, es.ESP["sm"]))
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
         refresh()
-        host._registrar_reaplicar_tema(
-            dialog, lambda: self.reaplicar_tema_contexto(dialog, entries))
+        db.registrar_reaplicar_tema(host, dialog, entries)
         entries.focus_set()
-
-    def reaplicar_tema_contexto(self, dialog: tk.Toplevel, entries: tk.Listbox) -> None:
-        """Repinta el diálogo de contexto al cambiar de tema, sin perder la lista."""
-        dialog.configure(bg=es.SUPERFICIE)
-        entries.configure(background=es.SUPERFICIE_ALTA, foreground=es.TEXTO,
-                          selectbackground=es.SELECCION, selectforeground=es.TEXTO,
-                          highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO)

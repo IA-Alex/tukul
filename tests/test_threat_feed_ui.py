@@ -78,7 +78,7 @@ def test_fetch_correcto_anade_contexto_y_lo_autoriza():
     with patch("tukul_ui.contexto_dialogo.messagebox.askyesno", return_value=True), \
          patch("tukul_ui.contexto_dialogo.build_threat_context",
                return_value=(_PACKET, _FILES)) as build, \
-         patch("tukul_ui.contexto_dialogo.threading.Thread") as thread_cls:
+         patch("tukul_ui.worker_threads.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         _controller(host).fetch_threat_feed(dialog, on_done)
         _run_thread_synchronously()
@@ -102,7 +102,7 @@ def test_threat_feed_error_se_reporta_y_no_anade_contexto():
          patch("tukul_ui.contexto_dialogo.messagebox.showerror") as showerror, \
          patch("tukul_ui.contexto_dialogo.build_threat_context",
                side_effect=ThreatFeedError("Ninguna fuente respondió.")), \
-         patch("tukul_ui.contexto_dialogo.threading.Thread") as thread_cls:
+         patch("tukul_ui.worker_threads.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         _controller(host).fetch_threat_feed(dialog, on_done=MagicMock())
         _run_thread_synchronously()
@@ -117,7 +117,7 @@ def test_no_toca_tcl_si_la_ventana_se_esta_cerrando():
     host.after = MagicMock()  # si se llamara, fallaría la aserción de abajo
     with patch("tukul_ui.contexto_dialogo.messagebox.askyesno", return_value=True), \
          patch("tukul_ui.contexto_dialogo.build_threat_context", return_value=(_PACKET, _FILES)), \
-         patch("tukul_ui.contexto_dialogo.threading.Thread") as thread_cls:
+         patch("tukul_ui.worker_threads.threading.Thread") as thread_cls:
         thread_cls.side_effect = lambda target, daemon: MagicMock(_target=target)
         _controller(host).fetch_threat_feed(MagicMock(), on_done=MagicMock())
         host.closing = True

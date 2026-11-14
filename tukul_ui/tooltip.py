@@ -78,9 +78,18 @@ class ToolTip:
         # barra superior) generaba una pista que terminaba fuera de pantalla.
         self._ventana.update_idletasks()
         ancho = self._ventana.winfo_reqwidth()
+        alto = self._ventana.winfo_reqheight()
         pantalla = self.widget.winfo_screenwidth()
         if x + ancho > pantalla - es.ESP["sm"]:
             x = max(es.ESP["sm"], pantalla - ancho - es.ESP["sm"])
+        # Espejo vertical: un control pegado al borde inferior (el compositor
+        # del panel del asistente) dibujaba la pista fuera de la pantalla. Si
+        # no cabe debajo, se coloca por encima del control.
+        pantalla_alto = self.widget.winfo_screenheight()
+        if y + alto > pantalla_alto - es.ESP["sm"]:
+            y = self.widget.winfo_rooty() - alto - es.ESP["xs"]
+            if y < es.ESP["sm"]:
+                y = max(es.ESP["sm"], pantalla_alto - alto - es.ESP["sm"])
         self._ventana.wm_geometry(f"+{x}+{y}")
         ToolTip._activo = self
 
@@ -101,7 +110,6 @@ class ToolTip:
             return activa.winfo_toplevel() is self.widget.winfo_toplevel()
         except (AttributeError, tk.TclError):
             return True
-
 
     def _ocultar(self, _evento: tk.Event | None = None) -> None:
         self._cancelar()

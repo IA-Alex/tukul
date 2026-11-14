@@ -25,9 +25,16 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from tukul_core.impact_analyzer import CorrelationEngine, IdeaGenerator
 from tukul_core.real_time_feed import FeedOrchestrator
+from tukul_ui import dialogs_base as db
 from tukul_ui import estilo as es
 from tukul_ui.contexto import ContextArticle
-from tukul_ui.worker_threads import WorkerThreads
+from tukul_ui.worker_threads import (
+    WorkerThreads,
+    publicar_en_hilo_ui,
+)
+from tukul_ui.worker_threads import (
+    en_el_hilo_de_tk as _en_el_hilo_de_tk,
+)
 
 if TYPE_CHECKING:
     from tukul_core.models import ArticleIdea, CorrelationGroup, FeedEntry, LlmProfile
@@ -68,20 +75,9 @@ class IdeasHost(Protocol):
     def _registrar_reaplicar_tema(self, ancla: tk.Misc, reaplicar: Callable[[], None]) -> None: ...
 
 
-def _en_el_hilo_de_tk() -> bool:
-    """True si el llamador es el hilo que puede tocar Tcl.
-
-    `after()` desde un worker lanza `RuntimeError: main thread is not in main
-    loop` en CPython 3.13, y ese error —surgido durante la recolección de
-    basura— puede abortar el proceso entero en lugar de propagarse. Los
-    workers son daemon: pueden sobrevivir al cierre y llegar aquí. Mejor no
-    programar nada que morir.
-    """
-    import threading
-
-    return threading.current_thread() is threading.main_thread()
-
-
+# `_en_el_hilo_de_tk` se re-exporta desde `worker_threads` para conservar el
+# nombre que los tests parchean (`modulo._en_el_hilo_de_tk`). La
+# implementación vive en un solo sitio; aquí solo se enlaza.
 class IdeasController:
     """Orquesta el pipeline de ideas y el diálogo de selección."""
 
@@ -190,10 +186,11 @@ class IdeasController:
             return False
 
         host = self._host
-        host.after(
-            0,
+        publicar_en_hilo_ui(
+            host,
             lambda: self.show_selection_dialog(
                 dialog, ideas, entries, correlations, on_done),
+            logger,
         )
         return True
 
@@ -259,16 +256,9 @@ class IdeasController:
         a las fuentes que la respaldan.
         """
         host = self._host
-        dialog = tk.Toplevel(parent_dialog)
-        dialog.title("Ideas de art\u00edculo generadas")
-        dialog.transient(parent_dialog)
-        dialog.configure(bg=es.SUPERFICIE)
-        dialog.minsize(520, 340)
-        dialog.geometry(es.tamano_ventana(640, 480, host.winfo_screenwidth(),
-                                          host.winfo_screenheight(), minimo=(520, 340)))
-
-        frame = ttk.Frame(dialog, style="Superficie.TFrame", padding=es.ESP["lg"])
-        frame.pack(fill="both", expand=True)
+        dialog, frame = db.abrir_dialogo(
+            parent_dialog, "Ideas de art\u00edculo generadas",
+            minimo=(520, 340), tamano=(640, 480))
 
         ttk.Label(
             frame,
@@ -283,23 +273,8 @@ class IdeasController:
         list_frame.pack(fill="both", expand=True)
 
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
-        idea_listbox = tk.Listbox(
-            list_frame,
-            selectmode="single",
-            exportselection=False,
-            background=es.SUPERFICIE_ALTA,
-            foreground=es.TEXTO,
-            selectbackground=es.SELECCION,
-            selectforeground=es.TEXTO,
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=es.BORDE_CONTROL,
-            highlightcolor=es.FOCO,
-            borderwidth=0,
-            font=es.fuente(),
-            activestyle="none",
-            yscrollcommand=scrollbar.set,
-        )
+        idea_listbox = db.crear_listbox(
+            list_frame, selectmode="single", yscrollcommand=scrollbar.set)
         scrollbar.config(command=idea_listbox.yview)
         scrollbar.pack(side="right", fill="y")
         idea_listbox.pack(side="left", fill="both", expand=True)
@@ -428,25 +403,7 @@ class IdeasController:
             command=dialog.destroy,
         ).pack(side="right", padx=(0, es.ESP["sm"]))
 
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
         dialog.bind("<Return>", lambda _event: accept_idea())
         idea_listbox.focus_set()
 
-        host._registrar_reaplicar_tema(
-            dialog,
-            lambda: self._reaplicar_tema(dialog, idea_listbox, preview_label),
-        )
-
-    def _reaplicar_tema(
-        self, dialog: tk.Toplevel, idea_listbox: tk.Listbox, preview: ttk.Label
-    ) -> None:
-        """Repinta el di\u00e1logo de ideas al cambiar de tema."""
-        dialog.configure(bg=es.SUPERFICIE)
-        idea_listbox.configure(
-            background=es.SUPERFICIE_ALTA,
-            foreground=es.TEXTO,
-            selectbackground=es.SELECCION,
-            selectforeground=es.TEXTO,
-            highlightbackground=es.BORDE_CONTROL,
-            highlightcolor=es.FOCO,
-        )
+        db.registrar_reaplicar_tema(host, dialog, idea_listbox)

@@ -94,10 +94,13 @@ class TopBar(ttk.Frame):
         ToolTip(self.logo_label, "Tukul, editor conversacional")
 
         # Ancho fijo: en `clam` el Menubutton se estira hasta el ancho de su
-        # desplegable, así que aunque el texto sea solo «☰» medía 149 px y se
-        # comía el hueco del nombre del documento. El menú no es estrecho ni
-        # ancho por su contenido: el botón es un icono con tooltip.
-        self.boton_menu = ttk.Menubutton(self.zona_izquierda, text="☰", menu=self.menu, width=2)
+        # desplegable, así que sin límite medía 149 px y se comía el hueco del
+        # nombre del documento. El texto lleva la palabra «Menú» además del
+        # símbolo ☰: en Tk el nombre accesible de un botón es su `text`, y un
+        # icono suelto no dice nada a un lector de pantalla (el tooltip no lo
+        # sustituye; ver DF-015).
+        self.boton_menu = ttk.Menubutton(self.zona_izquierda, text="☰  Menú",
+                                         menu=self.menu, width=6)
         self.boton_menu.pack(side="left")
 
         self.boton_guardar = ttk.Button(self.zona_izquierda, text="Guardar", style="Guardar.TButton", command=self.callbacks["save"])
@@ -115,7 +118,11 @@ class TopBar(ttk.Frame):
         self.boton_panel = ttk.Button(self.zona_derecha, text="◧  Panel IA  (F6)", command=self.callbacks["toggle_asistente"])
         self.boton_panel.pack(side="right", padx=(es.ESP["xs"], 0))
 
-        self.boton_tema = ttk.Button(self.zona_derecha, style="Plana.TButton", command=self.callbacks["cambiar_tema"])
+        # Nace con la etiqueta legible ya puesta (no solo el símbolo del tema,
+        # que llega en `actualizar_estado`): así un lector de pantalla no lee un
+        # control sin nombre en el primer instante (DF-015).
+        self.boton_tema = ttk.Button(self.zona_derecha, text="Cambiar tema",
+                                     style="Plana.TButton", command=self.callbacks["cambiar_tema"])
         self.boton_tema.pack(side="right", padx=(0, es.ESP["xs"]))
 
         self.profile_chip = ttk.Button(self.zona_derecha, text=self._texto_modelo(), style="Plana.TButton", command=self.callbacks["settings"])
@@ -153,7 +160,7 @@ class TopBar(ttk.Frame):
         self.documento_label = ttk.Label(self.zona_centro, textvariable=self.documento_var,
                                          style="Cabecera.TLabel", anchor="w")
         self.documento_label.grid(row=0, column=1, sticky="ew", padx=(es.ESP["sm"], es.ESP["sm"]))
-        ToolTip(self.documento_label, "Documento activo")
+        ToolTip(self.documento_label, "Artículo activo")
 
         self.boton_menu.configure(cursor="hand2")
 

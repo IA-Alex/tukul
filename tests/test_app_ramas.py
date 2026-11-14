@@ -554,7 +554,7 @@ class TestLlaveroNoDisponible(_BaseApp):
     def test_backend_ausente_cachea_vacio_sin_llamar_al_llavero(self):
         with patch.object(storage, "credential_backend_disponible", return_value=False), \
                 patch.object(storage, "load_key") as leer, \
-                patch.object(self.app, "_llaves_en_curso", {}):
+                patch.object(self.app._credenciales, "_en_curso", {}):
             self.app._precargar_key(self.app.active_profile)
         leer.assert_not_called()
         self.assertEqual(self.app._keys_llavero[self.app.active_profile], "")

@@ -23,11 +23,8 @@ from tukul_core.llm import SYSTEM_PROMPT, estimate_prompt_tokens
 from tukul_core.logging_config import setup_logging
 from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.models import (
-    ArticleIdea,
     ArticleSession,
     ChatMessage,
-    CorrelationGroup,
-    FeedEntry,
     LlmProfile,
 )
 from tukul_core.prompting import REVIEW_PROMPT, build_editor_prompt, build_review_prompt
@@ -46,6 +43,7 @@ from tukul_ui.components.editor_panel import EditorPanel
 from tukul_ui.components.top_bar import TopBar
 from tukul_ui.context_approval import ContextApprovalCache, ContextApprovalKey
 from tukul_ui.contexto_dialogo import ContextController
+from tukul_ui.credentials import CredentialStore, resolver_key
 from tukul_ui.dialogs import show_review_dialog, show_settings_dialog
 from tukul_ui.document_manager import DocumentManager
 from tukul_ui.document_scope import DocumentScope
@@ -67,6 +65,13 @@ MAX_CONTEXT_EXCERPT_CHARS = 3_000
 # barrera fail-closed real.
 MAX_THREAT_FEED_EXCERPT_CHARS = 10_000
 MAX_INDEXED_FILE_BYTES = 50_000
+# Retención del historial visible: el widget `history` no tenía tope y crecía
+# sin límite en sesiones largas. Se conservan los últimos N turnos completos
+# (cada turno son sus 3 líneas: rótulo, cuerpo y separador); los más antiguos
+# se recortan del principio por bloques, nunca a mitad de un turno. El estado
+# real del chat (para el prompt) vive en `session.conversation`, con su propio
+# techo en `LLMSessionManager`.
+MAX_HISTORIAL_TURNOS = 200
 # Tope de espera al resolver la key del llavero antes de enviar. Con un llavero
 # sano la lectura tarda milisegundos; el tope evita que una interfaz rota
 # (D-Bus sin respuesta) deje el envío colgado indefinidamente.
@@ -246,10 +251,17 @@ class TukulApp(tk.Tk):
         validate_startup_config(self.profiles, self.active_profile)
         self.session_keys: dict[str, str] = {}
         self._session_keys_max = 32
-        # Caché del llavero y perfiles cuya lectura ya está en curso. El llavero
-        # se consulta en un hilo daemon; aquí solo viven los resultados.
-        self._keys_llavero: dict[str, str] = {}
-        self._llaves_en_curso: dict[str, threading.Event] = {}
+        # Caché del llavero y perfiles cuya lectura ya está en curso. Vive en
+        # `CredentialStore`, que es dueño de su `Lock`: el hilo de lectura
+        # escribe la caché y el de Tk la consulta (DF-016). Se conserva el
+        # acceso por `_keys_llavero`/`_llaves_en_curso` más abajo para no romper
+        # a los consumidores históricos (tests incluidos).
+        self._credenciales = CredentialStore(
+            arrancar=lambda work, nombre: threading.Thread(
+                target=work, name=nombre, daemon=True).start(),
+            avisar_llavero_ausente=lambda perfil: self.control_queue.put_nowait(
+                ("keyring_unavailable", perfil)),
+        )
 
         # Managers (refactorización de responsabilidades)
         self.docs = DocumentManager()
@@ -315,6 +327,21 @@ class TukulApp(tk.Tk):
         """Perfil LLM activo."""
         return self.profiles[self.active_profile]
     @property
+    def _keys_llavero(self) -> dict[str, str]:
+        """Compatibilidad: caché del llavero expuesta como dict mutable.
+
+        La fuente de verdad es `CredentialStore._cache`; exponerla aquí (y no
+        como atributo propio) conserva la API histórica que consumen `dialogs.py`
+        y los tests, mientras el único dueño de la sincronización es el store.
+        """
+        return self._credenciales._cache
+
+    @property
+    def _llaves_en_curso(self) -> dict[str, threading.Event]:
+        """Compatibilidad: lecturas del llavero en curso (ver `_keys_llavero`)."""
+        return self._credenciales._en_curso
+
+    @property
     def key(self) -> str:
         """API key en vigor: variable de entorno > key de sesión > llavero.
 
@@ -323,9 +350,8 @@ class TukulApp(tk.Tk):
         acceso. La lectura se mueve al hilo de trabajo y el resultado se cachea;
         aquí solo se sirve lo ya conocido, sin bloquear.
         """
-        return (os.environ.get(self.profile.api_key_env)
-                or self.session_keys.get(self.active_profile, "")
-                or self._keys_llavero.get(self.active_profile, ""))
+        return resolver_key(self.profile.api_key_env, self.session_keys,
+                            self.active_profile, self._credenciales)
 
     def _prime_key(self) -> str:
         """Lanza la lectura del llavero del perfil activo y devuelve lo cacheado.
@@ -333,44 +359,24 @@ class TukulApp(tk.Tk):
         No bloquea: la interfaz llama a esto al cambiar de perfil y el valor
         llega al mapa en cuanto el hilo de lectura termina.
         """
-        perfil = self.active_profile
-        if perfil not in self._keys_llavero and perfil not in self._llaves_en_curso:
-            self._precargar_key(perfil)
+        self._credenciales.asegurar(self.active_profile)
         return self.key
 
     def _precargar_key(self, perfil: str) -> None:
-        """Lanza la lectura del llavero en un hilo daemon y guarda el resultado.
+        """Delega en `CredentialStore.precargar` (mantiene la API histórica)."""
+        self._credenciales.precargar(perfil)
 
-        Usa `threading.Event` como futuro: quien pueda bloquear (un worker)
-        espera con `_esperar_key`; la interfaz solo consulta la caché.
-        """
-        # Sin backend de sistema no se lanza el hilo: en CI/contenedor la
-        # lectura puede abortar el proceso en lugar de devolver un error.
-        if not storage.credential_backend_disponible():
-            self._keys_llavero[perfil] = ""
-            return
-        listo = threading.Event()
-        self._llaves_en_curso[perfil] = listo
+    def _llevero_conocido(self, perfil: str) -> bool:
+        """¿Ya hay un valor (aunque sea vacío) cacheado para el perfil?"""
+        return self._credenciales.conocido(perfil)
 
-        def leer() -> None:
-            try:
-                valor = storage.load_key(perfil)
-            except storage.KeyringUnavailableError:
-                # El llavero existe pero no responde: NO es «no hay key». Se
-                # cachea vacío para no reintentar en bucle, pero se avisa en la
-                # barra; si no, el usuario leería «Configura una key», pista falsa.
-                self.control_queue.put_nowait(("keyring_unavailable", perfil))
-                valor = ""
-            except Exception:
-                # Un llavero ajeno (D-Bus, backend del SO) no debe romper la UI.
-                valor = ""
-            self._keys_llavero[perfil] = valor
-            # Marcar antes de publicar: quien espera esa misma señal no debe
-            # encontrar todavía su entrada en `_llaves_en_curso` ni un instante.
-            self._llaves_en_curso.pop(perfil, None)
-            listo.set()
+    def _llevero_valor(self, perfil: str) -> str:
+        """Valor cacheado del llavero para el perfil (vacío si no hay)."""
+        return self._credenciales.valor(perfil)
 
-        threading.Thread(target=leer, name=f"keyring-{perfil}", daemon=True).start()
+    def _llevero_guardar(self, perfil: str, valor: str) -> None:
+        """Guarda en la caché del llavero desde cualquier hilo."""
+        self._credenciales.guardar(perfil, valor)
 
     def _add_session_key(self, profile: str, key: str) -> None:
         """Agrega o actualiza una key de sesión con desalojo LRU real.
@@ -1170,6 +1176,29 @@ class TukulApp(tk.Tk):
         self.history.config(state="disabled")
         if who=="Tukul" and es_respuesta: self.scope.last_response=text
         self._actualizar_boton_limpiar()
+        self._recortar_historial()
+
+    def _recortar_historial(self) -> None:
+        """Limita el historial visible a los últimos `MAX_HISTORIAL_TURNOS`.
+
+        El widget crecía sin techo en sesiones largas. Se cuentan los separadores
+        (uno por turno) y se borra desde `1.0` hasta el inicio del primer turno
+        que se conserva: así nunca se parte un bloque a la mitad. Se hace solo
+        al cerrar un turno (`append`), no en cada chunk de streaming.
+        """
+        try:
+            separadores = self.history.tag_ranges("separacion")
+        except tk.TclError:
+            return
+        turnos = len(separadores) // 2  # cada turno inserta 1 separador
+        if turnos <= MAX_HISTORIAL_TURNOS:
+            return
+        # Índice inicial del primer turno que se conserva.
+        corte = separadores[(turnos - MAX_HISTORIAL_TURNOS) * 2 - 2]
+        self.history.config(state="normal")
+        self.history.delete("1.0", corte)
+        self.history.config(state="disabled")
+
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
         # Vaciar el historial a mitad de un streaming dejaba el texto siguiente
@@ -1645,7 +1674,7 @@ class TukulApp(tk.Tk):
         # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
         # como un turno fantasma del usuario que nunca recibe respuesta.
         if not self.profile.enabled or not self._resolver_credenciales():
-            if self.active_profile in self._llaves_en_curso:
+            if self._credenciales.en_curso(self.active_profile):
                 # La key del llavero aún se está leyendo: se lanza en segundo
                 # plano y el usuario puede reintentar en un instante.
                 self.append("Tukul", "Recuperando la API key del llavero. "
@@ -1684,10 +1713,10 @@ class TukulApp(tk.Tk):
         if (os.environ.get(self.profile.api_key_env)
                 or self.session_keys.get(self.active_profile, "")):
             return self.key
-        if self.active_profile not in self._keys_llavero:
+        if not self._llevero_conocido(self.active_profile):
             self._prime_key()
             return ""
-        return self._keys_llavero.get(self.active_profile, "")
+        return self._llevero_valor(self.active_profile)
 
     def _esperar_key(self, timeout: float = KEYRING_TIMEOUT_SECONDS) -> str:
         """Resuelve la key esperando la lectura del llavero.
@@ -1698,11 +1727,9 @@ class TukulApp(tk.Tk):
         if self.key:
             return self.key
         perfil = self.active_profile
-        if perfil not in self._keys_llavero:
+        if not self._llevero_conocido(perfil):
             self._prime_key()
-            listo = self._llaves_en_curso.get(perfil)
-            if listo is not None:
-                listo.wait(timeout)
+            self._credenciales.esperar(perfil, timeout)
         return self.key
 
     def send_message(self):
@@ -1749,7 +1776,7 @@ class TukulApp(tk.Tk):
         try:
             prompt = build_review_prompt(texto)
             tokens = estimate_prompt_tokens(SYSTEM_PROMPT, prompt)
-            if tokens > profile.max_total_model_tokens - profile.max_output_tokens:
+            if self._excede_presupuesto(tokens, profile):
                 self._abort_request(request_id)
                 self.set_estado(EstadoUI.ERROR, "el texto a revisar es demasiado largo")
                 self.show_error(
@@ -1772,6 +1799,16 @@ class TukulApp(tk.Tk):
             conversation=conversacion, cancel_event=cancel_event,
             request_type="review",
         )
+
+    @staticmethod
+    def _excede_presupuesto(tokens_entrada: int, profile: LlmProfile) -> bool:
+        """¿La entrada más la salida reservada superan el techo del modelo?
+
+        Fuente única de la comparación: estaba duplicada (idéntica) en los
+        flujos de revisión y de envío normal, donde podía divergir sin que
+        nadie lo notara (DF-007).
+        """
+        return tokens_entrada > profile.max_total_model_tokens - profile.max_output_tokens
 
     def request(self, message: str, request_type: str = "normal"):
         """Envía una consulta sobre el artículo, sin explorar archivos locales.
@@ -1853,8 +1890,7 @@ class TukulApp(tk.Tk):
 
             # Validar límite ENTRADA + SALIDA: entrada + max_output_tokens <= max_total_model_tokens
             # actual_tokens YA está en tokens (calculado por estimate_prompt_tokens)
-            max_allowed_tokens = profile.max_total_model_tokens - profile.max_output_tokens
-            if actual_tokens > max_allowed_tokens:
+            if self._excede_presupuesto(actual_tokens, profile):
                 self._abort_request(request_id)
                 self.show_error(
                     "Solicitud demasiado grande",
@@ -2330,15 +2366,6 @@ class TukulApp(tk.Tk):
         """Delega en `ContextController.fetch_threat_feed`."""
         self._contexto.fetch_threat_feed(dialog, on_done)
 
-    def _on_threat_feed_error(self, dialog: tk.Toplevel, detail: str) -> None:
-        """Delega en `ContextController.on_threat_feed_error`."""
-        self._contexto.on_threat_feed_error(dialog, detail)
-
-    def _on_threat_feed_ready(self, packet: str, files: list[str],
-                              on_done: Callable[[], None]) -> None:
-        """Delega en `ContextController.on_threat_feed_ready`."""
-        self._contexto.on_threat_feed_ready(packet, files, on_done)
-
 
     # ─── Sugerencia de impacto ─────────────────────────────────────────────────
 
@@ -2370,31 +2397,9 @@ class TukulApp(tk.Tk):
         """Delega en `IdeasController._llm_de_ideas`."""
         return IdeasController._llm_de_ideas(profile, api_key)
 
-    def _registrar_error_ideas(self, dialog, detalle: str) -> None:
-        """Delega en el controlador (publica el error en el hilo de Tk)."""
-        self._ideas._registrar_error(dialog, detalle)
-
     def _publicar_error_ideas(self, dialog, mensaje: str) -> None:
         """Delega en el controlador."""
         self._ideas._publicar_error(dialog, mensaje)
-
-    def _show_idea_selection_dialog(self, parent_dialog: tk.Toplevel,
-                                    ideas: list[ArticleIdea],
-                                    all_entries: list[FeedEntry],
-                                    correlations: list[CorrelationGroup],
-                                    on_done: Callable[[], None]) -> None:
-        """Delega en `IdeasController.show_selection_dialog`."""
-        self._ideas.show_selection_dialog(
-            parent_dialog, ideas, all_entries, correlations, on_done)
-
-    def _reaplicar_tema_ideas(self, dialog: tk.Toplevel, idea_listbox: tk.Listbox,
-                              preview: ttk.Label) -> None:
-        """Delega en `IdeasController._reaplicar_tema`."""
-        self._ideas._reaplicar_tema(dialog, idea_listbox, preview)
-
-    def _on_impact_suggestion_error(self, dialog: tk.Toplevel, detail: str) -> None:
-        """Delega en `IdeasController._on_error`."""
-        self._ideas._on_error(dialog, detail)
 
 
     def _ask_to_authorize_articles(self, labels: list[str], parent) -> bool:
@@ -2412,10 +2417,6 @@ class TukulApp(tk.Tk):
     def search_web(self) -> None:
         """Inicia una búsqueda externa únicamente por acción del usuario."""
         self._contexto.search_web(self)
-
-    def _reaplicar_tema_contexto(self, dialog: tk.Toplevel, entries: tk.Listbox) -> None:
-        """Delega en `ContextController.reaplicar_tema_contexto`."""
-        self._contexto.reaplicar_tema_contexto(dialog, entries)
 
 
     def save_document(self, save_as: bool = False)->bool:
@@ -2630,7 +2631,7 @@ class TukulApp(tk.Tk):
         toca Tcl fuera del hilo principal (`main thread is not in main loop`).
         El tope evita que un llavero colgado impida cerrar la aplicación.
         """
-        pendientes = list(self._llaves_en_curso.values())
+        pendientes = self._credenciales.pendientes()
         if not pendientes:
             return
         limite = time.monotonic() + timeout

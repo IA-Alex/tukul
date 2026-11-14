@@ -11,7 +11,7 @@ from tukul_core.logging_config import setup_logging
 from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.models import LlmProfile
 from tukul_ui import estilo as es
-from tukul_ui.worker_threads import WorkerThreads
+from tukul_ui.worker_threads import WorkerThreads, publicar_en_hilo_ui
 
 logger = setup_logging()
 
@@ -29,6 +29,10 @@ ETIQUETAS_PERFIL = {
 }
 #: Campos imprescindibles para que el perfil responda.
 CAMPOS_CONEXION = ("endpoint", "model", "api_key_env")
+
+#: Un único mensaje para la carpeta de memoria inexistente (antes había dos
+#: redacciones distintas para la misma condición; ver DF-008).
+MEMORIA_NO_EXISTE = "La carpeta de artículos indicada no existe."
 
 
 def _campo(frame, fila: int, name: str, variable) -> int:
@@ -289,13 +293,18 @@ def _bloque_credencial(frame, fila: int, key, remember) -> None:
         row=fila + 3, column=1, sticky="w")
 
 
-def _probar_conexion(app, dialogo, nombre: str, key_var, values) -> None:
+def _probar_conexion(app, dialogo, nombre: str, key_var, values, *,
+                     boton=None, estado=None) -> None:
     """Prueba el perfil en segundo plano y dice la causa si falla.
 
     Sin esto, un perfil con la clave rechazada se guardaba como válido y el
     fallo aparecía al enviar el primer mensaje, donde ya no se sabía si el
     problema era la clave, el modelo o la red. La prueba es una llamada mínima
     (un token) y solo ocurre al pulsar el botón.
+
+    El botón se deshabilita y se anuncia «Comprobando…» mientras el worker
+    corre: sin ese estado, pulsar varias veces lanzaba varias pruebas y la
+    persona no veía nada hasta el final (DF-009).
     """
     try:
         perfil = _perfil_desde_formulario(nombre, values["provider"].get(), values)
@@ -310,6 +319,7 @@ def _probar_conexion(app, dialogo, nombre: str, key_var, values) -> None:
         return
 
     def _avisar(texto: str, error: bool) -> None:
+        _restaurar_boton_conexion(boton, estado)
         (messagebox.showerror if error else messagebox.showinfo)(
             "Probar conexión" if not error else "La conexión falló", texto, parent=dialogo)
 
@@ -326,9 +336,38 @@ def _probar_conexion(app, dialogo, nombre: str, key_var, values) -> None:
         except LlmError as error:
             resultado = (f"{error}\n\nRevisa la clave, el modelo y el endpoint:\n{perfil.endpoint}",
                          True)
-        app.after(0, lambda: _avisar(*resultado))
+        publicar_en_hilo_ui(app, lambda: _avisar(*resultado), logger)
 
+    _marcar_boton_comprobando(boton, estado)
     threading.Thread(target=_trabajo, name="probar-conexion", daemon=True).start()
+
+
+def _marcar_boton_comprobando(boton, estado) -> None:
+    """Deshabilita el botón y muestra el estado de carga mientras se prueba."""
+    if estado is not None:
+        try:
+            estado.config(text="Comprobando…")
+        except tk.TclError:
+            pass
+    if boton is not None:
+        try:
+            boton.config(state="disabled")
+        except tk.TclError:
+            pass
+
+
+def _restaurar_boton_conexion(boton, estado) -> None:
+    """Rehabilita el botón y limpia el estado de carga al terminar la prueba."""
+    if estado is not None:
+        try:
+            estado.config(text="")
+        except tk.TclError:
+            pass
+    if boton is not None:
+        try:
+            boton.config(state="normal")
+        except tk.TclError:
+            pass
 
 
 def _persistir_credencial(app, nombre: str, entered: str, recordar: bool) -> None:
@@ -441,7 +480,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     def reindexar_memoria() -> None:
         raiz = Path(memoria_root.get()).expanduser()
         if not raiz.is_dir():
-            messagebox.showerror("Memoria local", "La carpeta indicada no existe.", parent=dialog)
+            messagebox.showerror("Memoria local", MEMORIA_NO_EXISTE, parent=dialog)
             return
         memoria_estado.config(text="Reindexando artículos…")
 
@@ -456,14 +495,14 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
                           f"{stats.indexed} actualizados, {stats.unchanged} sin cambios.")
             except (OSError, ValueError) as error:
                 detail = f"No se pudo indexar: {error}"
-            if not app.closing:
-                dialog.after(0, lambda: memoria_estado.config(text=detail))
+            publicar_en_hilo_ui(
+                dialog, lambda: memoria_estado.config(text=detail), logger)
 
         WorkerThreads.start(work)
 
     ttk.Button(memoria, text="Elegir…", command=elegir_memoria).grid(
         row=1, column=2, padx=(es.ESP["sm"], 0))
-    ttk.Button(memoria, text="Reindexar", command=reindexar_memoria).grid(
+    ttk.Button(memoria, text="Reindexar…", command=reindexar_memoria).grid(
         row=2, column=1, sticky="w", pady=(0, es.ESP["xs"]))
     memoria_estado.grid(row=2, column=2, sticky="w", padx=(es.ESP["sm"], 0))
 
@@ -509,7 +548,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
     # La key se pinta de inmediato desde la memoria de la app (cacheada) y el
     # llavero se consulta aparte: leerlo aquí congelaba el diálogo mientras
     # D-Bus respondía. La lectura llega al widget por `after`, nunca desde el hilo.
-    cacheada = app._keys_llavero.get(selected.get(), "")
+    cacheada = app._llevero_valor(selected.get())
     key = tk.StringVar(value=cacheada)
     remember = tk.BooleanVar(value=bool(cacheada))
     _seccion(cuerpo, 0, "CONEXIÓN", primera=True)
@@ -549,7 +588,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         for name in fields:
             values[name].set(str(getattr(p, name)))
         nombre = selected.get()
-        cacheada = app._keys_llavero.get(nombre, "")
+        cacheada = app._llevero_valor(nombre)
         key.set(cacheada)
         remember.set(bool(cacheada))
         update_provider_hint()
@@ -568,7 +607,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         proceso dentro del hilo (`Fetching password with fallback` → segfault),
         no solo devolver un error.
         """
-        if nombre in app._keys_llavero or not storage.credential_backend_disponible():
+        if app._llevero_conocido(nombre) or not storage.credential_backend_disponible():
             return
 
         def leer() -> None:
@@ -581,7 +620,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
                 return
             except Exception:
                 valor = ""
-            app._keys_llavero[nombre] = valor
+            app._llevero_guardar(nombre, valor)
 
         threading.Thread(target=leer, name=f"keyring-dialogo-{nombre}", daemon=True).start()
 
@@ -597,10 +636,11 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
                 return
         except tk.TclError:
             return
-        if nombre in app._keys_llavero:
+        if app._llevero_conocido(nombre):
+            valor = app._llevero_valor(nombre)
             if not key.get():
-                key.set(app._keys_llavero[nombre])
-                remember.set(bool(app._keys_llavero[nombre]))
+                key.set(valor)
+                remember.set(bool(valor))
             return
         try:
             dialog.after(150, _aplicar_key_cargada)
@@ -663,12 +703,18 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
             fila = _campo(cuerpo, fila, name, values[name])
     api_key_row = fila
     _bloque_credencial(cuerpo, api_key_row, key, remember)
-    ttk.Button(
-        cuerpo, text="Probar conexión", style="Inactivo.TButton",
+    fila_conexion = ttk.Frame(cuerpo)
+    fila_conexion.grid(row=api_key_row + 4, column=1, sticky="w", pady=(es.ESP["sm"], 0))
+    boton_conexion = ttk.Button(
+        fila_conexion, text="Probar conexión…", style="Inactivo.TButton",
         command=lambda: _probar_conexion(
             app, dialog, selected.get(), key,
-            {**values, "provider": provider}),
-    ).grid(row=api_key_row + 4, column=1, sticky="w", pady=(es.ESP["sm"], 0))
+            {**values, "provider": provider},
+            boton=boton_conexion, estado=conexion_estado),
+    )
+    boton_conexion.pack(side="left")
+    conexion_estado = ttk.Label(fila_conexion, text="", style="Tenue.TLabel")
+    conexion_estado.pack(side="left", padx=(es.ESP["sm"], 0))
 
     def save() -> None:
         """Persiste los perfiles editados y la credencial, y cierra el diálogo."""
@@ -679,7 +725,7 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         nueva_memoria = Path(memoria_root.get()).expanduser()
         if not nueva_memoria.is_dir():
             messagebox.showerror(
-                "Memoria local", "La carpeta de artículos indicada no existe.", parent=dialog
+                "Memoria local", MEMORIA_NO_EXISTE, parent=dialog
             )
             return
 
