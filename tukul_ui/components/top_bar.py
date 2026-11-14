@@ -32,8 +32,12 @@ class TopBar(ttk.Frame):
     """
 
     TEXTO_SIN_DOCUMENTO = "Sin artículo abierto"
-    #: Lado del logotipo en píxeles. Coincide con los 24x24 del SVG original.
-    LOGO = 24
+    #: Lado del logotipo en píxeles. La marca compite con el botón de menú y
+    #: «Guardar» por el mismo tercio izquierdo: a 24 px el isotipo se leía como
+    #: un borrón (libro y nodos por debajo del píxel) y robaba ancho al nombre
+    #: del documento. A 18 px el trazo sobrevive y el wordmark «Tukul» recupera
+    #: el protagonismo de la marca.
+    LOGO = 18
     # Ancho máximo del chip de modelo, en píxeles. La barra pide espacio antes
     # de saber qué píxel le toca a cada fuente y el nombre del modelo crece
     # con cada perfil: medido en caracteres, un id largo seguía desbordando.
@@ -86,7 +90,7 @@ class TopBar(ttk.Frame):
 
         self.logo_label = ttk.Label(self.zona_izquierda, text="Tukul",
                                     style="Marca.TLabel")
-        self.logo_label.pack(side="left", padx=(0, es.ESP["sm"]))
+        self.logo_label.pack(side="left", padx=(0, es.ESP["md"]))
         ToolTip(self.logo_label, "Tukul, editor conversacional")
 
         # Ancho fijo: en `clam` el Menubutton se estira hasta el ancho de su
@@ -165,31 +169,54 @@ class TopBar(ttk.Frame):
         self.after_idle(lambda: self._ajustar_por_ancho())
 
     def _pintar_logo(self) -> None:
-        """Dibuja el isotipo de Tukul con los tokens del tema.
+        """Dibuja el isotipo compacto de Tukul con los tokens del tema.
 
-        Es la versión compacta (24 px) del logotipo `docs/assets/tukul-logo.svg`:
-        el círculo de piedra nocturna con borde de estuco, las dos alas jade
-        (espejo exacto) y el libro blanco ceniza en el centro. Simétrico respecto
-        al eje vertical. Se limpia y repinta en cada cambio de tema para no
-        congelar colores.
+        Es la reducción del logotipo `docs/assets/tukul-logo.svg` al tamaño de
+        la cabecera. A 24 px el detalle completo —libro de dos páginas, nodos de
+        inspiración y base del tunkul— caía por debajo del píxel y se leía como
+        un borrón verde. La versión de cabecera conserva solo lo que sobrevive a
+        esta escala: el círculo de piedra nocturna, las dos alas jade en espejo
+        exacto y el lomo blanco ceniza, que sostiene la silueta «libro abierto».
+        El resto del detalle vive en el SVG, no aquí.
+
+        La geometría se expresa en fracciones del lado (`p` = lado/18) para que
+        el dibujo no lleve medidas absolutas: cambiando `LOGO` todo escala junto
+        y se conserva la simetría especular respecto al eje vertical. Se limpia
+        y repinta en cada cambio de tema para no congelar colores.
         """
         self.logo.delete("all")
         lado = self.LOGO
         c = lado / 2
+        p = lado / 18  # unidad de diseño: el isotipo cabe en una rejilla de 18
         self.logo.configure(background=es.FONDO)
         # Círculo base: piedra nocturna sobre obsidiana, borde de estuco.
         self.logo.create_oval(
-            1, 1, lado - 1, lado - 1, fill=es.SUPERFICIE,
+            p, p, lado - p, lado - p, fill=es.SUPERFICIE,
             outline=es.BORDE, width=1,
         )
-        # Alas jade: dos alas simétricas que suben desde el centro.
-        ala = [(c, lado - 6), (c - 9, c - 1), (c - 8, c - 5), (c - 1, c - 1)]
-        self.logo.create_polygon(*ala, fill=es.ACENTO, outline="")
-        ala_izq = [(c, lado - 6), (c + 9, c - 1), (c + 8, c - 5), (c + 1, c - 1)]
-        self.logo.create_polygon(*ala_izq, fill=es.ACENTO, outline="")
-        # Libro blanco ceniza en el centro, sobre las alas.
+        # Alas jade: dos triángulos en espejo exacto que suben desde el pie.
+        # El vértice inferior es el pliegue del libro; los dos superiores, las
+        # puntas. Sin sombra ni degradado: a este tamaño solo pide contorno.
         self.logo.create_polygon(
-            c - 4, c + 3, c - 1, c - 3, c + 1, c - 3, c + 4, c + 3,
+            c, 13.5 * p,
+            2.4 * p, 8.6 * p,
+            3.3 * p, 5.2 * p,
+            8.2 * p, 8.4 * p,
+            fill=es.ACENTO, outline="",
+        )
+        self.logo.create_polygon(
+            c, 13.5 * p,
+            (18 - 2.4) * p, 8.6 * p,
+            (18 - 3.3) * p, 5.2 * p,
+            (18 - 8.2) * p, 8.4 * p,
+            fill=es.ACENTO, outline="",
+        )
+        # Lomo blanco ceniza: una cuña vertical fina que separa las alas y
+        # remata la lectura de «libro» sin volver a introducir detalle ilegible.
+        self.logo.create_polygon(
+            8.4 * p, 13.0 * p,
+            9.0 * p, 4.6 * p,
+            9.6 * p, 13.0 * p,
             fill=es.TEXTO, outline="",
         )
 

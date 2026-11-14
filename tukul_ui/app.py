@@ -40,6 +40,7 @@ from tukul_core.threat_feed import ThreatFeedError, build_threat_context  # noqa
 from tukul_ui import contexto, proyectos, ui_state, ventana
 from tukul_ui import estilo as es
 from tukul_ui.chunk_buffer import ChunkBuffer
+from tukul_ui.components.app_icon import aplicar_icono
 from tukul_ui.components.assistant_panel import AssistantPanel
 from tukul_ui.components.editor_panel import EditorPanel
 from tukul_ui.components.top_bar import TopBar
@@ -194,6 +195,11 @@ class TukulApp(tk.Tk):
         self.barra: Any = None
         self._coste_reservado = False
         self.title("Tukul")
+        # Icono de ventana: el isotipo compacto, embebido en `app_icon` (el
+        # binario PyInstaller no lleva assets externos). La referencia se guarda
+        # en el atributo porque Tk no retiene el `PhotoImage`: sin ella, el
+        # recolector lo libera y la ventana pierde el icono.
+        self._icono_ventana = aplicar_icono(self)
         # Interruptor maestro del estilo visual de la aplicación: `ttk.Style`
         # sin él usa el tema nativo (clam/alt), que ignora los estilos definidos
         # en `_theme` y reintroduce el degradado gris de Tk en botones como

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="100%" height="100%" role="img" aria-label="Tukul — isotipo">
+  <!--
+    Isotipo compacto de Tukul, sin texto y sin fondo: la lectura del logotipo
+    `tukul-logo.svg` a tamaño de icono (favicon, cabecera, avatar).
+
+    Reproduce exactamente la geometría de la reducción de la cabecera
+    (`tukul_ui/components/top_bar.py::_pintar_logo`, LOGO = 18): círculo de
+    piedra nocturna, dos alas jade en espejo exacto respecto a x=9 y el lomo
+    blanco ceniza. Se omite a propósito el detalle completo —nodos de
+    inspiración, libro de dos páginas y base del tunkul— porque por debajo de
+    ~20 px se funde en un borrón; ese detalle vive en `tukul-logo.svg`.
+
+    Paleta idéntica a `tukul_ui/estilo.py` (tema oscuro):
+      superficie #161C24 · borde #2D3748 · acento jade #10B981 · texto #E2E8F0
+  -->
+  <!-- Círculo base: piedra nocturna con borde de estuco -->
+  <circle cx="9" cy="9" r="8" fill="#161C24" stroke="#2D3748" stroke-width="1" />
+  <!-- Alas jade: espejo exacto respecto al eje vertical x=9 -->
+  <polygon points="9,13.5 2.4,8.6 3.3,5.2 8.2,8.4" fill="#10B981" />
+  <polygon points="9,13.5 15.6,8.6 14.7,5.2 9.8,8.4" fill="#10B981" />
+  <!-- Lomo blanco ceniza: cuña vertical que remata la lectura de «libro» -->
+  <polygon points="8.4,13 9,4.6 9.6,13" fill="#E2E8F0" />
+</svg>

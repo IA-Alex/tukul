@@ -446,5 +446,38 @@ class TestVentanaReal(unittest.TestCase):
         self.assertEqual(self.app.review_button.cget("text"), "Revisar selección")
 
 
+class TestIconoDeVentana(unittest.TestCase):
+    """El icono de ventana: PNG embebido, válido y aplicado a la app.
+
+    Se embebe en `tukul_ui.components.app_icon` porque el binario PyInstaller se
+    construye sin `--add-data`: un asset externo leído en runtime dejaría al
+    binario distribuido sin icono. Estas pruebas fijan ese contrato.
+    """
+
+    def test_el_png_embebido_es_un_png_valido(self):
+        import base64
+
+        from tukul_ui.components import app_icon
+
+        datos = base64.b64decode(app_icon._ICONO_PNG_B64)
+        self.assertEqual(datos[:8], b"\x89PNG\r\n\x1a\n",
+                         "El icono embebido debe decodificar a un PNG real")
+
+    @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
+    def test_la_app_conserva_la_imagen_del_icono(self):
+        # Tk no retiene el PhotoImage: si la app no guarda la referencia, el
+        # recolector la libera y la ventana pierde el icono. El atributo es la
+        # referencia viva.
+        directorio = tempfile.TemporaryDirectory()
+        self.addCleanup(directorio.cleanup)
+        app = TukulApp(Path(directorio.name) / "config.toml")
+        self.addCleanup(app.destroy)
+        icono = app._icono_ventana
+        self.assertIsNotNone(icono, "La app debe aplicar el icono")
+        assert icono is not None  # estrecha el tipo para mypy
+        self.assertEqual((icono.width(), icono.height()),
+                         (64, 64), "El icono embebido es de 64x64")
+
+
 if __name__ == "__main__":
     unittest.main()

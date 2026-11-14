@@ -8,8 +8,16 @@
       izquierda y ala jade con plumas a la derecha).
     - El lomo central es una hoja ancha y redondeada, no una punta afilada.
     - Los nodos de inspiración forman un arco simétrico izquierda/derecha.
-    - El isotipo y el texto se centran en el lienzo con aire vertical uniforme.
+    - El isotipo y el texto se centran en el lienzo con aire vertical uniforme
+      (el isotipo sube a y=224: el bloque visual queda centrado en 300 ± 6).
     - Se retiran los glifos de fondo que quedaban pisados por las alas.
+    - El degradado jade ancla el verde de identidad #10B981 al 38% para que el
+      ala no se lea apagada en su extremo inferior (antes dominaba #064E3B).
+
+    Para la cabecera de la aplicación hay una reducción a 18 px en
+    `tukul_ui/components/top_bar.py::_pintar_logo`, que conserva solo lo que
+    sobrevive a esa escala (círculo, alas y lomo). Este SVG es la versión
+    completa y la fuente de la identidad; aquel, su lectura a tamaño de icono.
 
     Paleta (idéntica a `tukul_ui/estilo.py`):
       obsidiana #0D1117 · piedra #161C24 · estuco #2D3748
@@ -17,8 +25,8 @@
   -->
   <defs>
     <linearGradient id="jadeGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#064E3B" />
-      <stop offset="50%" stop-color="#10B981" />
+      <stop offset="0%" stop-color="#065F46" />
+      <stop offset="38%" stop-color="#10B981" />
       <stop offset="100%" stop-color="#34D399" />
     </linearGradient>
     <linearGradient id="amberGrad" x1="100%" y1="100%" x2="0%" y2="0%">
@@ -38,7 +46,7 @@
   <rect width="100%" height="100%" fill="#0D1117" />
 
   <!-- Isotipo, centrado en el lienzo (x=400) -->
-  <g transform="translate(400, 232)">
+  <g transform="translate(400, 224)">
 
     <!-- Círculo de piedra nocturna -->
     <circle cx="0" cy="0" r="132" fill="#161C24" stroke="#2D3748" stroke-width="3" />
