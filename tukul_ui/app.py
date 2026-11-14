@@ -13,7 +13,7 @@ from tkinter.scrolledtext import ScrolledText
 from typing import Any
 
 from tukul_core import storage
-from tukul_core.autosave import clear_autosave, read_autosave, write_autosave
+from tukul_core.autosave import clear_autosave, read_autosave
 from tukul_core.config_validator import validate_startup_config
 
 # Re-exportados para los consumidores y tests que aún los parchean/importan
@@ -47,6 +47,7 @@ from tukul_ui.credentials import CredentialStore, resolver_key
 from tukul_ui.dialogs import show_review_dialog, show_settings_dialog
 from tukul_ui.document_manager import DocumentManager
 from tukul_ui.document_scope import DocumentScope
+from tukul_ui.editor_session import AUTOSAVE_INTERVAL_MS, EditorSession  # noqa: F401
 from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from tukul_ui.ideas import IdeasController
 from tukul_ui.llm_session_manager import LLMSessionManager
@@ -96,8 +97,9 @@ MEMORY_ROOT = Path(
 MEMORY_INDEX_PATH = Path.home() / ".local" / "state" / "tukul" / "memory.sqlite3"
 # Caché local de entradas de fuentes oficiales para evitar consultas repetidas.
 FEED_CACHE_DIR = Path.home() / ".local" / "state" / "tukul" / "feed_cache"
-# Frecuencia del respaldo de recuperación: se escribe solo cuando hay cambios.
-AUTOSAVE_INTERVAL_MS = 5000
+# `AUTOSAVE_INTERVAL_MS` y las constantes de métricas viven en
+# `tukul_ui.editor_session` (donde se usan) y se re-exportan aquí para no
+# romper a quien las importe desde `app`.
 
 # Tamaño mínimo de la ventana. El ancho no es una preferencia estética: por
 # debajo de ~1100 px la barra superior no cabe (acciones + documento + estado +
@@ -283,8 +285,10 @@ class TukulApp(tk.Tk):
         # esta sesión hasta que la persona las quite.
         self.context_articles: list[ContextArticle] = []
         self.review_dialogs: list[tk.Toplevel] = []
-        self.stats_after: str | None = None
-        self.autosave_after: str | None = None
+        # Autosave y métricas del documento: temporizadores y cálculo viven en
+        # `EditorSession` (DF-001, ADR-0005). `stats_after`/`autosave_after` se
+        # exponen como properties de compatibilidad más abajo.
+        self._editor_session = EditorSession(self)
         self._ui_events_after: str | None = None
         self.report_callback_exception = self.handle_callback_error
         self.cancel_event: threading.Event | None = None
@@ -344,6 +348,24 @@ class TukulApp(tk.Tk):
     def _llaves_en_curso(self) -> dict[str, threading.Event]:
         """Compatibilidad: lecturas del llavero en curso (ver `_keys_llavero`)."""
         return self._credenciales._en_curso
+
+    @property
+    def autosave_after(self) -> str | None:
+        """Compatibilidad: temporizador del respaldo, dueño `EditorSession`."""
+        return self._editor_session.autosave_after
+
+    @autosave_after.setter
+    def autosave_after(self, valor: str | None) -> None:
+        self._editor_session.autosave_after = valor
+
+    @property
+    def stats_after(self) -> str | None:
+        """Compatibilidad: temporizador de métricas, dueño `EditorSession`."""
+        return self._editor_session.stats_after
+
+    @stats_after.setter
+    def stats_after(self, valor: str | None) -> None:
+        self._editor_session.stats_after = valor
 
     @property
     def key(self) -> str:
@@ -1369,29 +1391,16 @@ class TukulApp(tk.Tk):
         self.session.dirty=True; self._sincronizar_estado_sync("dirty"); self.update_context(); self.schedule_stats(); self._schedule_autosave()
 
     def _schedule_autosave(self) -> None:
-        """Programa (o rearma) el respaldo de recuperación tras una edición."""
-        if self.autosave_after is not None:
-            self.after_cancel(self.autosave_after)
-        self.autosave_after = self.after(AUTOSAVE_INTERVAL_MS, self._write_autosave)
+        """Delega en `EditorSession.schedule_autosave`."""
+        self._editor_session.schedule_autosave()
 
     def _write_autosave(self) -> None:
-        """Vuelca el editor al respaldo si sigue sucio; se rearma si hay que insistir."""
-        self.autosave_after = None
-        if self.closing:
-            return
-        if self.session.dirty and self.session.document_path is not None:
-            try:
-                write_autosave(self.session.document_path, self.editor.get("1.0", "end-1c"))
-            except tk.TclError:
-                return  # Ventana destruida mientras se volcaba.
-            self._schedule_autosave()
+        """Delega en `EditorSession.write_autosave`."""
+        self._editor_session.write_autosave()
 
     def _clear_current_autosave(self) -> None:
-        if self.session.document_path is not None:
-            clear_autosave(self.session.document_path)
-        if self.autosave_after is not None:
-            self.after_cancel(self.autosave_after)
-            self.autosave_after = None
+        """Delega en `EditorSession.clear_current_autosave`."""
+        self._editor_session.clear_current_autosave()
 
     def _replace_editor_text(self, content: str) -> None:
         """Sustituye el contenido del editor sin que cuente como edición del usuario.
@@ -1416,8 +1425,7 @@ class TukulApp(tk.Tk):
         self._suppress_modified = False
     def schedule_stats(self):
         """Reprograma la actualización de métricas del pie."""
-        if self.stats_after: self.after_cancel(self.stats_after)
-        self.stats_after=self.after(300,self.update_stats)
+        self._editor_session.schedule_stats()
     def update_context(self):
         """Alinea el botón de revisión y el pie con el ámbito del editor.
 
@@ -1440,19 +1448,8 @@ class TukulApp(tk.Tk):
         # La selección también cambia las métricas del pie: se refrescan junto al contexto.
         self.schedule_stats()
     def update_stats(self):
-        """Reescribe las métricas del pie: palabras y tiempo de lectura."""
-        self.stats_after=None
-        total=len(self.editor.get("1.0","end-1c").split())
-        seleccion=self.editor.get("sel.first","sel.last").strip() if self.editor.tag_ranges("sel") else ""
-        palabras_sel=len(seleccion.split()) if seleccion else 0
-        if total:
-            lectura=max(1,round(total/220))
-            if palabras_sel:
-                self.editor_stats.config(text=f"{palabras_sel} de {total:,} palabras · {lectura} min de lectura")
-            else:
-                self.editor_stats.config(text=f"{total:,} palabras · {lectura} min de lectura")
-        else:
-            self.editor_stats.config(text="0 palabras · 0 min de lectura")
+        """Reescribe las métricas del pie (delega en `EditorSession`)."""
+        self._editor_session.update_stats()
     def handle_callback_error(self, exc_type, exc_value, _traceback):
         """Manejador global de excepciones no controladas de Tkinter."""
         logger.exception("Excepción no controlada de Tkinter", exc_info=(exc_type, exc_value, _traceback))
@@ -2566,12 +2563,14 @@ class TukulApp(tk.Tk):
         destruida, dejando ruido «invalid command name» en la consola.
         """
         self.closing = True
-        for after_id in (self._ui_events_after, self.autosave_after, self.stats_after):
-            if after_id is not None:
-                try:
-                    self.after_cancel(after_id)
-                except tk.TclError:
-                    pass
+        if self._ui_events_after is not None:
+            try:
+                self.after_cancel(self._ui_events_after)
+            except tk.TclError:
+                pass
+        # Autosave y métricas: sus temporizadores los cancela y limpia el objeto
+        # extraído, que también tolera ids ya caducados.
+        self._editor_session.cancelar_temporizadores()
         self._esperar_hilos_de_peticion()
         self._esperar_hilos_de_keyring()
         super().destroy()

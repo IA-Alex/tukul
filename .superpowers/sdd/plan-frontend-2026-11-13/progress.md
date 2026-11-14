@@ -29,3 +29,18 @@ Spec/authority: auditoría `docs/audit/auditoria-frontend-2026-11-13.md` (DF-001
 - app.py: 2658 → 2611 líneas.
 
 Task 1: complete (tests: pytest tests/test_window_shell.py tests/test_tema.py tests/test_estado_ui.py → 68 passed en verde tras fix)
+
+Baseline confirmado: test_interfaz.py::test_el_boton_de_menu_no_hereda_el_ancho_del_desplegable
+falla ya en 4ffbeae (105 vs <100, métrica de fuente del entorno). Preexistente.
+
+## Tarea 2 (paso 3 ADR-0005): autosave + estadísticas → editor_session.py
+- Creado `tukul_ui/editor_session.py` (`EditorSession`): dueño de `autosave_after`
+  y `stats_after`, escritura del respaldo y cálculo de métricas del pie.
+- `TukulApp` conserva delegaciones (`_schedule_autosave`, `_write_autosave`,
+  `_clear_current_autosave`, `schedule_stats`, `update_stats`) y expone
+  `autosave_after`/`stats_after` como properties de compatibilidad.
+- Nuevo `tests/test_editor_session.py` (9 tests).
+- destroy() delega la cancelación de temporizadores en `cancelar_temporizadores()`.
+- Verificación: ruff limpio; mypy limpio (68 ficheros); test_editor_session 9/9,
+  TestAutosave 4/4, test_estado_ui 28/28, test_proyectos 17/17 (test_interfaz con
+  el fallo preexistente ajeno).
