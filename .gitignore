@@ -65,6 +65,10 @@ htmlcov/
 # Salida del navegador automatizado (Playwright MCP)
 .playwright-mcp/
 
+# Scratch de ejecución de planes (ledger SDD, briefs, paquetes de revisión).
+# Es material de proceso, no un entregable: la historia y los ADR son el registro.
+.superpowers/
+
 # Material de trabajo personal pesado (no versionado: mantiene el repo liviano).
 # Si necesitas compartir artículos, usa un repositorio o almacenamiento aparte.
 Articulos/*
