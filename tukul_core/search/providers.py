@@ -7,6 +7,8 @@ la búsqueda amplia y la verificación posterior de una fuente primaria.
 from __future__ import annotations
 
 import json
+import random
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +24,17 @@ GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 HTTP_TIMEOUT = 20
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 USER_AGENT = "Tukul/0.1 (búsqueda bajo demanda; no descarga artículos)"
+
+# GDELT limita el acceso sin key a ~1 petición cada 5 s por IP y responde 429
+# cuando se excede. A diferencia de los adaptadores de feed, este proveedor no
+# reintentaba: cualquier ráfaga o cuota compartida agotada devolvía error y cero
+# resultados. Se acota con reintentos y un intervalo mínimo entre llamadas,
+# mismo patrón que `nvd.py::_sleep` y `arxiv.py::_wait_for_rate_limit`.
+GDELT_MIN_REQUEST_INTERVAL = 5.0
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 3
+BACKOFF_BASE_SECONDS = 1.0
+BACKOFF_MAX_SECONDS = 8.0
 
 
 class SearchProvider(ABC):
@@ -42,13 +55,25 @@ class SearchProvider(ABC):
 class GdeltProvider(SearchProvider):
     """Descubrimiento global sin API key, usando GDELT DOC 2.0."""
 
+    def __init__(self) -> None:
+        # Marca temporal de la última petición, para respetar el intervalo
+        # mínimo entre llamadas del mismo proveedor.
+        self._last_request_at = 0.0
+
     @property
     def provider_id(self) -> str:
         return "gdelt"
 
     def search(self, query: SearchQuery) -> list[SearchResult]:
+        """Busca en GDELT DOC 2.0 con reintentos y respeto del rate-limit.
+
+        GDELT responde 429 cuando se supera ~1 petición/5 s por IP. Se
+        reintenta de forma acotada ante estados transitorios (respetando
+        `Retry-After` si viene) y se espera el intervalo mínimo entre
+        llamadas del mismo proceso.
+        """
         params = urllib.parse.urlencode({
-            "query": query.text,
+            "query": self._build_query(query),
             "mode": "artlist",
             "format": "json",
             "maxrecords": query.max_results,
@@ -60,7 +85,7 @@ class GdeltProvider(SearchProvider):
             headers={"Accept": "application/json", "User-Agent": USER_AGENT},
         )
         try:
-            response = NO_REDIRECT_OPENER.open(request, timeout=HTTP_TIMEOUT)
+            response = self._open_with_retry(request)
             body = self._read_bounded(response)
             payload = json.loads(body.decode("utf-8"))
         except urllib.error.HTTPError as error:
@@ -73,6 +98,69 @@ class GdeltProvider(SearchProvider):
         if not isinstance(payload, dict) or not isinstance(payload.get("articles"), list):
             return []
         return [result for item in payload["articles"] if (result := self._normalize(item))]
+
+    @staticmethod
+    def _build_query(query: SearchQuery) -> str:
+        """Combina el texto con el filtro de idioma de GDELT si se pidió uno.
+
+        GDELT filtra por idioma con el operador `sourcelang:` dentro de la
+        query (no hay parámetro aparte). Se espera el nombre del idioma en
+        inglés (`spanish`, `english`, …), que es lo que GDELT documenta.
+        """
+        if query.language:
+            return f"{query.text} sourcelang:{query.language}"
+        return query.text
+
+    def _open_with_retry(self, request: urllib.request.Request) -> Any:
+        """Abre la conexión reintentando solo errores transitorios.
+
+        Antes, un 429 devolvía error de inmediato: cualquier ráfaga o cuota
+        compartida agotada dejaba la búsqueda sin resultados. Se reintenta
+        `MAX_ATTEMPTS` veces con backoff exponencial y jitter, respetando
+        `Retry-After` cuando el proveedor lo envía. Los errores no
+        reintentables se relanzan tal cual.
+        """
+        last_error: BaseException | None = None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                self._wait_for_rate_limit()
+                return NO_REDIRECT_OPENER.open(request, timeout=HTTP_TIMEOUT)
+            except urllib.error.HTTPError as error:
+                last_error = error
+                if error.code not in RETRYABLE_STATUS or attempt == MAX_ATTEMPTS:
+                    raise
+                self._sleep(error, attempt)
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                last_error = error
+                if attempt == MAX_ATTEMPTS:
+                    raise
+                self._sleep(None, attempt)
+        raise last_error  # type: ignore[misc]  # inalcanzable: el bucle siempre retorna o relanza
+
+    def _wait_for_rate_limit(self) -> None:
+        """Espera lo necesario para respetar el intervalo mínimo entre llamadas.
+
+        GDELT pide ~1 petición cada 5 s por IP sin key. El estado es de
+        instancia: una ráfaga dentro del mismo proveedor no dispara el 429.
+        """
+        ahora = time.monotonic()
+        espera = GDELT_MIN_REQUEST_INTERVAL - (ahora - self._last_request_at)
+        if espera > 0:
+            time.sleep(espera)
+        self._last_request_at = time.monotonic()
+
+    def _sleep(self, error: urllib.error.HTTPError | None, attempt: int) -> None:
+        """Backoff exponencial con jitter; respeta `Retry-After` si viene."""
+        delay = min(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_MAX_SECONDS)
+        if error is not None:
+            retry_after = error.headers.get("Retry-After") if error.headers else None
+            if retry_after:
+                try:
+                    delay = min(max(float(retry_after), 0.0), BACKOFF_MAX_SECONDS)
+                except (ValueError, TypeError):
+                    pass
+        delay += delay * 0.25 * random.random()
+        time.sleep(delay)
 
     def _normalize(self, item: Any) -> SearchResult | None:
         if not isinstance(item, dict):
