@@ -73,6 +73,14 @@ flowchart LR
 - **Caché:** `FeedCache` con TTL (por defecto 15 min) en
   `~/.local/state/tukul/feed_cache`. El detalle de diseño está en
   [ADR-0003](decisions/ADR-0003-real-time-query-and-impact-suggestions.md).
+- **API programática sin consumidor de UI:** `FeedOrchestrator.available_sources()`
+  y los protocolos `anthropic_messages`/`gemini_generate_content` de
+  `LLMClient` se mantienen como API de `tukul_core` para consumidores
+  programáticos y perfiles personalizados, no como controles de la interfaz.
+  `build_threat_context(include_mitre=…, include_arxiv=…)` también es API
+  programática: el diálogo de contexto CVE consume hoy solo NVD + EPSS + KEV. El
+  motivo de cada superficie está en
+  [ADR-0004](decisions/ADR-0004-feed-y-busqueda-sin-consumidor-ui.md).
 
 ## Request lifecycle y concurrencia
 
