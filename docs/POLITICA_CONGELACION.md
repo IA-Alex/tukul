@@ -1,23 +1,22 @@
-# Política de congelación — Tukul `0.7.1`
+# Política de congelación — Tukul `0.8.0`
 
-**Estado:** VALIDADO EN CÓDIGO, PENDIENTE DE PUBLICACIÓN (push + Release).
-**Vigente desde:** 2026-11-15 (parche `0.7.1`); contrato abierto el 2026-11-14.
-**Base del contrato:** `docs/contracts/contratos-0.7.md`.
-**Sucede a:** `0.6.0`/`0.6.1` (dictamen `docs/audit/cierre-2026-11-13-final.md`,
-CERRADO). La rama `0.6.x` queda cerrada y no admite más parches: los defectos
-nuevos se atienden por este contrato o por uno posterior.
+**Estado:** CONTRATO NUEVO ABIERTO (corte en curso de `0.8.0`).
+**Vigente desde:** 2026-11-15. La política de `0.7.1` queda cerrada en
+`0.7.2` (dictamen `docs/audit/cierre-0.7.1.md`, CERRADO).
+**Base del contrato:** `docs/contracts/contratos-0.8.md`.
+**Sucede a:** `0.7.0`/`0.7.1`/`0.7.2`. La rama `0.7.x` no admite más parches:
+los defectos nuevos se atienden por este contrato o por uno posterior.
 
 ## Qué significa «contrato nuevo»
 
 A diferencia de la congelación de `0.6.0`, `0.7.0` **sí incorpora funciones y
-refactorizaciones** (autoindexado, fuentes de IA, extracción de `TukulApp`). La
+refactorizaciones**, y `0.8.0` cambia el **diseño del prompt de sistema**. La
 congelación de `0.6.0` solo aceptaba correcciones; estas capacidades no encajan
 en ninguna categoría de corrección, así que abren contrato, no lo descongelan.
 
-El criterio de cierre es el de `docs/contracts/contratos-0.7.md`: capacidades
-esenciales (F1–F4) verificadas, refactorización por responsabilidades sin cambio
-de comportamiento observable, y correspondencia código ↔ artefacto ↔ versión
-(`tag = HEAD`).
+El criterio de cierre es el de `docs/contracts/contratos-0.8.md`: capacidades
+esenciales (F5–F6) verificadas —prompt por modo y defensa común— con los evals
+verdes, y correspondencia código ↔ artefacto ↔ versión (`tag = HEAD`).
 
 ## Qué es una corrección (y qué no)
 
@@ -43,29 +42,29 @@ pase después**.
   no **incumplidos**. Abren contrato nuevo, no bloquean `0.7.0`.
 - Cambios de dependencias no motivados por un defecto o una CVE.
 
-## Procedimiento de corte de `0.7.x`
+## Procedimiento de corte de `0.8.x`
 
-1. **Declarar el alcance.** Capacidades esenciales F1–F4 y refactorización
-   DF-001/ADR-0005, con criterio de aceptación verificable cada una
-   (`docs/contracts/contratos-0.7.md`).
+1. **Declarar el alcance.** Capacidades esenciales F5–F6 (prompt por modo y
+   defensa común), con criterio de aceptación verificable cada una
+   (`docs/contracts/contratos-0.8.md`).
 2. **Coherencia de versión.** `pyproject.toml`, `uv.lock` y `--health`
-   reportan la versión de la entrega (`0.7.1` desde el parche visual);
-   `uv lock --check` limpio.
+   reportan la versión de la entrega (`0.8.0`); `uv lock --check` limpio.
 3. **Gate completo.** `./scripts/quality-gate.sh` en verde (0 omitidas,
    cobertura ≥ 70 %).
-4. **Cortar el tag.** Tag anotado de la entrega (`v0.7.1`, que contiene
-   `v0.7.0`) sobre el HEAD validado; `git describe --tags` → `v0.7.1` limpio.
-   Push/Release es acción externa: se pide confirmación antes.
-5. **Verificar en destino.** `sha256sum -c`, `--health`, `cosign verify-blob`
+4. **Evals verdes.** Los tres `promptfooconfig*.yaml` al 100 %: la separación
+   por modo no puede ganar naturalidad a costa de la resistencia a inyección.
+5. **Cortar el tag.** Tag anotado de la entrega (`v0.8.0`) sobre el HEAD
+   validado; `git describe --tags` → `v0.8.0` limpio. Push/Release es acción
+   externa: se pide confirmación antes.
+6. **Verificar en destino.** `sha256sum -c`, `--health`, `cosign verify-blob`
    sobre lo descargado, no sobre lo construido.
-6. **Actualizar el dictamen.** Registrar el cierre y la evidencia; el dictamen
-   pasa a CERRADO con la deuda viva enumerada.
 
 ## Reglas que no se negocian
 
-- **Nunca se reescribe un tag publicado.** `0.6.0` y `0.6.1` quedan como
-  están, aunque tuvieran defectos: los defectos nuevos se atienden por contrato
-  nuevo. Reescribir un tag invalida toda firma que alguien haya verificado.
+- **Nunca se reescribe un tag publicado.** `0.6.0`, `0.6.1`, `0.7.0`,
+  `0.7.1` y `0.7.2` quedan como están, aunque tuvieran defectos: los nuevos
+  se atienden por contrato nuevo. Reescribir un tag invalidaría firmas
+  verificadas.
 - **Un release firmado no se reemplaza.** Si el artefacto está mal, se publica
   otro y se marca el anterior como retirado, sin borrar la evidencia.
 - **Sin `|| true` en firma ni verificación.** Un fallo de firma detiene la
@@ -77,8 +76,8 @@ pase después**.
 1. Reproducir y documentar  →  docs/audit/defecto-<fecha>.md
 2. Clasificar               →  defecto confirmado / regresión
 3. Prueba de regresión      →  falla antes, pasa después
-4. Gate                     →  827+ pruebas, 0 omitidas
-5. Publicar                  →  v0.7.x firmada
+4. Gate                     →  858+ pruebas, 0 omitidas
+5. Publicar                  →  v0.8.x firmada
 6. Verificar en destino      →  checksum + health + cosign
 ```
 

@@ -4,6 +4,49 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.8.0] - 2026-11-15
+
+Ciclo nuevo tras `0.7.2`. A diferencia de los parches `0.7.x`, cambia el
+**diseño del prompt de sistema**: no había una promesa incumplida, sino un
+comportamiento incoherente con la naturaleza del editor. Contrato:
+[`docs/contracts/contratos-0.8.md`](docs/contracts/contratos-0.8.md).
+
+### Añadido
+
+- **Prompt de sistema por modo (F5).** `tukul_core/prompts.py` separa
+  `conversacion`, `revision` y `enriquecimiento`. Antes un único
+  `SYSTEM_PROMPT` servía a las tres tareas y el contrato de revisión —más de
+  la mitad del texto— contaminaba las otras.
+- **Defensa común compartida (F6).** `BASE_SEGURIDAD` se escribe una vez y
+  viaja en los tres modos; un test impide que algún modo la pierda y otro que
+  los prompts la dupliquen (lo que los desincronizaría en el próximo
+  endurecimiento).
+- **Eval funcional** (`evals/promptfooconfig_funcional.yaml`): 9 casos dorados
+  con aserciones de *faithfulness* y *relevancia*, que el eval existente no
+  medía.
+
+### Corregido
+
+- **El chat ya no responde como revisor.** En modo conversación el modelo
+  recibía «devuelve el contrato JSON de la revisión» y, al preguntarle qué es
+  Tukul, describía su propio rol de guardián en lugar de hablar del artículo.
+  Ahora responde sobre el texto: *«Tu artículo habla de paneles solares,
+  destacando que su eficiencia mejora año tras año…»*.
+
+### Sin cambios
+
+- El contrato de revisión se conserva **íntegro**: 14/14 del eval de seguridad,
+  8/8 del eval base y 7/7 del conversacional siguen en verde.
+- `SYSTEM_PROMPT` sigue existiendo como alias del modo revisión y `complete()`
+  sin `modo` conserva el comportamiento histórico, para no romper llamadores
+  programáticos de `tukul_core`.
+
+### Medido
+
+- Contrato 45/45, *faithfulness* 45/45, alucinación en artículo limpio 0/10,
+  *correctness* 95 %, P95 2,9 s, `pass^5` 80 % (el único caso inestable es
+  ortografía básica, 1 de 5 ejecuciones: varianza del modelo).
+
 ## [0.7.2] - 2026-11-15
 
 Corrección del fallo de entrega detectado al publicar `0.7.1`: el job `test`
