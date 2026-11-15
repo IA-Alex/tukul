@@ -21,10 +21,10 @@ class AssistantPanel(ttk.Labelframe):
         # tooltip de «Enviar».
         self.guia = ttk.Frame(self, style="Superficie.TFrame")
         self.guia.pack(side="top", fill="x", pady=(0, es.ESP["sm"]))
-        ttk.Label(self.guia,
-                  text="Pregunta sobre el artículo, una selección o su estructura.",
-                  style="PanelMeta.TLabel", wraplength=520, justify="left").pack(
-                      anchor="w")
+        self.guia_label = ttk.Label(self.guia,
+                                    text="Pregunta sobre el artículo, una selección o su estructura.",
+                                    style="PanelMeta.TLabel", justify="left")
+        self.guia_label.pack(anchor="w")
 
         # Orden de `pack` deliberado: con pack, lo que se coloca DESPUÉS se
         # recorta primero cuando falta espacio. Por eso los controles de abajo
@@ -69,11 +69,44 @@ class AssistantPanel(ttk.Labelframe):
 
         # Nace oculto: solo aparece cuando existe una petición cancelable.
         # Así «Respuesta completa» no deja un botón visible que ya no puede actuar.
-        self.cancel_button = ttk.Button(self.fila_acciones, text="Cancelar",
+        #
+        # Reparto de la fila (ver `mostrar_cancelar`): al aparecer «Cancelar» su
+        # columna propia se reserva con su ancho real y la de la izquierda
+        # absorbe el déficit, de modo que la fila nunca sobrepasa el panel. Ese
+        # déficit se reparte en proporción y recae sobre la acción secundaria
+        # («Limpiar»), no sobre «Revisar artículo» (el trabajo principal del
+        # panel) ni sobre «Cancelar» (la salida de un envío en curso).
+        self.fila_acciones.columnconfigure(0, weight=1)
+        self.fila_acciones.columnconfigure(1, weight=0)
+        self.fila_acciones.rowconfigure(0, weight=1)
+
+        self.cancel_button = ttk.Button(self.fila_acciones, text="Cancelar", width=0,
                                         style="Inactivo.TButton",
                                         command=self.callbacks["cancel_request"], state="disabled")
-        self.cancel_button.pack(side="right", padx=(0, es.ESP["sm"]))
-        self.review_button = ttk.Button(self.fila_acciones, text="Revisar artículo",
+        # Aún no se coloca: `mostrar_cancelar` lo hace cuando hay una consulta
+        # en curso y reserva su columna; en reposo la fila no deja un hueco.
+        self.cancel_button.grid(row=0, column=1, sticky="ew", padx=(es.ESP["md"], 0))
+        self.cancel_button.grid_remove()
+
+        self.acciones_izquierda = ttk.Frame(self.fila_acciones, style="Superficie.TFrame")
+        self.acciones_izquierda.grid(row=0, column=0, sticky="w")
+
+        self.estado_label = ttk.Label(self, style="Superficie.TLabel",
+                                      font=es.fuente(es.TIPO_SM, negrita=True))
+        self.estado_label.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
+
+        self.estado_ayuda = ttk.Label(self, style="TenueSuperficie.TLabel",
+                                      wraplength=300, justify="left")
+        self.estado_ayuda.pack(side="bottom", fill="x", pady=(2, es.ESP["sm"]))
+
+        # Sobre `SUPERFICIE_ALTA`, igual que el compositor que tiene escalonado
+        # debajo: antes usaba el estilo de superficie y la etiqueta se veía como
+        # un bloque de otro tono encajado entre las acciones y el campo.
+        self.cost_label = ttk.Label(self, style="TenueSuperficieAlta.TLabel",
+                                    wraplength=300, justify="left")
+        self.cost_label.pack(side="bottom", fill="x", pady=(es.ESP["xs"], 0))
+
+        self.review_button = ttk.Button(self.acciones_izquierda, text="Revisar artículo",
                                         style="Secundaria.TButton",
                                         command=self.callbacks["review"])
         self.review_button.pack(side="left")
@@ -86,25 +119,13 @@ class AssistantPanel(ttk.Labelframe):
 
         # «Limpiar» se alinea con «Revisar» a la izquierda: las dos actúan sobre
         # la conversación y comparten estilo; «Cancelar» queda solo a la derecha.
-        self.clear_button = ttk.Button(self.fila_acciones, text="Limpiar",
+        self.clear_button = ttk.Button(self.acciones_izquierda, text="Limpiar",
                                        style="Secundaria.TButton",
                                        command=self.callbacks["clear_history"])
-        self.clear_button.pack(side="left", padx=(es.ESP["sm"], 0))
+        self.clear_button.pack(side="left", padx=(es.ESP["xs"], 0))
         ToolTip(self.clear_button,
                 "Borra la conversación de este artículo. Pide confirmación y "
                 "no actúa durante una consulta en curso.")
-
-        self.estado_label = ttk.Label(self, style="Superficie.TLabel",
-                                      font=es.fuente(es.TIPO_SM, negrita=True))
-        self.estado_label.pack(side="bottom", fill="x", pady=(es.ESP["sm"], 0))
-
-        self.estado_ayuda = ttk.Label(self, style="TenueSuperficie.TLabel",
-                                      wraplength=300, justify="left")
-        self.estado_ayuda.pack(side="bottom", fill="x", pady=(2, es.ESP["sm"]))
-
-        self.cost_label = ttk.Label(self, style="TenueSuperficie.TLabel",
-                                    wraplength=300, justify="left")
-        self.cost_label.pack(side="bottom", fill="x", pady=(es.ESP["xs"], 0))
 
         # El historial es lo único expansible: va al final para ceder espacio
         # antes que cualquier control.
@@ -131,19 +152,31 @@ class AssistantPanel(ttk.Labelframe):
         # Oculta inicialmente
         self.barra_aprobacion.pack_forget()
 
-        # Los tres textos que se justifican a la izquierda iban con un
+        # Los textos que se justifican a la izquierda iban con un
         # `wraplength` fijo de 300 px: en un panel ancho dejaban media columna
         # vacía y en uno estrecho desbordaban. Ahora el salto acompaña al ancho
-        # real del panel y el bloque queda alineado con el compositor.
-        self._textos_ajustables = (self.estado_ayuda, self.cost_label, self.aprobacion_label)
+        # real del panel y el bloque queda alineado con el compositor. La guía
+        # superior tenía el mismo problema con 520 px fijos: en el panel de
+        # ancho por defecto (426 px) se cortaba a media palabra («…su estruc»).
+        self._textos_ajustables = (self.guia_label, self.estado_ayuda, self.cost_label,
+                                   self.aprobacion_label)
         self.bind("<Configure>", self._ajustar_salto_de_linea)
 
     def _ajustar_salto_de_linea(self, event: tk.Event) -> None:
-        """Recalcula el ancho de texto según el panel (rejilla de 4)."""
+        """Recalcula el ancho de texto según el panel (rejilla de 4).
+
+        Una etiqueta que está fuera del gestor (`pack_forget`) devuelve una
+        cadena vacía en `wraplength`: se lee como «sin valor» y se le fija el
+        nuevo para que aparezca ya envuelta cuando vuelva a mostrarse.
+        """
         disponible = max(es.ESP["lg"] * 8, event.width - 2 * es.ESP["md"])
         ancho = int(disponible // es.ESP["xs"]) * es.ESP["xs"]
         for etiqueta in self._textos_ajustables:
-            if int(float(etiqueta.cget("wraplength"))) != ancho:
+            try:
+                actual = int(float(etiqueta.cget("wraplength") or 0))
+            except (tk.TclError, TypeError, ValueError):
+                actual = 0
+            if actual != ancho:
                 etiqueta.config(wraplength=ancho)
 
     def _iniciar_resize_input(self, evento: tk.Event) -> None:
@@ -180,6 +213,30 @@ class AssistantPanel(ttk.Labelframe):
     def hide_approval(self) -> None:
         if self.barra_aprobacion.winfo_ismapped():
             self.barra_aprobacion.pack_forget()
+
+    def mostrar_cancelar(self, visible: bool) -> None:
+        """Muestra u oculta «Cancelar» con su ancho real, siempre completo.
+
+        La fila mide lo que mida el panel y sus tres acciones no caben juntas
+        en el ancho por defecto. Reparto:
+
+        - **«Cancelar»** ocupa su propia columna (``grid``) con su ancho real:
+          bajo ``pack`` recibía «lo que sobrara» y se cortaba a media palabra
+          («Cance»). Es la salida de un envío en curso; no puede truncarse.
+        - **«Revisar artículo»** es el trabajo principal del panel y conserva
+          su texto entero.
+        - **«Limpiar»** es la acción secundaria: cede primero acortándose
+          (`width`) mientras hay una consulta en curso. Al terminar recupera su
+          ancho natural y la fila vuelve a su estado de reposo.
+        """
+        if visible:
+            self.clear_button.pack_configure(padx=0)
+            self.clear_button.configure(width=6)
+            self.cancel_button.grid()
+        else:
+            self.clear_button.pack_configure(padx=(es.ESP["xs"], 0))
+            self.clear_button.configure(width=0)
+            self.cancel_button.grid_remove()
 
     def set_clear_enabled(self, enabled: bool) -> None:
         """Habilita o deshabilita «Limpiar» según haya conversación."""

@@ -7,6 +7,7 @@ from tkinter import ttk
 from typing import TYPE_CHECKING, Any
 
 from tukul_ui import estilo as es
+from tukul_ui import ventana
 from tukul_ui.tooltip import ToolTip
 
 if TYPE_CHECKING:  # evita el import circular: app importa TopBar
@@ -43,8 +44,18 @@ class TopBar(ttk.Frame):
     # con cada perfil: medido en caracteres, un id largo seguía desbordando.
     ANCHO_MODELO = 140
     # Por debajo de este ancho de ventana el estado del documento se retira
-    # para dejar sitio al nombre del artículo (ver `_ajustar_por_ancho`).
-    ANCHO_ESTADO = 1080
+    # para dejar sitio al nombre del artículo (ver `_ajustar_por_ancho`). Se
+    # compara con `ventana.ANCHO_MINIMO_VENTANA + 8` porque Tk reparte 8 px
+    # menos que la geometría pedida (lienzo interior), y con el umbral igual al
+    # mínimo el estado seguía ocupando 119 px justo en la ventana mínima y el
+    # nombre caía a 3 px.
+    ANCHO_ESTADO = ventana.ANCHO_MINIMO_VENTANA + 8
+    # Por debajo de este ancho se retiran además los controles de
+    # configuración (Contexto, Modelo, Tema). Medido en la ventana real: a
+    # 1120 px el nombre del artículo se quedaba en 3 px porque esos tres
+    # controles conservaban su ancho completo. Siguen accesibles desde el menú
+    # (Configurar modelo, Contexto de artículos) y con sus atajos.
+    ANCHO_SECUNDARIOS = 1280
     # Ancho máximo del nombre del artículo, en píxeles. El recorte era por
     # caracteres (`nombre[:41]`): con una fuente ancha o con zoom, 41 caracteres
     # desbordaban, y con una estrecha se perdía nombre que cabía. Se mide con la
@@ -255,10 +266,59 @@ class TopBar(ttk.Frame):
             return
         if ancho <= 1:  # todavía sin geometría: no se decide nada
             return
-        if ancho < self.ANCHO_ESTADO:
-            self.sync_label.grid_remove()
-        else:
+        desplazamiento = self._desplazamiento_por_ancho(ancho)
+        self._aplicar_desplazamiento(desplazamiento)
+
+    @classmethod
+    def _desplazamiento_por_ancho(cls, ancho: int) -> dict[str, bool]:
+        """Qué piezas se retiran con este ancho de barra.
+
+        El nombre del artículo es la última pieza que cede: sin él la barra no
+        responde «qué tengo abierto», que es el único dato que no está en
+        ningún otro sitio de la pantalla. Por eso el orden de cesión es
+        estado → controles de configuración, y el nombre nunca se retira.
+
+        Se calcula aparte del pintado para poder probarlo con anchos sintéticos
+        sin depender de que Tk reparta el espacio como en un escritorio real.
+        """
+        return {
+            "estado": ancho >= cls.ANCHO_ESTADO,
+            "secundarios": ancho >= cls.ANCHO_SECUNDARIOS,
+        }
+
+    def _aplicar_desplazamiento(self, desplazamiento: dict[str, bool]) -> None:
+        """Pinta la barra retirando (o reponiendo) las piezas que no caben.
+
+        Con pack, lo colocado después se recorta primero: al retirar las piezas
+        de configuración, el hueco elástico del centro reparte el ancho sobrante
+        hacia el nombre del artículo. El umbral protege además del caso medido:
+        a 1120 px el nombre se quedaba en 3 px porque los tres controles de la
+        derecha conservaban su ancho completo.
+        """
+        piezas = (
+            ("contexto", self.references_button),
+            ("modelo", self.profile_chip),
+            ("separador", self.separador),
+            ("tema", self.boton_tema),
+        )
+        if desplazamiento["estado"]:
             self.sync_label.grid()
+        else:
+            self.sync_label.grid_remove()
+        if not desplazamiento["secundarios"]:
+            for _nombre, pieza in piezas:
+                pieza.pack_forget()
+            return
+        # Se reponen de derecha a izquierda porque `pack(side="right")` apila
+        # en el orden inverso al de las llamadas; el resultado es el mismo
+        # orden visual que al construirlos.
+        for _nombre, pieza in piezas:
+            pieza.pack_forget()
+        self.separador.pack(side="right", fill="y", pady=es.ESP["sm"],
+                            padx=(es.ESP["sm"], es.ESP["xs"]), before=self.boton_panel)
+        self.boton_tema.pack(side="right", padx=(0, es.ESP["xs"]), before=self.separador)
+        self.profile_chip.pack(side="right", padx=(0, es.ESP["xs"]), before=self.boton_tema)
+        self.references_button.pack(side="right", before=self.profile_chip)
 
     def _texto_modelo(self) -> str:
         """Nombre del modelo, recortado por píxeles para que el chip no crezca.

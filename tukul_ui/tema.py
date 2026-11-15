@@ -86,6 +86,11 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
                     font=es.fuente(es.TIPO_SM))
     style.configure("TenueSuperficie.TLabel", background=es.SUPERFICIE,
                     foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
+    # Texto tenue sobre la superficie elevada: lo usan las notas que viven
+    # encima del compositor (aviso de uso) y así no abren un bloque de otro
+    # tono dentro del panel.
+    style.configure("TenueSuperficieAlta.TLabel", background=es.SUPERFICIE_ALTA,
+                    foreground=es.TEXTO_TENUE, font=es.fuente(es.TIPO_SM))
     style.configure("Titulo.TLabel", background=es.SUPERFICIE, foreground=es.TEXTO,
                     font=es.fuente(negrita=True))
     # Marca de la cabecera: «Tukul» junto al logotipo. Texto primario en negrita
@@ -105,14 +110,15 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
     style.configure("Pie.TFrame", background=es.FONDO)
     style.configure("Pie.TLabel", background=es.FONDO, foreground=es.TEXTO_TENUE,
                     font=es.fuente(es.TIPO_SM))
-    # El divisor es una señal de ajuste, no un borde de panel dominante.
-    # El divisor es una herramienta de trabajo: una zona de 10 px y un
-    # pequeño agarre visual hacen evidente que se puede arrastrar con el ratón.
-    # El sash es una pieza accionable (se arrastra): 1.4.11 le exige 3:1,
-    # así que usa `BORDE_CONTROL` y no la divisoria discreta.
-    style.configure("TPanedwindow", background=es.BORDE)
+    # El divisor es una herramienta de trabajo: un carril fino que anuncia que
+    # se puede arrastrar, no un borde de panel. El sash es accionable (1.4.11
+    # le exige 3:1) y sigue usando `BORDE_CONTROL` sobre el fondo (3.78:1
+    # oscuro, 3.60:1 claro), pero sin grosor de tubo ni marcas de agarre: a 10
+    # px con `gripcount=5` se leía como un panel de app antigua y robaba ancho
+    # al artículo. El cursor de arrastre ya anuncia la affordance.
+    style.configure("TPanedwindow", background=es.FONDO)
     style.configure("Sash", background=es.BORDE_CONTROL, bordercolor=es.BORDE_CONTROL,
-                    sashthickness=10, gripcount=5, lightcolor=es.BORDE_CONTROL,
+                    sashthickness=1, gripcount=0, lightcolor=es.BORDE_CONTROL,
                     darkcolor=es.BORDE_CONTROL)
     # Paneles sin marco: la separación la dan la superficie y el divisor.
     style.configure("TLabelframe", background=es.SUPERFICIE,
@@ -153,6 +159,10 @@ def aplicar_estilos(raiz: tk.Tk, tema: str, reaplicar_widgets: Callable[[], None
                     padding=(es.ESP["sm"], es.ESP["xs"] + 1))
     style.map("Guardar.TButton", background=estados_fondo, foreground=estados_texto,
               bordercolor=estados_borde)
+    # Sin `width`: en `clam` el botón mide lo que pide su etiqueta. Un ancho
+    # fijo (en caracteres de la fuente media del tema) parece darles la misma
+    # anchura, pero además trunca el texto con «…» en cuanto no cabe. La
+    # simetría real la da la disposición de la fila (ver `assistant_panel`).
     style.configure("Secundaria.TButton", background=es.SUPERFICIE_ALTA,
                     foreground=es.FOCO, bordercolor=es.FOCO, relief="flat",
                     focuscolor=es.FOCO, font=es.fuente(negrita=True),

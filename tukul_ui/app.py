@@ -641,11 +641,20 @@ class TukulApp(tk.Tk):
         self._reaplicar_tema_hooks = vivos
 
     def _text(self, parent, **kwargs):
-        """Área de texto del sistema, con foco visible por teclado."""
+        """Área de texto del sistema, con foco visible por teclado.
+
+        `width` se fija a 1 a propósito: sin él, el widget hereda de Tk un
+        ancho de 80 CARACTERES como tamaño *solicitado* (~898 px con la fuente
+        del tema). El panel del asistente pedía entonces 1123 px, más que la
+        ventana por defecto, y `pack` recortaba su columna derecha. Pidiendo lo
+        mínimo, el espacio lo reparte el gestor de geometría y el área crece
+        hasta llenar su contenedor, como corresponde a una zona flexible.
+        """
         options = {
             "background": es.SUPERFICIE_ALTA, "foreground": es.TEXTO,
             "insertbackground": es.ACENTO, "selectbackground": es.SELECCION,
             "relief": "flat", "borderwidth": 0, "font": es.fuente(),
+            "width": 1,
             # El recuadro de foco es obligatorio para navegar con teclado.
             "highlightthickness": 1, "highlightbackground": es.SUPERFICIE,
             "highlightcolor": es.FOCO,
@@ -1218,18 +1227,21 @@ class TukulApp(tk.Tk):
         self._sincronizar_acciones(estado)
 
     def _vestir_cancelar(self, activo: bool) -> None:
-        """Visibiliza «Cancelar» solo mientras existe una petición cancelable."""
+        """Visibiliza «Cancelar» solo mientras existe una petición cancelable.
+
+        Se construye con estilo «Inactivo» (sin borde) para que, cuando se
+        muestra, el cambio a botón normal no altere su ancho; oculto, no ocupa
+        sitio en la fila. La colocación en su columna vive en
+        `AssistantPanel.mostrar_cancelar`: el panel es el dueño de su fila de
+        acciones y el único que conoce su geometría.
+        """
         cancelar = _widget_propio(self, "cancel_button")
         if cancelar is not None and callable(getattr(cancelar, "configure", None)):
             _vestir_cancelar(cancelar, activo)
-            try:
-                if activo:
-                    if not cancelar.winfo_ismapped():
-                        cancelar.pack(side="right", padx=(0, es.ESP["sm"]))
-                else:
-                    cancelar.pack_forget()
-            except (tk.TclError, AttributeError, TypeError):
-                pass
+            panel = _widget_propio(self, "panel_asistente")
+            mostrar = getattr(panel, "mostrar_cancelar", None)
+            if callable(mostrar):
+                mostrar(activo)
 
     def _sincronizar_acciones(self, estado: EstadoUI) -> None:
         """Habilita las acciones según haya o no una consulta viva.
