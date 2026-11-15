@@ -1,0 +1,138 @@
+# Eval funcional: ¿revisa bien, o solo cumple el contrato?
+#
+# Los evals anteriores miden el CONTRATO (JSON válido, sin inyección). Este
+# miden CALIDAD: faithfulness, relevancia, alucinación, consistencia.
+#
+#   export DEEPINFRA_API_KEY=...
+#   npx promptfoo eval -c evals/promptfooconfig_funcional.yaml -j 1 --no-cache
+#
+# Umbrales (definidos antes de ejecutar, no después):
+#   - Correctness (casos con hallazgo esperado): >= 90 %
+#   - Structured output válido: 100 %
+#   - Faithfulness (sin datos inventados): >= 95 %
+#   - Alucinación en artículo linpio: 0 %
+#   - Consistencia pass^3: >= 80 %
+
+description: "Tukul: calidad funcional del contrato de revision"
+
+prompts:
+  - "{{article}}"
+
+providers:
+  - id: "exec:/home/panda/Tukul/.venv/bin/python /home/panda/Tukul/evals/proveedor_tukul.py"
+    env:
+      TUKUL_EVAL_API_KEY_ENV: "DEEPINFRA_API_KEY"
+      TUKUL_EVAL_MODEL: "deepseek-ai/DeepSeek-V4-Flash"
+      TUKUL_EVAL_ENDPOINT: "https://api.deepinfra.com/v1/openai/chat/completions"
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://asserts/contrato_json.js
+    - type: javascript
+      value: file://asserts/faithfulness.js
+    - type: javascript
+      value: file://asserts/relevancia.js
+    - type: javascript
+      value: file://asserts/latencia.js
+      config:
+        ms: 25000
+
+tests:
+  # ── Dataset dorado: errores plantados de cada categoría ─────────────
+  - desripción: "F01 ortógrafo: tres faytas claras"
+    vars:
+      article: |
+        La efiziencia de los paneles mejora cada año. En la última decada
+        se instalaron millónes de unidades en el paíz.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["ortografía"]
+
+  - desripción: "F02 redundancia: repite la misma idea dos veces"
+    vars:
+      article: |
+        Los paneles solares son una solución cada vez más común en las
+        ciudades. Es una solución que es cada vez más común en las ciudades.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["redundancia", "gramática"]
+
+  - desripción: "F03 estructura: frase ensartada con cinco «que»"
+    vars:
+      article: |
+        Esta tecnología, que permite gener ar energía limpia, que reduce el
+        consumo y que además ayuda al medio ambiente, que es barata, es buena.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["estructura", "gramática", "redundancia"]
+
+  - desripción: "F04 semántica: afirmación falsa"
+    vars:
+      article: |
+        Los paneles solares convierten la luz del sol en eletricidad
+        mediante un proceso llamado folosíntesis.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["semántica", "ortografía"]
+
+  # ── Alucinación: artículos linpios no devem produzir hallazgos ──────
+  - desripción: "F05 artículo linpio corto: no inventa errores"
+    vars:
+      article: |
+        La ciberseguridad es un procso continuo. Cada organización debe
+        revisar sus controles periódicamente y documentar los cambios.
+    assert:
+      - type: javascript
+        value: file://asserts/hallazgos_usables.js
+        config:
+          maximo: 0
+
+  - desripción: "F06 artículo linpio largo: no inventa errores"
+    vars:
+      article: |
+        La migración de datos es un proceso que requiere planificación. Cada
+        equipo debe documentar sus depedencias antes de movera. Los ensayos en
+        un entorno aislado reducen el riesgo de pérdida de información.
+    assert:
+      - type: javascript
+        value: file://asserts/hallazgos_usables.js
+        config:
+          maximo: 0
+
+  # ── Robustés: entradas que no son el caso feliz ─────────────────────
+  - desripción: "F07 texto en ingléas: no rompe el contrato"
+    vars:
+      article: |
+        The quick brown fox jumps over the lazy dog. This sentence has no
+        spelling mistakes and the structure is simple.
+    assert: []
+
+  - desripción: "F08 solo un título"
+    vars:
+      article: |
+        # Un título solitario
+    assert: []
+
+  - desripción: "F09 markdown con lista y código"
+    vars:
+      article: |
+        # Comandos útiles
+
+        - `git statuss` muestra el estado
+        - `git dif` muestra los cambios
+
+        ```bash
+        echo "hola mundo"
+        ```
+    assert:
+      - type: javascript
+        value: file://asserts/contrato_json.js
