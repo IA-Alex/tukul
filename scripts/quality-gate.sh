@@ -105,6 +105,20 @@ else
 fi
 
 paso "pytest + cobertura"
+# `tests/test_corpus_eval.py` ejecuta el verificador del corpus, que comprueba
+# ortografía real con `aspell`. Sin el diccionario español, los 10 artículos
+# fallan con «aspell no instalado» y el fallo parece del corpus, no del entorno
+# (así se quedó rojo CI desde v0.6.1 hasta que se detectó en v0.7.1). Se avisa
+# aquí, con la acción concreta, antes de gastar cuatro minutos de suite.
+if ! command -v aspell >/dev/null 2>&1; then
+    echo "   ✗ aspell no está instalado: el corpus de evaluación no puede" >&2
+    echo "     verificar ortografía y 10 pruebas fallarán con un mensaje" >&2
+    echo "     que parece del corpus. Instálalo con:" >&2
+    echo "         sudo apt-get install aspell aspell-es" >&2
+    FAILED=1
+else
+    echo "   ✓ aspell disponible ($(command -v aspell))"
+fi
 # Igual que en CI, el gate local exige que Tk sea operativo. Sin esta prueba,
 # pytest puede marcar toda la interfaz como `skipped` y producir una señal verde
 # engañosa con una cobertura artificialmente baja.

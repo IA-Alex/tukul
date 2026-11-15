@@ -12,6 +12,7 @@ que el verificador no se limita a aprobarlo todo.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -124,6 +125,44 @@ class TestPruebaNegativaDelProyecto(unittest.TestCase):
             f"La prueba negativa falla:\n{resultado.stdout[-1500:]}",
         )
         self.assertIn("10/10", resultado.stdout)
+
+
+class TestDependenciaDeAspell(unittest.TestCase):
+    """Regresión H-7: sin `aspell`, CI quedó rojo dos versiones seguidas.
+
+    El verificador ya fallaba cerrado (correcto: no aprueba un corpus sin
+    revisar ortografía), pero nada distinguía «el corpus está mal» de «falta
+    una herramienta del entorno». Eso convirtió un fallo de infraestructura en
+    diez fallos de contenido y nadie lo diagnosticó hasta `0.7.1`.
+    """
+
+    def test_el_verificador_nombra_aspell_como_causa_si_falta(self):
+        """Sin aspell en PATH, el mensaje debe decir que falta, no culpar al corpus."""
+        entorno = dict(os.environ, PATH="/nonexistent")
+        resultado = subprocess.run(
+            [sys.executable, str(VERIFICADOR)],
+            capture_output=True, text=True, check=False, cwd=RAIZ, env=entorno,
+        )
+        self.assertEqual(resultado.returncode, 1,
+                         "Sin aspell el verificador no puede dar verde")
+        self.assertIn("aspell no instalado", resultado.stdout,
+                      "El diagnóstico debe nombrar la herramienta que falta")
+
+    def test_el_gate_local_avisa_si_falta_aspell(self):
+        """El gate comprueba aspell antes de la suite, con la orden de instalarlo."""
+        guion = (RAIZ / "scripts" / "quality-gate.sh").read_text(encoding="utf-8")
+        self.assertIn("command -v aspell", guion,
+                      "El gate debe comprobar aspell antes de correr pytest")
+        self.assertIn("aspell aspell-es", guion,
+                      "El aviso debe dar el paquete concreto que instala el diccionario")
+
+    def test_ci_instala_aspell_con_diccionario_español(self):
+        """Si el workflow quita aspell, CI vuelve a caer en el mismo rojo."""
+        workflow = (RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertRegex(
+            workflow, r"apt-get install[^\n]*aspell[^\n]*aspell-es",
+            "El job test necesita aspell y aspell-es en el runner",
+        )
 
 
 if __name__ == "__main__":

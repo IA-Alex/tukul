@@ -4,6 +4,39 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.7.2] - 2026-11-15
+
+Corrección del fallo de entrega detectado al publicar `0.7.1`: el job `test`
+del CI llevaba rojo desde `0.6.1`. Sin funciones nuevas ni cambio de contrato;
+entra en la categoría de **fallo de entrega** de
+[`docs/POLITICA_CONGELACION.md`](docs/POLITICA_CONGELACION.md) —la puerta de
+calidad no reflejaba el estado real.
+
+### Corregido
+
+- **`aspell` faltaba en el runner de CI.** `tests/test_corpus_eval.py` ejecuta
+  el verificador del corpus, que comprueba ortografía real; sin `aspell`, sus
+  10 artículos fallaban con «aspell no instalado» y el job `test` caía en
+  3.11, 3.12 y 3.13. El workflow instala ahora `aspell` y `aspell-es`.
+- **El fallo era indistinguible de un corpus roto.** El verificador ya fallaba
+  cerrado (correcto), pero un fallo de infraestructura producía diez errores
+  de contenido. Ahora el mensaje nombra la herramienta que falta.
+- **El gate local avisa antes de gastar la suite.** `quality-gate.sh` comprueba
+  `aspell` y, si falta, imprime la orden de instalación en lugar de dejar que
+  diez pruebas fallen con apariencia de defecto del corpus.
+
+### Añadido
+
+- **Tres regresiones en `tests/test_corpus_eval.py`:** el verificador nombra a
+  `aspell` como causa, el gate lo comprueba, y el workflow lo instala con
+  diccionario español. Si alguien quita la dependencia, la suite lo detecta.
+
+### Sin cambios
+
+- Capacidades F1–F4, contrato y arquitectura: idénticos a `0.7.1`. El binario
+  no cambia de comportamiento; lo que cambia es que la puerta de calidad deja
+  de mentir.
+
 ## [0.7.1] - 2026-11-15
 
 Corrección de los desbordes visuales medidos en la ventana real. Sin funciones

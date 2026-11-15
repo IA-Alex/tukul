@@ -43,7 +43,12 @@ jobs:
       - name: Install GUI test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb python3-tk
+          # `aspell` con diccionario español: `tests/test_corpus_eval.py` ejecuta
+          # el verificador del corpus, que comprueba ortografía real. Sin él,
+          # los 10 artículos fallan con «aspell no instalado» y el job `test`
+          # queda rojo en las tres versiones de Python (hallazgo H-7, detectado
+          # al publicar v0.7.1; ya venía fallando desde v0.6.1).
+          sudo apt-get install -y --no-install-recommends xvfb python3-tk aspell aspell-es
 
       - name: Install project
         run: |

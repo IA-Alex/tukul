@@ -324,12 +324,23 @@ ASPELL_PERMITIDAS.update(
 )
 
 
+def requerir_aspell() -> str | None:
+    """Ruta de `aspell`, o `None` si falta.
+
+    Se consulta una sola vez por proceso: la ausencia se reporta como FALLA
+    (fail-closed), no como omisión silenciosa, porque un verificador que
+    aprueba un corpus sin revisar ortografía es peor que uno que no corre.
+    """
+    import shutil
+
+    return shutil.which("aspell")
+
+
 def aspell(texto: str) -> tuple[bool, list[str]]:
     """Palabras que `aspell -l es` marca como desconocidas (salvo lista blanca)."""
-    import shutil
     import subprocess
 
-    if not shutil.which("aspell"):
+    if not requerir_aspell():
         return False, ["aspell no instalado"]
     proc = subprocess.run(
         ["aspell", "-l", "es", "--encoding=utf-8", "list"],
