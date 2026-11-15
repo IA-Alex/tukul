@@ -163,6 +163,23 @@ class TestVentanaSinDesbordes(unittest.TestCase):
         estilo = str(self.app.panel_asistente.cost_label.cget("style"))
         self.assertEqual(estilo, "TenueSuperficieAlta.TLabel")
 
+    def test_el_isotipo_de_la_cabecera_mide_18_px(self):
+        """Criterio F4 del contrato: el isotipo de cabecera baja a 18 px.
+
+        El contrato lo compromete con un valor concreto, pero la suite no lo
+        comprobaba: subirlo a 24 px (donde el dibujo se leía como un borrón y
+        robaba ancho al nombre) pasaba en verde. Se fija aquí para que la
+        promesa de 18 px tenga una regresión que la sostenga.
+        """
+        barra = self.app.barra
+        self.assertEqual(TopBar.LOGO, 18, "El isotipo de cabecera promete 18 px")
+        self._asentar()
+        self.assertEqual(int(barra.logo.cget("width")), TopBar.LOGO,
+                         "El canvas del isotipo no mide lo que declara LOGO")
+        self.assertEqual(int(barra.logo.cget("height")), TopBar.LOGO)
+        self.assertEqual(barra.logo.winfo_width(), TopBar.LOGO,
+                         "El isotipo montado no ocupa los 18 px comprometidos")
+
 
 @unittest.skipUnless(HAY_DISPLAY, "requiere un servidor X")
 class TestDivisorDiscreto(unittest.TestCase):

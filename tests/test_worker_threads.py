@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 import time
 
-from tukul_ui.worker_threads import WorkerThreads
+from tukul_ui.worker_threads import WorkerThreads, publicar_en_hilo_ui
 
 
 class TestRegistroDeWorkers:
@@ -118,3 +118,74 @@ class TestRegistroDeWorkers:
             assert heredados == 0
         finally:
             liberar.set()
+
+
+class TestPublicarEnHiloUI:
+    """Guardas de `publicar_en_hilo_ui` (corrección DF-002, hallazgo Alto).
+
+    El contrato `0.7.0` exige «guardas de cierre en cada `after(0, …)` desde
+    workers». El helper se ejercitaba solo de forma indirecta desde
+    `test_app_ramas.py`/`test_threat_feed_ui.py`; esta sección fija sus
+    contratos propios para que un cambio en los cuatro caminos de guarda no
+    dependa de que otra prueba lo note.
+    """
+
+    def test_programa_el_callback_y_devuelve_true(self):
+        from unittest.mock import MagicMock
+
+        host = MagicMock(closing=False)
+        callback = MagicMock()
+
+        assert publicar_en_hilo_ui(host, callback) is True
+        host.after.assert_called_once_with(0, callback)
+        callback.assert_not_called()  # `after` lo ejecutará; aquí solo se programa.
+
+    def test_descarta_si_la_ventana_esta_cerrando(self):
+        """Sin esta guarda, un worker tardío publicaba sobre Tk ya cerrándose."""
+        from unittest.mock import MagicMock
+
+        host = MagicMock(closing=True)
+        callback = MagicMock()
+
+        assert publicar_en_hilo_ui(host, callback) is False
+        host.after.assert_not_called()
+
+    def test_un_host_de_tk_ya_cerrado_no_propaga_la_excepcion(self):
+        """La guarda de `TclError` envuelve `after`; se prueba por su frontera.
+
+        En esta plataforma Tk responde `after#N` incluso con el intérprete
+        cerrado, así que el `TclError` no se puede provocar de forma fiel desde
+        Python: el caso real es el de CPython 3.13 documentado en el módulo
+        (interprete destruido durante la recolección). Se fija el contrato
+        observable del guard —cualquier `TclError` de `after` se convierte en
+        `False` con aviso— en vez de simular un Tk roto que no ocurre aquí.
+        """
+        import tkinter as tk
+        from unittest.mock import MagicMock
+
+        host = MagicMock(closing=False)
+        host.after.side_effect = tk.TclError("bad window path name")
+        logger = MagicMock()
+
+        assert publicar_en_hilo_ui(host, lambda: None, logger) is False
+        logger.debug.assert_called_once()
+
+    def test_sobrevive_a_un_runtime_error_de_hilo(self):
+        """`RuntimeError` («main thread is not in main loop») no debe escapar."""
+        from unittest.mock import MagicMock
+
+        host = MagicMock(closing=False)
+        host.after.side_effect = RuntimeError("main thread is not in main loop")
+        logger = MagicMock()
+
+        assert publicar_en_hilo_ui(host, lambda: None, logger) is False
+        logger.debug.assert_called_once()
+
+    def test_sin_logger_no_falla_al_descartar(self):
+        """El logger es opcional: los `Toplevel` de `dialogs.py` no lo pasan."""
+        from unittest.mock import MagicMock
+
+        host = MagicMock(closing=False)
+        host.after.side_effect = RuntimeError("sin bucle principal")
+
+        assert publicar_en_hilo_ui(host, lambda: None) is False

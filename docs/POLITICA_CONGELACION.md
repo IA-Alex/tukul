@@ -43,18 +43,19 @@ pase después**.
   no **incumplidos**. Abren contrato nuevo, no bloquean `0.7.0`.
 - Cambios de dependencias no motivados por un defecto o una CVE.
 
-## Procedimiento de corte de `0.7.0`
+## Procedimiento de corte de `0.7.x`
 
 1. **Declarar el alcance.** Capacidades esenciales F1–F4 y refactorización
    DF-001/ADR-0005, con criterio de aceptación verificable cada una
    (`docs/contracts/contratos-0.7.md`).
 2. **Coherencia de versión.** `pyproject.toml`, `uv.lock` y `--health`
-   reportan `0.7.0`; `uv lock --check` limpio.
+   reportan la versión de la entrega (`0.7.1` desde el parche visual);
+   `uv lock --check` limpio.
 3. **Gate completo.** `./scripts/quality-gate.sh` en verde (0 omitidas,
    cobertura ≥ 70 %).
-4. **Cortar el tag.** Tag anotado `v0.7.0` sobre el HEAD validado; `git
-   describe --tags` → `v0.7.0` limpio. Push/Release es acción externa: se pide
-   confirmación antes.
+4. **Cortar el tag.** Tag anotado de la entrega (`v0.7.1`, que contiene
+   `v0.7.0`) sobre el HEAD validado; `git describe --tags` → `v0.7.1` limpio.
+   Push/Release es acción externa: se pide confirmación antes.
 5. **Verificar en destino.** `sha256sum -c`, `--health`, `cosign verify-blob`
    sobre lo descargado, no sobre lo construido.
 6. **Actualizar el dictamen.** Registrar el cierre y la evidencia; el dictamen

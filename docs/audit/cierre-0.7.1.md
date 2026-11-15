@@ -97,3 +97,34 @@ demostrado, el artefacto entregable no existe todavía.
   desborde visual.
 - **Integraciones:** sin consulta real a proveedores externos en esta sesión; la
   evidencia es la suite y la degradación ya cubierta.
+
+## Reparación de hallazgos de la auditoría de cierre (2026-11-15)
+
+Segunda pasada con `criterios_de_cierre` + `reparador-integral-es` sobre el
+mismo HEAD, tras confirmar con un clon independiente que el repositorio público
+sigue en `0.6.1`. Los hallazgos de código y documentación se cerraron aquí; el
+de entrega (H-1) requiere push y Release, que son acciones externas.
+
+| Hallazgo | Severidad | Estado | Evidencia |
+|---|---|---|---|
+| **H-1** Remoto sin `0.7.x` (20 commits, sin tag ni Release) | Crítica | **Abierto** — acción externa | `git ls-remote --tags origin 'refs/tags/v0.7*'` vacío; último Release `v0.6.1` |
+| **H-2** DoD 2 y 3 del contrato citaban `0.7.0` | Media | **Corregido** | `contratos-0.7.md` §DoD ahora nombra la versión de entrega (`0.7.1`) y el tag que la contiene |
+| **H-3** Métrica de `app.py` desactualizada (2 622) | Baja | **Corregido** | Contrato y riesgos dicen 2 634 (`wc -l` sobre `app.py`) |
+| **H-4** F4 (isotipo 18 px) sin prueba de regresión | Baja | **Corregido** | `test_el_isotipo_de_la_cabecera_mide_18_px`; falla con `LOGO = 24`, pasa con 18 |
+| **H-5** `test_worker_threads.py` no invocaba `publicar_en_hilo_ui` | Baja | **Corregido** | `TestPublicarEnHiloUI` (5 pruebas); 4 fallan con las guardas neutralizadas |
+| **H-6** Procedimiento de `POLITICA_CONGELACION.md` hablaba solo de `0.7.0` | Baja | **Corregido** | Procedimiento de corte ahora cubre `0.7.x` |
+
+**Gate tras la reparación:** `✓ QUALITY GATE PASSED` — **843 passed**, 868
+pruebas registradas, **0 omitidas**, cobertura total 87,66 %; ruff, mypy,
+instalación aislada, `--health`, `pip-audit` y `bandit` verdes.
+
+**Nota de verificación (H-5).** No se pudo provocar un `TclError` fiel desde
+Python: con Tk moderno, ni `root.destroy()` ni `Tk_DeleteInterp` hacen fallar
+`after()`. El guard de `TclError` se prueba por su frontera (un `after` que la
+lance) y el `RuntimeError` con su valor literal. El test no simula un Tk roto
+que no ocurre en esta plataforma; fija el contrato observable del helper.
+
+**Estado del dictamen:** se mantiene **CIERRE CONDICIONADO**. El código y la
+documentación están reparados y verificados; el artefacto entregable sigue sin
+existir. Pasa a **CERRADO** cuando se cumplan las condiciones de
+`docs/contracts/contratos-0.7.md` §«Condiciones de cierre abiertas».

@@ -71,7 +71,7 @@ Cada una con su criterio de aceptación verificable.
   solo «pasa»); `TukulApp` conserva delegaciones y *properties* de
   compatibilidad; el tema pasa a una sola fuente.
 - **Nota:** el objetivo métrico `app.py < 2 300` (H2) **no** se alcanza con las
-  delegaciones (`app.py` ≈ 2 622 líneas). Se cierra **por responsabilidades** y
+  delegaciones (`app.py` = 2 634 líneas). Se cierra **por responsabilidades** y
   la métrica se reevalúa al retirar los *shims* (ver ADR-0005). No es defecto.
 
 ## Correcciones incluidas (DF-002…DF-016)
@@ -90,10 +90,12 @@ Cada una con su criterio de aceptación verificable.
 1. **Gate único verde:** `./scripts/quality-gate.sh` termina en
    `✓ QUALITY GATE PASSED`, con 0 pruebas omitidas y cobertura ≥ 70 %.
 2. **Coherencia de versión:** `pyproject.toml`, `uv.lock` y `--health` reportan
-   `0.7.0`. `uv lock --check` limpio.
-3. **Correspondencia código ↔ artefacto ↔ versión:** el tag anotado `v0.7.0` se
-   corta sobre el HEAD validado; `git describe --tags` → `v0.7.0` limpio.
-4. **Documentación alineada:** CHANGELOG `[0.7.0]`, este contrato y
+   la misma versión que el tag de la entrega. Para `0.7.0` fue `0.7.0`; tras el
+   parche, `0.7.1` (verificado sobre HEAD `b2f3a43`). `uv lock --check` limpio.
+3. **Correspondencia código ↔ artefacto ↔ versión:** el tag anotado de la
+   entrega (`v0.7.1`, que incluye `v0.7.0`) se corta sobre el HEAD validado;
+   `git describe --tags` → `v0.7.1` limpio.
+4. **Documentación alineada:** CHANGELOG `[0.7.0]`/`[0.7.1]`, este contrato y
    `docs/POLITICA_CONGELACION.md` describen el mismo estado.
 
 ## Riesgos residuales (no bloqueantes, no verificados)
@@ -104,8 +106,8 @@ Cada una con su criterio de aceptación verificable.
   bloquea `0.7.0`.
 - **C4 — sostenibilidad de proveedores:** sin umbral decidido. Queda
   *descriptivo*. No bloquea `0.7.0`.
-- **H2 — `app.py < 2 300`:** no alcanzado; mejora métrica reevaluable, no
-  requisito de este contrato.
+- **H2 — `app.py < 2 300`:** no alcanzado (2 634 líneas); mejora métrica
+  reevaluable, no requisito de este contrato.
 
 ## Reglas que no se negocian
 
