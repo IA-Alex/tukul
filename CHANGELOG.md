@@ -4,6 +4,72 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.7.0] - 2026-11-14
+
+Ciclo nuevo abierto tras `0.6.1`. A diferencia de las correcciones de `0.6.x`,
+esta versión **sí incorpora funciones y refactorizaciones**: la política de
+congelación se reabre con un contrato declarado
+([`docs/contracts/contratos-0.7.md`](docs/contracts/contratos-0.7.md)) y se corta
+sobre el HEAD que las contiene, de modo que código declarado, binario
+distribuido y versión ejecutada coincidan. Origen: auditoría frontend
+[`docs/audit/auditoria-frontend-2026-11-13.md`](docs/audit/auditoria-frontend-2026-11-13.md)
+y el dictamen de esta sesión (`tag ≠ HEAD` con 17 commits sin release).
+
+### Añadido
+
+- **Fuentes de IA en el pipeline de ideas.** `tukul_ui/ideas.py` incorpora los
+  adaptadores **OpenAlex** y **HuggingFace Papers**
+  (`tukul_core/real_time_feed/adapters/openalex.py`,
+  `huggingface_papers.py`) junto a las fuentes de amenazas. Aportan
+  publicaciones de IA al análisis de correlaciones, con degradación por fuente
+  (una caída no tumba el pipeline). Regresiones en
+  `tests/test_openalex_adapter.py`, `tests/test_huggingface_papers_adapter.py`
+  y `tests/test_ideas_fuentes_ia.py`.
+- **Autoindexado del corpus al arrancar.** Al abrir la ventana se indexa la
+  carpeta de artículos en segundo plano, de forma incremental; el arranque no
+  se bloquea. `tests/test_memoria_autoindexado.py`.
+- **Botón «Limpiar» en el panel del asistente.** Vacía la conversación activa;
+  se deshabilita mientras no hay nada que limpiar. `tests/test_limpiar_panel.py`.
+- **Icono de ventana e isotipo.** El binario embebe el isotipo (`app_icon.py`);
+  el isotipo de la cabecera baja a 18 px. Sin assets externos.
+
+### Cambiado (arquitectura, DF-001 / ADR-0005)
+
+- **Extracción por responsabilidades de `TukulApp`** (ver
+  [`docs/decisions/ADR-0005-god-object-extraction.md`](docs/decisions/ADR-0005-god-object-extraction.md)):
+  - `tukul_ui/credentials.py` (`CredentialStore` + `resolver_key`): llavero y su
+    lock propios (DF-016).
+  - `tukul_ui/window_shell.py` (`WindowShell`): DPI, tamaño inicial, geometría
+    guardada y tema.
+  - `tukul_ui/editor_session.py` (`EditorSession`): autosave y métricas del pie.
+  - `tukul_ui/dialogs_base.py`: base compartida de modales, `Listbox` y
+    `wraplength`.
+  `TukulApp` conserva delegaciones y *properties* de compatibilidad; el tema
+  pasa a ser una sola fuente (property respaldada por el shell).
+
+### Corregido
+
+- **DF-002 (aborto del proceso en CPython 3.13).** `publicar_en_hilo_ui`
+  (`worker_threads.py`) envuelve cada `after(0, …)` desde workers en guardas de
+  cierre y `try/except (RuntimeError, TclError)`; aplicado en
+  `contexto_dialogo.py`, `ideas.py` y `dialogs.py`.
+- **DF-003.** `add_references` avisa cuando se descartan todos los archivos.
+- **DF-004…DF-016.** Base única de diálogos, presupuesto único, mensaje de
+  memoria unificado, «Probar conexión…» con estado, retirada de métodos fachada,
+  tooltip con recorte vertical, tope de retención del historial, nombres
+  accesibles y más (detalle en
+  [`docs/audit/auditoria-frontend-2026-11-13.md`](docs/audit/auditoria-frontend-2026-11-13.md)).
+- **GDELT: reintentos y rate-limit** (`tukul_core/search/providers.py`).
+- **Tres fallos preexistentes de la suite de UI** (mocks de `after` que
+  recursaban el bombeo de eventos; test de ancho de menú dependiente de la
+  fuente), con regresión comprobada en ambas direcciones.
+
+### Documentación
+
+- ADR-0004 (API de feed sin consumidor de UI) y ADR-0005 (extracción de
+  `TukulApp`); auditoría frontend `DF-001..DF-016`; contratos de cierre de
+  `0.7.0` en `docs/contracts/contratos-0.7.md`.
+
 ## [0.6.1] - 2026-11-13
 
 Correcciones aceptadas por la política de congelación

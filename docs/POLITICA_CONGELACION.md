@@ -1,19 +1,27 @@
-# Política de congelación — Tukul `0.6.0`
+# Política de congelación — Tukul `0.7.0`
 
-**Estado:** CONGELADA con descongelación restringida a correcciones.
-**Vigente desde:** 2026-11-13.
-**Base del dictamen:** `docs/audit/cierre-2026-11-13-final.md` (CERRADO).
+**Estado:** CONTRATO NUEVO ABIERTO (corte en curso de `0.7.0`).
+**Vigente desde:** 2026-11-14.
+**Base del contrato:** `docs/contracts/contratos-0.7.md`.
+**Sucede a:** `0.6.0`/`0.6.1` (dictamen `docs/audit/cierre-2026-11-13-final.md`,
+CERRADO). La rama `0.6.x` queda cerrada y no admite más parches: los defectos
+nuevos se atienden por este contrato o por uno posterior.
 
-## Qué significa «congelada»
+## Qué significa «contrato nuevo»
 
-Sobre `0.6.0` **solo se acepta una corrección**. Nada más entra en esta rama de
-versión: ni funciones nuevas, ni mejoras, ni refactorizaciones, ni cambios de
-dependencias por gusto, ni ajustes cosméticos.
+A diferencia de la congelación de `0.6.0`, `0.7.0` **sí incorpora funciones y
+refactorizaciones** (autoindexado, fuentes de IA, extracción de `TukulApp`). La
+congelación de `0.6.0` solo aceptaba correcciones; estas capacidades no encajan
+en ninguna categoría de corrección, así que abren contrato, no lo descongelan.
 
-La razón es la del dictamen: el contrato se cumple y está verificado sobre el
-artefacto distribuido. Cada cambio posterior obliga a repetir la evidencia
-(gate, build, firma, verificación en destino) y vuelve a poner en riesgo algo
-que hoy está demostrado.
+El criterio de cierre es el de `docs/contracts/contratos-0.7.md`: capacidades
+esenciales (F1–F4) verificadas, refactorización por responsabilidades sin cambio
+de comportamiento observable, y correspondencia código ↔ artefacto ↔ versión
+(`tag = HEAD`).
+
+## Qué es una corrección (y qué no)
+
+### Se acepta
 
 ## Qué es una corrección (y qué no)
 
@@ -36,31 +44,31 @@ pase después**.
 - «Ya que estamos»: refactorizar el archivo al tocar una corrección.
 - Bajar el objetivo de H2 (2.300 líneas) como excusa: es mejora, no defecto.
 - C3 (lector de pantalla) y C4 (cuotas de proveedor): están **no verificados**,
-  no **incumplidos**. Abren contrato nuevo, no descongelan `0.6.0`.
+  no **incumplidos**. Abren contrato nuevo, no bloquean `0.7.0`.
 - Cambios de dependencias no motivados por un defecto o una CVE.
 
-## Procedimiento de descongelación
+## Procedimiento de corte de `0.7.0`
 
-1. **Declarar el defecto.** Abrir una entrada con: síntoma, pasos de
-   reproducción, promesa incumplida (enlace a `docs/` o CHANGELOG), severidad y
-   el artefacto afectado.
-2. **Confirmar la clasificación.** Si no encaja en las cuatro categorías, no
-   descongela: se deriva a contrato nuevo.
-3. **Corregir con regresión.** La prueba debe fallar con el código anterior. Si
-   no falla, la prueba no demuestra nada.
-4. **Gate completo.** `./scripts/quality-gate.sh` en verde.
-5. **Publicar parche.** Versión `0.6.x` (nunca reutilizar `0.6.0`), tag nuevo y
-   Release firmada.
-6. **Verificar en destino.** `sha256sum -c`, `--health`, `cosign verify-blob`
+1. **Declarar el alcance.** Capacidades esenciales F1–F4 y refactorización
+   DF-001/ADR-0005, con criterio de aceptación verificable cada una
+   (`docs/contracts/contratos-0.7.md`).
+2. **Coherencia de versión.** `pyproject.toml`, `uv.lock` y `--health`
+   reportan `0.7.0`; `uv lock --check` limpio.
+3. **Gate completo.** `./scripts/quality-gate.sh` en verde (0 omitidas,
+   cobertura ≥ 70 %).
+4. **Cortar el tag.** Tag anotado `v0.7.0` sobre el HEAD validado; `git
+   describe --tags` → `v0.7.0` limpio. Push/Release es acción externa: se pide
+   confirmación antes.
+5. **Verificar en destino.** `sha256sum -c`, `--health`, `cosign verify-blob`
    sobre lo descargado, no sobre lo construido.
-7. **Actualizar el dictamen.** Registrar el defecto, la corrección y la nueva
-   evidencia; el dictamen sigue siendo CERRADO, con la corrección anotada.
+6. **Actualizar el dictamen.** Registrar el cierre y la evidencia; el dictamen
+   pasa a CERRADO con la deuda viva enumerada.
 
 ## Reglas que no se negocian
 
-- **Nunca se reescribe un tag publicado.** `0.6.0` queda como está, aunque
-  tuviera defectos: los defectos se corrigen en `0.6.x`. Reescribir un tag
-  invalida toda firma que alguien haya verificado.
+- **Nunca se reescribe un tag publicado.** `0.6.0` y `0.6.1` quedan como
+  están, aunque tuvieran defectos: los defectos nuevos se atienden por contrato
+  nuevo. Reescribir un tag invalida toda firma que alguien haya verificado.
 - **Un release firmado no se reemplaza.** Si el artefacto está mal, se publica
   otro y se marca el anterior como retirado, sin borrar la evidencia.
 - **Sin `|| true` en firma ni verificación.** Un fallo de firma detiene la
@@ -72,8 +80,8 @@ pase después**.
 1. Reproducir y documentar  →  docs/audit/defecto-<fecha>.md
 2. Clasificar               →  defecto confirmado / regresión
 3. Prueba de regresión      →  falla antes, pasa después
-4. Gate                     →  764+ pruebas, 0 omitidas
-5. Publicar                  →  v0.6.1 firmada
+4. Gate                     →  827+ pruebas, 0 omitidas
+5. Publicar                  →  v0.7.x firmada
 6. Verificar en destino      →  checksum + health + cosign
 ```
 
