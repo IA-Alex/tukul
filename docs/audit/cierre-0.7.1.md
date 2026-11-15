@@ -170,7 +170,37 @@ ajena.
   omitido explícito en vez de enmascararlo). Abre parche `0.7.2`: no cambia
   capacidades.
 
-**Estado del dictamen:** **CIERRE CONDICIONADO**. Las capacidades esenciales y
-el artefacto están publicados y verificados en destino, y H-2…H-6 están
-cerrados. La condición pendiente es H-7: el CI rojo debe quedar verde para que
-la señal de calidad sea real. No bloquea el uso del binario publicado.
+### Resolución de H-7 — `0.7.2` (2026-11-15)
+
+- **Causa raíz:** `aspell` no estaba en el runner de CI y el verificador del
+  corpus lo requiere para ortografía real. `shutil.which("aspell")` devolvía
+  `None`, el verificador marcaba `FALLA` en los 10 artículos y el job `test`
+  caía en las tres versiones de Python. Un fallo de entorno se presentaba como
+  contenido roto, por eso pasó desapercibido desde `0.6.1`.
+- **Corrección (sin cambio de capacidades):**
+  - `ci.yml` instala `aspell` y `aspell-es` junto a `xvfb`/`python3-tk`.
+  - `verificar_corpus_eval.py` expone `requerir_aspell()` y nombra la
+    herramienta ausente; sigue **fail-closed** (no aprueba sin ortografía).
+  - `quality-gate.sh` comprueba `aspell` antes de la suite e imprime la orden
+    de instalación.
+  - Tres regresiones en `tests/test_corpus_eval.py`.
+- **Verificación en ambas direcciones:** sin `aspell` en `PATH` el verificador
+  sale 1 y nombra la causa; quitando `aspell-es` del workflow la suite vuelve a
+  rojo; el gate local sin `aspell` avisa y falla.
+- **Gate:** `✓ QUALITY GATE PASSED` — 846 passed, 871 registradas, 0 omitidas,
+  cobertura 87,66 %.
+- **CI del commit tageado (run `43769474792`):** **success** en
+  `security`, `test (3.11)`, `test (3.12)` y `test (3.13)`. Primera vez verde
+  desde `v0.6.0`.
+- **Release `v0.7.2` (run `43769476662`):** success. Verificado sobre lo
+  descargado: `sha256sum -c` → «La suma coincide»; `--health` →
+  `Tukul 0.7.2`; `cosign verify-blob` con SAN del tag `v0.7.2` → **Verified
+  OK**.
+
+**Estado del dictamen:** **CERRADO**. Las capacidades esenciales (F1–F4,
+refactor DF-001) están publicadas, el artefacto está firmado y verificado en
+destino, los hallazgos H-2…H-7 están cerrados y la puerta de calidad es verde
+en CI. Procede **congelar `0.7.2`** y detener el desarrollo de este alcance.
+La deuda viva (C3 lector de pantalla, C4 cuotas de proveedor, H2 `app.py <
+2 300`, umbral `ANCHO_SECUNDARIOS`) sigue siendo no bloqueante y abre contrato
+futuro, no reabre éste.
