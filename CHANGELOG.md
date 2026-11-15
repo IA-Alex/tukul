@@ -4,6 +4,52 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.7.1] - 2026-11-15
+
+Corrección de los desbordes visuales medidos en la ventana real. Sin funciones
+nuevas ni cambio de contrato: entra en la categoría de **defecto confirmado**
+de [`docs/POLITICA_CONGELACION.md`](docs/POLITICA_CONGELACION.md) —el
+comportamiento observable no cumplía lo prometido: el panel pedía más ancho que
+la ventana, «Cancelar» se truncaba y el nombre del artículo desaparecía.
+
+### Corregido
+
+- **Panel del asistente sin desbordes.** Las áreas de texto heredaban de Tk un
+  ancho solicitado de 80 caracteres (~898 px); con eso el panel pedía 1123 px
+  en una ventana de 1180 y su columna derecha se recortaba. Ahora piden lo
+  mínimo y el gestor de geometría reparte el espacio.
+- **«Cancelar» conserva su texto entero.** Se partía a media palabra («Cance»)
+  durante una consulta. Pasa a una columna propia (`grid`) con su ancho real;
+  «Limpiar», acción secundaria, cede ancho primero mientras hay consulta viva y
+  lo recupera al terminar.
+- **La barra superior nunca deja el nombre sin sitio.** A 1120 px el nombre del
+  artículo caía a 3 px porque los controles de configuración conservaban su
+  ancho completo. El orden de cesión es ahora estado → controles de
+  configuración (Contexto, Modelo, Tema), accesibles desde el menú y con sus
+  atajos mientras están retirados; el nombre no se retira nunca.
+- **Guía del panel y aviso de uso legibles.** La guía tenía `wraplength` fijo
+  de 520 px y se cortaba a media palabra en el panel por defecto (426 px); ahora
+  el salto acompaña al ancho real, igual que el resto de textos del panel. El
+  aviso de uso usa la superficie sobre la que vive (`TenueSuperficieAlta`), en
+  vez de abrir un bloque de otro tono dentro del panel.
+- **Divisor discreto.** Era un tubo de 10 px con marcas de agarre que robaba
+  ancho al artículo; pasa a un carril de 1 px que mantiene 3:1 sobre el fondo
+  (WCAG 1.4.11) y deja que el cursor anuncie la affordance.
+
+### Añadido
+
+- **Regresión visual en `tests/test_visual_regresion.py`.** Ocho pruebas fallan
+  sobre el código anterior y pasan con la corrección, comprobadas en ambas
+  direcciones; las dos restantes se declaran **invariantes** en su docstring
+  (ya pasaban antes) para que un fallo futuro no se confunda con una
+  regresión.
+
+### Sin cambios
+
+- Contrato, arquitectura y capacidades F1–F4: idénticas a `0.7.0`
+  ([`docs/contracts/contratos-0.7.md`](docs/contracts/contratos-0.7.md)).
+  El objetivo H2 (`app.py < 2 300`) sigue reevaluable al retirar los *shims*.
+
 ## [0.7.0] - 2026-11-14
 
 Ciclo nuevo abierto tras `0.6.1`. A diferencia de las correcciones de `0.6.x`,

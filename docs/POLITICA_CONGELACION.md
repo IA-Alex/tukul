@@ -1,7 +1,7 @@
-# Política de congelación — Tukul `0.7.0`
+# Política de congelación — Tukul `0.7.1`
 
-**Estado:** CONTRATO NUEVO ABIERTO (corte en curso de `0.7.0`).
-**Vigente desde:** 2026-11-14.
+**Estado:** VALIDADO EN CÓDIGO, PENDIENTE DE PUBLICACIÓN (push + Release).
+**Vigente desde:** 2026-11-15 (parche `0.7.1`); contrato abierto el 2026-11-14.
 **Base del contrato:** `docs/contracts/contratos-0.7.md`.
 **Sucede a:** `0.6.0`/`0.6.1` (dictamen `docs/audit/cierre-2026-11-13-final.md`,
 CERRADO). La rama `0.6.x` queda cerrada y no admite más parches: los defectos
@@ -18,10 +18,6 @@ El criterio de cierre es el de `docs/contracts/contratos-0.7.md`: capacidades
 esenciales (F1–F4) verificadas, refactorización por responsabilidades sin cambio
 de comportamiento observable, y correspondencia código ↔ artefacto ↔ versión
 (`tag = HEAD`).
-
-## Qué es una corrección (y qué no)
-
-### Se acepta
 
 ## Qué es una corrección (y qué no)
 

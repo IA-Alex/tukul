@@ -1,6 +1,9 @@
 # Contrato de cierre — Tukul `0.7.0` (ciclo nuevo)
 
-Estado: **abierto (en corte)** — el contrato rige la entrega de `0.7.0`.
+Estado: **cerrado en código sobre `0.7.1`** — el contrato rige la entrega de
+`0.7.0` y su parche de corrección `0.7.1` (defecto visual confirmado, sin cambio
+de capacidades). Pendiente exclusivamente la publicación externa: push y Release
+firmada (ver «Condiciones de cierre abiertas»).
 Base del dictamen: `docs/audit/_plan-cierre-0.7.0.md` (ruta A) y
 `docs/audit/auditoria-frontend-2026-11-13.md` (DF-001…DF-016).
 Sucede a `docs/contracts/contratos-0.6.md`, cerrado en `0.6.0` con parche
@@ -111,3 +114,16 @@ Cada una con su criterio de aceptación verificable.
 - **Sin `|| true` en firma ni verificación.**
 - El gate se ejecuta antes de cortar el tag; un gate rojo detiene la
   publicación.
+
+## Condiciones de cierre abiertas
+
+Estas condiciones no son líneas de código: son acciones externas que no se
+ejecutan sin confirmación del mantenedor.
+
+1. **Push.** `git push origin master --tags` — la rama lleva 19 commits delante
+   de `origin/master`, y el tag `v0.7.1` sólo existe en local.
+2. **Release firmada `v0.7.1`.** Publicación por CI y verificación en destino
+   (`sha256sum -c SHA256SUMS`, `--health`, `cosign verify-blob`) sobre el
+   artefacto **descargado**, no sobre lo construido.
+3. **Dictamen de cierre.** Registrar esa evidencia y pasar el dictamen a
+   CERRADO con la deuda viva enumerada.
