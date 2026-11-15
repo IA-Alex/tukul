@@ -124,7 +124,53 @@ Python: con Tk moderno, ni `root.destroy()` ni `Tk_DeleteInterp` hacen fallar
 lance) y el `RuntimeError` con su valor literal. El test no simula un Tk roto
 que no ocurre en esta plataforma; fija el contrato observable del helper.
 
-**Estado del dictamen:** se mantiene **CIERRE CONDICIONADO**. El código y la
-documentación están reparados y verificados; el artefacto entregable sigue sin
-existir. Pasa a **CERRADO** cuando se cumplan las condiciones de
-`docs/contracts/contratos-0.7.md` §«Condiciones de cierre abiertas».
+### Publicación y verificación en destino (2026-11-15)
+
+Push ejecutado bajo autorización del mantenedor. `v0.7.1` se recreó sobre el
+commit de la reparación (`4e21bcb`) **antes de publicarse**, de modo que el tag
+incluye las pruebas y la documentación corregidas. La política prohíbe reescribir
+un tag *publicado*; éste nunca lo estuvo, así que no se invalidó ninguna firma
+ajena.
+
+- **Push:** `a84660d..4e21bcb  master -> master`; `v0.7.0` y `v0.7.1` como tags
+  nuevos. `git ls-remote` confirma `master` = `v0.7.1^{}` = `4e21bcb` local:
+  `git describe --tags` → **`v0.7.1` limpio**.
+- **Release:** run `43768277054` → **success** (build `ubuntu-22.04`, release).
+  Release `v0.7.1` publicada (no draft, no prerelease) con
+  `tukul-linux-x86_64` (34 946 728 B), `SHA256SUMS`, `sbom.cdx.json` (116
+  componentes) y `tukul-linux-x86_64.bundle`.
+- **Verificación en destino** sobre lo descargado con `gh release download`, no
+  sobre lo construido:
+  - `sha256sum -c SHA256SUMS` → **«La suma coincide»**.
+  - `./tukul-linux-x86_64 --health` → **`versión: Tukul 0.7.1`**, exit 0.
+  - `cosign verify-blob --bundle … --certificate-identity-regexp
+    '…build-release.yml@refs/tags/v0.7.1' --certificate-oidc-issuer
+    https://token.actions.githubusercontent.com` → **Verified OK** (cosign
+    v3.1.4, la misma versión fijada por el workflow).
+- **Capacidades en el artefacto:** el binario embebe
+  `tukul_core.real_time_feed.adapters.openalex`,
+  `…adapters.huggingface_papers` (F1), los cuatro módulos de
+  `tukul_core.memory` (F2) y la capa extraída (`window_shell`, `editor_session`,
+  `credentials`, `dialogs_base`, `worker_threads` — DF-001/ADR-0005). La ventana
+  abre y cierra con exit 0 bajo Xvfb.
+
+### Hallazgo abierto tras la publicación (CI)
+
+- **H-7 [MEDIA · CONFIRMADO · PREEXISTENTE]:** el job `test` del CI/CD falla en
+  3.11/3.12/3.13 (run `43768275379`) con **2 fallos en
+  `tests/test_corpus_eval.py`**: el verificador del corpus exige **`aspell`**, que
+  no está instalado en el runner (`FALLA aspell — aspell no instalado`), y
+  `0/10 artículos PASS` por esa única causa. **No es regresión de `0.7.1`**: el
+  mismo fallo aparece en el run `43516862279` de `v0.6.1` con idéntico mensaje.
+- **Impacto:** el quality gate local pasa (aquí `aspell` está instalado); el CI
+  queda rojo, así que la señal automática de la puerta no es verde aunque la
+  Release sí se publique (el workflow de release no depende del job `test`).
+- **Acción mínima:** instalar `aspell` en el CI (o declarar el verificador del
+  corpus como opcional cuando la herramienta no exista, registrándolo como
+  omitido explícito en vez de enmascararlo). Abre parche `0.7.2`: no cambia
+  capacidades.
+
+**Estado del dictamen:** **CIERRE CONDICIONADO**. Las capacidades esenciales y
+el artefacto están publicados y verificados en destino, y H-2…H-6 están
+cerrados. La condición pendiente es H-7: el CI rojo debe quedar verde para que
+la señal de calidad sea real. No bloquea el uso del binario publicado.
