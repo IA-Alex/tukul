@@ -249,7 +249,7 @@ class TestFlujoCompletoConProveedorEnRafaga(unittest.TestCase):
         app.request_types[request_id] = "normal"
         piezas = [f"palabra{i} " for i in range(3000)]
 
-        def stream_en_rafaga(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def stream_en_rafaga(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             for pieza in piezas:
                 yield StreamChunk(pieza)
             yield StreamChunk("", 100, 50)
@@ -293,7 +293,7 @@ class TestFlujoCompletoConProveedorEnRafaga(unittest.TestCase):
         app._append_notice = Mock()
         piezas = [f"p{i} " for i in range(500)]
 
-        def stream_que_falla(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def stream_que_falla(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             for pieza in piezas:
                 yield StreamChunk(pieza)
             raise LlmError("El proveedor cortó la conexión.")

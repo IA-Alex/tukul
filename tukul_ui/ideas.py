@@ -202,7 +202,8 @@ class IdeasController:
         from tukul_core.llm import LLMClient  # import diferido: solo si se usa
 
         def _llm_callable(prompt: str) -> str:
-            return LLMClient().complete(profile, api_key, prompt).content
+            return LLMClient().complete(
+                profile, api_key, prompt, modo="enriquecimiento").content
         return _llm_callable
 
     def _registrar_error(self, dialog, detalle: str) -> None:

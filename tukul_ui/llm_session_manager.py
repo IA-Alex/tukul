@@ -31,10 +31,15 @@ class LLMSessionManager:
         on_complete: Callable[[str, tuple[int | None, int | None]], None],
         request_id: int | None = None,
         cancel_event: threading.Event | None = None,
+        modo: str | None = "conversacion",
     ) -> None:
         """
         Stream respuesta con error handling robusto.
         Ejecutar en thread separado.
+
+        `modo` elige el prompt de sistema: por defecto `conversacion`, porque
+        este es el camino del chat. Etiquetar el chat como revisión enviaba el
+        contrato JSON de hallazgos a una conversación normal.
         """
         # El evento de cancelación debe viajar con la petición: leerlo del manager
         # dejaba una ventana en la que una petición nueva sobrescribía el evento de
@@ -57,7 +62,7 @@ class LLMSessionManager:
             # Stream con captura amplia de excepciones
             try:
                 collected = self._collect_stream(
-                    profile, api_key, prompt, request_id, cancel_event, on_chunk
+                    profile, api_key, prompt, request_id, cancel_event, on_chunk, modo
                 )
                 if collected is None:
                     return  # Cancelado a mitad: nadie espera callback.
@@ -95,6 +100,7 @@ class LLMSessionManager:
         request_id: int | None,
         cancel_event: threading.Event | None,
         on_chunk: Callable[[str], None],
+        modo: str | None = None,
     ) -> tuple[str, tuple[int | None, int | None]] | None:
         """Acumula la respuesta completa. Devuelve (texto, uso), o None si se canceló."""
         chunks: list[str] = []
@@ -104,7 +110,7 @@ class LLMSessionManager:
         max_response_bytes = max(2 * 1024 * 1024, profile.max_output_tokens * 4 * 2)
         accumulated_bytes = 0  # Evita el coste cuadrático de len("".join(chunks))
 
-        for chunk in self.client.stream(profile, api_key, prompt, request_id, cancel_event):
+        for chunk in self.client.stream(profile, api_key, prompt, request_id, cancel_event, modo=modo):
             if cancel_event and cancel_event.is_set():
                 return None
             if isinstance(chunk.content, str) and chunk.content:

@@ -28,6 +28,7 @@ from tukul_core.models import (
     LlmProfile,
 )
 from tukul_core.prompting import REVIEW_PROMPT, build_editor_prompt, build_review_prompt
+from tukul_core.prompts import prompt_sistema
 from tukul_core.real_time_feed import FeedOrchestrator  # noqa: F401
 from tukul_core.review import diagnose_findings, parse_findings, respuesta_fuera_de_rol
 
@@ -1861,7 +1862,7 @@ class TukulApp(tk.Tk):
         try:
             # Construir el prompt COMPLETO: SYSTEM_PROMPT + JSON con todo (articulo, contexto, conversation con mensaje)
             prompt_json = build_editor_prompt(selected, packet, conversation_with_message)
-            actual_tokens = estimate_prompt_tokens(SYSTEM_PROMPT, prompt_json)
+            actual_tokens = estimate_prompt_tokens(prompt_sistema("conversacion"), prompt_json)
 
             # Validar límite ENTRADA + SALIDA: entrada + max_output_tokens <= max_total_model_tokens
             # actual_tokens YA está en tokens (calculado por estimate_prompt_tokens)

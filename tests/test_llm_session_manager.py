@@ -85,7 +85,7 @@ class StreamResponseTests(unittest.TestCase):
         evento = threading.Event()
         respuesta = MagicMock()
 
-        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             evento.set()  # se cancela ANTES de que llegue ningún trozo
             respuesta.close()
             return
@@ -101,7 +101,7 @@ class StreamResponseTests(unittest.TestCase):
         import threading
         evento = threading.Event()
 
-        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             yield StreamChunk("un poco")
             evento.set()  # se cancela DESPUÉS del primer chunk, antes del próximo check
             yield StreamChunk("más")
@@ -114,7 +114,7 @@ class StreamResponseTests(unittest.TestCase):
         self.assertEqual(self.completados, [])
 
     def test_llm_error_del_proveedor_se_reporta_tal_cual(self):
-        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             raise LlmError("La API key fue rechazada.")
             yield  # pragma: no cover - hace de esta función un generador
 
@@ -124,7 +124,7 @@ class StreamResponseTests(unittest.TestCase):
         self.assertEqual(self.errores, ["La API key fue rechazada."])
 
     def test_error_de_red_o_parsing_incluye_la_clase_de_excepcion(self):
-        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             raise json.JSONDecodeError("bad json", "doc", 0)
             yield  # pragma: no cover
 
@@ -135,7 +135,7 @@ class StreamResponseTests(unittest.TestCase):
         self.assertIn("JSONDecodeError", self.errores[0])
 
     def test_excepcion_inesperada_no_tumba_el_hilo_worker(self):
-        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             raise RuntimeError("algo que nadie previó")
             yield  # pragma: no cover
 
@@ -148,7 +148,7 @@ class StreamResponseTests(unittest.TestCase):
     def test_respuesta_que_excede_el_techo_de_memoria_se_trunca(self):
         perfil = _profile(max_output_tokens=1)  # techo mínimo: 2MB por el piso fijo
 
-        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None):
+        def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             # Un solo chunk mayor al piso de 2MB fuerza el límite de _accept_chunk.
             yield StreamChunk("x" * (3 * 1024 * 1024))
 
