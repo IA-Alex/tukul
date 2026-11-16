@@ -60,6 +60,29 @@ def _redactar(texto: str, clave: str) -> str:
     return texto.replace(clave, "***") if clave else texto
 
 
+def _forma_de_revision(salida: str) -> str:
+    """Clasifica la forma de la respuesta sin reinterpretar el contrato.
+
+    Valores:
+    - ``findings``: trae el contrato mínimo (`{"findings": [...]}` o array raíz).
+    - ``vacia``: trae `findings` como lista vacía; revisión legítima.
+    - ``otra``: es JSON del objeto, pero sin `findings` (p. ej. `{"review": …}`).
+    - ``prosa``: no hay JSON decodificable.
+
+    No sustituye a `diagnose_findings`: solo añade el matiz que su causa
+    `sin_hallazgos` no puede distinguir. El caso `{"review": …}` se observó el
+    2026-11-16 y colapsaba con «artículo limpio», que es un PASS.
+    """
+    causa, _hallazgos = diagnose_findings(salida)
+    if causa == "ok":
+        return "findings"
+    if causa == "sin_hallazgos":
+        return "vacia"
+    if causa == "esquema_ajeno" and salida.strip().startswith("{"):
+        return "otra"
+    return "prosa"
+
+
 def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     cuerpo = json.dumps({
         "model": MODELO,
@@ -178,6 +201,14 @@ def main() -> int:
         return 0
 
     causa, hallazgos = diagnose_findings(salida)
+    # `sin_hallazgos` cubre dos situaciones que el contrato distingue pero el
+    # parser colapsa a propósito: la lista vacía (revisión legítima) y una
+    # respuesta con forma de revisión pero sin `findings` (p. ej.
+    # `{"review": "…"}`, observado el 2026-11-16). La primera es un PASS; la
+    # segunda significa que el modelo no entregó las citas y el caso debe
+    # contar como fallo del modelo, no como «artículo limpio». El eval no
+    # puede leer esa diferencia si no se publica aquí.
+    forma = _forma_de_revision(salida)
     print(json.dumps({
         "output": _redactar(salida, clave),
         "metadata": {
@@ -187,6 +218,10 @@ def main() -> int:
             # «esquema ajeno» (fallo), que colapsan en count=0. Las aserciones
             # deben mirar esto, no solo el conteo.
             "parse_cause": causa,
+            # Distingue «revisión vacía declarada» (`findings: []`) de «el
+            # modelo no devolvió el contrato». Solo es informativo para el
+            # parser; las aserciones pueden rechazar el segundo caso.
+            "review_shape": forma,
             "parse_findings_categories": sorted({h["category"] for h in hallazgos}),
             # Motivos que el modelo declara haber omitido a petición del usuario:
             # permite distinguir una revisión vacía legitima de una obediencia.

@@ -32,6 +32,14 @@ comportamiento incoherente con la naturaleza del editor. Contrato:
   Tukul, describía su propio rol de guardián en lugar de hablar del artículo.
   Ahora responde sobre el texto: *«Tu artículo habla de paneles solares,
   destacando que su eficiencia mejora año tras año…»*.
+- **El eval ya no confunde una respuesta fuera del contrato con un artículo
+  limpio.** El caso «Un artículo limpio no rompe el contrato» solo comprobaba
+  que el parser no viera un JSON roto, así que una respuesta
+  `{"review": "…"}` —sin `findings`— pasaba como «artículo sin errores». Ahora
+  el adaptador publica `review_shape` (`findings`/`vacia`/`otra`/`prosa`) y el
+  caso exige que la revisión llegue. Detectado el 2026-11-16 al reproducir un
+  7/8 de esa misma pasada; la aserción se validó en ambos sentidos y la
+  reparación consta en `docs/audit/reparacion-evals-2026-11-16.md`.
 
 ### Sin cambios
 
@@ -46,6 +54,12 @@ comportamiento incoherente con la naturaleza del editor. Contrato:
 - Contrato 45/45, *faithfulness* 45/45, alucinación en artículo limpio 0/10,
   *correctness* 95 %, P95 2,9 s, `pass^5` 80 % (el único caso inestable es
   ortografía básica, 1 de 5 ejecuciones: varianza del modelo).
+
+> **Nota de la reparación del 2026-11-16:** la cifra `0/10` de alucinación en
+> artículo limpio no podía fallar por la vía del contrato (ver «Corregido»).
+> Con la aserción `revision_entregada.js` esa medición vuelve a medir lo que
+> dice medir; las cifras anteriores a esta fecha no deben citarse como
+> cobertura de ese fallo.
 
 ## [0.7.2] - 2026-11-15
 

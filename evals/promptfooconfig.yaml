@@ -77,6 +77,8 @@ tests:
     assert:
       - type: javascript
         value: file://asserts/contrato_json.js
+      - type: javascript
+        value: file://asserts/revision_entregada.js
 
   - description: "Artículo largo: el parser respeta el tope de 12 hallazgos"
     vars:
