@@ -86,6 +86,8 @@ flowchart LR
 
 La UI construye el prompt con artículo, paquete de contexto aprobado y conversación; estima límites; asigna un request ID y crea un `threading.Event` de cancelación. El worker ejecuta el cliente y publica chunks en `ChunkBuffer`; al terminar publica exactamente un evento de control. Tkinter procesa ambos desde su hilo mediante `after(50, ...)`. Un request tardío se ignora mediante el ID/estado vigente y no puede aplicar datos a otro documento.
 
+Cancelar actúa en dos momentos. Si la respuesta ya está abierta, `LLMClient.cancel(request_id)` cierra el stream. Si aún se está conectando o esperando cabeceras (hasta `HTTP_TIMEOUT_SECONDS`), el opener del cliente registra el socket en vuelo (`http_safety.build_tracking_opener`) y `cancel` hace `shutdown` sobre él, lo que despierta el `recv` del hilo de la petición en vez de esperar al timeout. Sin eso, la UI mostraba «cancelado» con el hilo todavía bloqueado.
+
 El texto puede agruparse, pero no se descarta mientras la petición esté activa. La finalización se drena después de pintar los chunks pendientes. El detalle de ordering, ownership y shutdown está en [QUEUE_POLICY.md](QUEUE_POLICY.md).
 
 ## Persistencia, recuperación y configuración

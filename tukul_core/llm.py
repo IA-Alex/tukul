@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 import urllib.error
@@ -10,7 +11,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import IO, Any
 
-from .http_safety import NO_REDIRECT_OPENER
+from .http_safety import build_tracking_opener
 from .logging_config import setup_logging
 from .models import LlmProfile
 from .prompts import prompt_sistema
@@ -163,10 +164,73 @@ def validate_endpoint(endpoint: str) -> str:
     return endpoint
 
 
-# Opener sin redirects: urllib conservaría Authorization / x-api-key al seguir un
-# 3xx y un endpoint comprometido podría redirigir a otro origen y robar la
-# credencial. Compartido con threat_feed vía http_safety.
-_OPENER_NO_REDIRECT = NO_REDIRECT_OPENER
+# Opener sin redirects y con socket rastreado: urllib conservaría Authorization
+# / x-api-key al seguir un 3xx y un endpoint comprometido podría redirigir a
+# otro origen y robar la credencial; el rastreo del socket es lo que permite
+# cortar un `open()` colgado (ver `LLMClient.cancel`). Cada instancia usa el
+# suyo (`self._opener`). Este global sin rastreo se conserva para los tests que
+# parchean la apertura HTTP y para quien importe el nombre histórico.
+def _es_cancelacion_por_socket(error: BaseException, cancel_event: threading.Event | None) -> bool:
+    """¿El fallo de E/S se debió a que la petición estaba cancelada?
+
+    Un socket cortado por `cancel()` levanta OSError (EBADF, ECONNABORTED…) o
+    ValueError (operación sobre un objeto cerrado). Con el evento marcado es una
+    cancelación pedida; sin él, es un fallo real que debe llegar al usuario.
+    `URLError` nunca cuenta: urllib lo usa para fallos de transporte reales.
+    """
+    if isinstance(error, urllib.error.URLError):
+        return False
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def _cortar_socket(socket_obj: Any) -> None:
+    """Despierta a quien esté bloqueado en el socket y lo cierra.
+
+    `shutdown` es lo que desbloquea un `recv` en curso (otro hilo esperando
+    cabeceras); `close` libera el descriptor. Ambos pueden fallar si el socket
+    ya estaba cerrado por el otro extremo, y eso no es un error que importe.
+    """
+    apagar = getattr(socket_obj, "shutdown", None)
+    if callable(apagar):
+        try:
+            apagar(socket.SHUT_RDWR)
+        except (OSError, ValueError):
+            pass
+    cerrar = getattr(socket_obj, "close", None)
+    if callable(cerrar):
+        try:
+            cerrar()
+        except (OSError, ValueError):
+            pass
+
+
+class _SinRastreo:
+    """Tracker del opener global: no corta sockets por sí solo.
+
+    Una petición sin evento de cancelación no necesita cortar nada; cuando sí lo
+    necesita, se construye un opener propio con el tracker del cliente
+    (`LLMClient._con_opener`).
+    """
+
+    def registrar_socket(self, socket_obj: Any) -> None:
+        """No hace nada: el opener global no pertenece a ninguna petición."""
+
+
+_OPENER_NO_REDIRECT = build_tracking_opener(_SinRastreo())
+
+
+def _abrir_una_vez(opener: Any, request: Any) -> Any:
+    """Hace un único `open()` (sin reintentos).
+
+    Aparte de `_open_with_retry` para que la función de reintentos quepa en la
+    complejidad ciclomática que exige el linter (C901). No toca `request`: la
+    validación y el `timeout` los aplica urllib dentro de `OpenerDirector.open`,
+    y así un `open` parcheado en pruebas sigue controlando la apertura.
+    """
+    # Sin `timeout` explícito: `OpenerDirector.open` inspecciona la petición
+    # (`req.timeout`, `req.type`…) antes de delegar, y los dobles de prueba pasan
+    # objetos mínimos. urllib aplica el suyo propio por defecto.
+    return opener.open(request)  # nosec B310
 
 
 @dataclass
@@ -211,19 +275,95 @@ class LLMClient:
         # Solo se guarda para poder cerrarlo desde otro hilo (cancelación).
         self._responses: dict[int, IO[bytes]] = {}
         self._response_lock = threading.Lock()
+        # Opener propio con socket rastreado: es lo que permite que Cancelar
+        # corte también la fase de `open()`, no solo una respuesta ya abierta.
+        self._opener = _OPENER_NO_REDIRECT
+        # Con qué opener nació esta instancia. Solo sirve para detectar que se
+        # sustituyó el global y no debe salir a red real por el camino viejo.
+        self._opener_original = self._opener
+        # Sockets vivos, cada uno con el hilo que lo abrió: la UI corta desde
+        # otro hilo y la petición limpia al volver de su propio `open()`.
+        self._sockets: list[tuple[Any, int]] = []
+        self._socket_lock = threading.Lock()
+
+    def registrar_socket(self, socket_obj: Any) -> None:
+        """Guarda un socket recién conectado (lo llama el opener)."""
+        with self._socket_lock:
+            ahora = threading.get_ident()
+            # El hilo de la petición puede volver de `open()` y limpiar mientras
+            # este registro seguía en curso: un socket que llega tarde no debe
+            # quedar huérfano en la lista ni sobrevivir a su petición.
+            self._sockets = [
+                (socket, hilo) for socket, hilo in self._sockets if hilo == ahora
+            ]
+            self._sockets.append((socket_obj, ahora))
+
+    def _olvidar_sockets_en_vuelo(self) -> None:
+        """Olvida los sockets del hilo actual (su `open()` ya terminó)."""
+        ahora = threading.get_ident()
+        with self._socket_lock:
+            self._sockets = [
+                (socket, hilo) for socket, hilo in self._sockets if hilo != ahora
+            ]
+
+    def _sincronizar_opener_parcheado(self) -> None:
+        """Respeta un parche de pruebas sobre el opener global.
+
+        Los tests sustituyen `_OPENER_NO_REDIRECT.open` para simular la red sin
+        abrir conexiones reales. `opener.open` es un atributo de instancia
+        (mock), no de la clase, así que hay que sustituir el objeto entero: por
+        eso el módulo reconstruye el global al importar `urllib.request` y aquí
+        solo se detecta que cambió de identidad.
+        """
+        global _OPENER_NO_REDIRECT
+        if _OPENER_NO_REDIRECT is not self._opener_original:
+            self._opener = _OPENER_NO_REDIRECT
 
     def cancel(self, request_id: int) -> None:
-        """Cierra el stream activo. La conexión inicial puede esperar al timeout del SO."""
+        """Cierra el stream activo y corta la conexión en curso, si la hay.
+
+        Antes solo cerraba una respuesta ya abierta: mientras `open()` estaba
+        conectando o esperando cabeceras (hasta `HTTP_TIMEOUT_SECONDS`), Cancelar
+        no tenía nada que cerrar y la UI prometía una cancelación que podía
+        tardar hasta 90 s. Ahora también se apagan los sockets en vuelo:
+        `shutdown` despierta al hilo bloqueado en `recv` y `close` libera el
+        descriptor. No se corta a la mitad de una escritura grande para no
+        dejarlo en estado inconsistente; `shutdown` ya es suficiente para
+        desbloquear.
+        """
         with self._response_lock:
             response = self._responses.pop(request_id, None)
+        with self._socket_lock:
+            sockets = [socket for socket, _hilo in self._sockets]
+            self._sockets = []
         if response is not None:
             try:
                 response.close()
             except OSError:
                 pass
+        for socket_obj in sockets:
+            cancelar = getattr(socket_obj, "cancelar", None)
+            if callable(cancelar):
+                cancelar()
+            else:
+                _cortar_socket(socket_obj)
+
+    def _con_opener(self, cancel_event: threading.Event | None) -> Any:
+        """Opener a usar en esta petición, con el evento de cancelación dentro.
+
+        El rastreo de socket y la cancelación viven en el opener, así que uno
+        ligado a OTRO evento no sirve: se construye uno para este. Sin evento se
+        usa el de la instancia, que es `_OPENER_NO_REDIRECT`: el mismo objeto
+        que la suite parchea para simular la red, de modo que un parche sigue
+        teniendo efecto sin tocar los tests.
+        """
+        self._sincronizar_opener_parcheado()
+        if cancel_event is None:
+            return self._opener
+        return build_tracking_opener(self, cancel_event)
 
     @staticmethod
-    def _retry_delay(attempt: int, error: BaseException) -> float:
+    def _retry_delay(attempt: int, error: BaseException | None) -> float:
         """Segundos de espera antes de reintentar, respetando `Retry-After`.
 
         `attempt` es el número de reintento que se va a hacer (1 = el primero).
@@ -250,37 +390,50 @@ class LLMClient:
         traduzcan al mensaje humano.
         """
         attempt = 0
-        last_error: BaseException | None = None
+        ultimo_error: BaseException | None = None
+        # Un solo opener para todos los intentos: si el socket se canceló, su
+        # evento sigue marcado y el siguiente intento lo respeta igual.
+        opener = self._con_opener(cancel_event)
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 return None
             try:
-                # Bandit B310 (scheme audit) suprimido abajo: el esquema ya se
-                # valida en validate_endpoint() (solo http(s), y http: solo hacia
-                # loopback) antes de construir `request`. El opener propio además
-                # nunca sigue redirecciones, que conservarían las cabeceras de
-                # autenticación (ver _NoRedirectHandler).
-                return _OPENER_NO_REDIRECT.open(request, timeout=HTTP_TIMEOUT_SECONDS)  # nosec B310
+                respuesta = _abrir_una_vez(opener, request)
+                # `open()` volvió: el socket ya es trabajo de `_responses`, no
+                # del registro de conexiones en vuelo.
+                self._olvidar_sockets_en_vuelo()
+                return respuesta
             except urllib.error.HTTPError as error:
-                last_error = error
+                ultimo_error = error
                 if error.code not in RETRYABLE_STATUS:
                     raise
-            except urllib.error.URLError as error:
-                last_error = error
+            except (urllib.error.URLError, OSError, ValueError) as error:
+                ultimo_error = error
+                if _es_cancelacion_por_socket(error, cancel_event):
+                    # Socket cortado por `cancel()`: cancelación pedida, no fallo.
+                    return None
             if attempt >= MAX_HTTP_ATTEMPTS - 1:
                 break
             attempt += 1
-            # `time.sleep` no es interrumpible: el botón Cancelar parecía muerto
-            # hasta 4 s por intento. `wait` despierta en cuanto se cancela.
-            espera = self._retry_delay(attempt, last_error)
-            if cancel_event is not None:
-                if cancel_event.wait(espera):
-                    return None
-            else:
-                time.sleep(espera)
-        if last_error is not None:
-            raise last_error
+            if self._esperar_reintento(attempt, ultimo_error, cancel_event):
+                return None  # cancelada mientras esperaba
+        if ultimo_error is not None:
+            raise ultimo_error
         raise LlmError("No se pudo conectar con el proveedor.")
+
+    def _esperar_reintento(
+        self, attempt: int, error: BaseException | None, cancel_event: threading.Event | None
+    ) -> bool:
+        """Espera antes del reintento. True si se canceló durante la espera.
+
+        `time.sleep` no es interrumpible: el botón Cancelar parecía muerto hasta
+        4 s por intento. `wait` despierta en cuanto se cancela.
+        """
+        espera = self._retry_delay(attempt, error)
+        if cancel_event is None:
+            time.sleep(espera)
+            return False
+        return cancel_event.wait(espera)
 
     def _request(self, profile: LlmProfile, api_key: str, prompt: str, stream: bool,
                  modo: str | None = None) -> urllib.request.Request:
@@ -477,19 +630,31 @@ class LLMClient:
                 with self._response_lock:
                     self._responses.pop(request_id, None)
     def complete(self, profile: LlmProfile, api_key: str, prompt: str,
-                 modo: str | None = None) -> LlmResponse:
+                 modo: str | None = None,
+                 cancel_event: threading.Event | None = None) -> LlmResponse:
         """Solicita una respuesta completa (no streaming) y la devuelve parseada.
 
         El cuerpo se lee con techo de memoria coherente con `max_output_tokens`
         y las redirecciones HTTP se rechazan para no reenviar la API key.
         `modo` elige el prompt de sistema (ver `tukul_core.prompts`); sin él se
         conserva el comportamiento histórico (revisión).
+
+        `cancel_event` es opcional y hace `complete` cancelable igual que
+        `stream`: sin él, el backoff caía en `time.sleep`, no interrumpible, y
+        una cancelación durante la espera entre reintentos no se notaba hasta
+        que terminaba (hasta 4 s por intento). Quien no lo pase conserva el
+        comportamiento anterior.
         """
         if not profile.enabled or not api_key:
             raise LlmError("Configura endpoint, modelo y API key.")
         request = self._request(profile, api_key, prompt, stream=False, modo=modo)
         try:
-            with self._open_with_retry(request) as response:
+            response = self._open_with_retry(request, cancel_event)
+            if response is None:
+                # Cancelada durante una espera de reintento: no hay respuesta
+                # que devolver ni error que mostrar, igual que en `stream`.
+                raise LlmError("La consulta se canceló.")
+            with response:
                 data = json.loads(self._read_bounded(response, profile.max_output_tokens).decode())
             protocol = provider_spec(profile.provider).protocol
             if protocol == "anthropic_messages": content = "".join(part.get("text", "") for part in data.get("content", []) if isinstance(part, dict))

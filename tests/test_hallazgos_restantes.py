@@ -42,10 +42,11 @@ class TestCancelarDuranteElBackoff(unittest.TestCase):
             cancel.set()  # el usuario cancela mientras se intenta conectar
             raise error
 
+        cliente = LLMClient()
         inicio = time.monotonic()
-        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=abrir), \
+        with patch("tukul_core.llm._abrir_una_vez", side_effect=abrir), \
              patch("tukul_core.llm.BACKOFF_BASE_SECONDS", 5.0):
-            resultado = LLMClient()._open_with_retry(object(), cancel)
+            resultado = cliente._open_with_retry(object(), cancel)
         transcurrido = time.monotonic() - inicio
 
         self.assertIsNone(resultado, "Cancelado: no debe haber respuesta")
@@ -62,10 +63,11 @@ class TestCancelarDuranteElBackoff(unittest.TestCase):
                 raise urllib.error.URLError("sin red")
             raise urllib.error.HTTPError("http://127.0.0.1:1/", 401, "Unauthorized", {}, None)
 
-        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=abrir), \
+        cliente = LLMClient()
+        with patch("tukul_core.llm._abrir_una_vez", side_effect=abrir), \
              patch("tukul_core.llm.time.sleep") as dormir:
             with self.assertRaises(urllib.error.HTTPError):
-                LLMClient()._open_with_retry(object(), None)
+                cliente._open_with_retry(object(), None)
         dormir.assert_called_once()
 
 

@@ -119,7 +119,9 @@ class TestResilienceContracts(unittest.TestCase):
             cancelled.set()
             raise urllib.error.URLError("offline")
 
-        with patch("tukul_core.llm._OPENER_NO_REDIRECT.open", side_effect=open_fails):
+        with patch.object(client, "_opener") as opener, \
+             patch("tukul_core.llm._abrir_una_vez") as abrir:
+            abrir.side_effect = open_fails
             self.assertIsNone(client._open_with_retry(object(), cancelled))
         self.assertEqual(attempts, 1)
 

@@ -202,6 +202,94 @@ class TestReintentosContraServidorReal(unittest.TestCase):
         self.assertLess(transcurrido, 5.0)
 
 
+class TestCancelarDuranteLaConexionInicial(unittest.TestCase):
+    """Regresión: cancelar esperaba hasta `HTTP_TIMEOUT_SECONDS` (90 s).
+
+    Un servidor que acepta la conexión y nunca responde deja el hilo de la
+    petición bloqueado en `getresponse()` dentro de `open()`. `cancel()` solo
+    cerraba respuestas YA abiertas, así que Cancelar no tenía nada que cortar y
+    la UI decía «cancelado» con el hilo todavía vivo hasta 90 s. El cierre de la
+    app (`_esperar_hilos_de_peticion`, 2 s) dejaba entonces el proceso como
+    daemon con la ventana ya destruida.
+    """
+
+    def setUp(self) -> None:
+        import socket
+
+        # Listener que acepta y NO responde nunca: reproducción mínima de una
+        # red que acepta la conexión y se queda muda.
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(5)
+        self.puerto = self.listener.getsockname()[1]
+        self.aceptadas: list[Any] = []
+        self._aceptar = threading.Thread(target=self._aceptar_sin_responder, daemon=True)
+        self._aceptar.start()
+
+    def _aceptar_sin_responder(self) -> None:
+        while True:
+            try:
+                conexion, _ = self.listener.accept()
+            except OSError:
+                return
+            self.aceptadas.append(conexion)
+
+    def tearDown(self) -> None:
+        for conexion in self.aceptadas:
+            try:
+                conexion.close()
+            except OSError:
+                pass
+        self.listener.close()
+
+    def test_cancelar_corta_el_open_colgado_en_segundos_no_en_90(self):
+        # Se ejercita `stream`: es el camino real (la UI siempre hace streaming
+        # y es donde `cancel(request_id)` cierra la respuesta).
+        cancel = threading.Event()
+        cliente = LLMClient()
+        resultado: dict[str, Any] = {}
+
+        def pedir() -> None:
+            try:
+                for _ in cliente.stream(
+                    _perfil(f"http://127.0.0.1:{self.puerto}/v1/chat/completions"),
+                    "k", "hola", request_id=1, cancel_event=cancel,
+                ):
+                    pass
+                resultado["fin"] = "respuesta"
+            except LlmError as error:
+                resultado["fin"] = f"error: {error}"
+            except BaseException as error:  # se reporta abajo, en el hilo de test
+                resultado["fin"] = f"inesperado: {type(error).__name__}: {error}"
+
+        hilo = threading.Thread(target=pedir, daemon=True)
+        hilo.start()
+        # Se espera a que la conexión esté abierta y el hilo bloqueado leyendo.
+        limite = time.monotonic() + 5
+        while not self.aceptadas and time.monotonic() < limite:
+            time.sleep(0.01)
+        self.assertTrue(self.aceptadas, "el servidor no recibió la conexión")
+
+        # Orden REAL de TukulApp._cancel_active_request: marca el evento y luego
+        # llama a `cancel`. Es el escenario que deja el hilo bloqueado DENTRO de
+        # `getresponse()` cuando llega el corte.
+        time.sleep(0.2)  # deja el hilo dentro de `getresponse()`
+        inicio = time.monotonic()
+        cancel.set()
+        cliente.cancel(1)
+        hilo.join(timeout=10)
+        transcurrido = time.monotonic() - inicio
+
+        self.assertFalse(hilo.is_alive(), "el hilo siguió colgado tras cancelar")
+        # Lo que se fija es la PROMESA del botón: al terminar `cancel`, el hilo
+        # ya no está atascado. El fallo original era quedarse hasta 90 s.
+        self.assertLess(
+            transcurrido, 5.0,
+            f"cancelar tardó {transcurrido:.1f}s: el socket en vuelo no se cortó "
+            f"(terminó como {resultado.get('fin')!r})")
+
+
 class TestSinSeguirRedireccionesContraServidorReal(unittest.TestCase):
     """Un 302 no puede reenviar la credencial al destino redirigido."""
 

@@ -20,6 +20,15 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   una marca visible (`…[recortado al guardar…]`) en lugar de borrarse. La
   restauración recorta en vez de descartar, y un rechazo de guardado vuelve a
   mostrarse en el pie en vez de quedar solo en el log.
+- **Cancelar corta también la conexión en curso, no solo el stream.** Mientras
+  `open()` conectaba o esperaba cabeceras (hasta `HTTP_TIMEOUT_SECONDS`, 90 s),
+  `LLMClient.cancel` no tenía nada que cerrar: la interfaz decía «cancelado» con
+  el hilo todavía bloqueado dentro de `getresponse()`, y el cierre esperaba su
+  tope de 2 s dejando el proceso vivo como daemon. Ahora el opener del cliente
+  registra cada socket que conecta y `cancel` hace `shutdown` sobre él, lo que
+  despierta la lectura en curso (medido: de >10 s a 0,00 s). El registro vive en
+  `http_safety.build_tracking_opener`, que conserva el rechazo de redirecciones.
+
 ## [0.8.0] - 2026-11-15
 
 Ciclo nuevo tras `0.7.2`. A diferencia de los parches `0.7.x`, cambia el
