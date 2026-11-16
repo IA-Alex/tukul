@@ -121,6 +121,28 @@ class TestPersistirConversacion(unittest.TestCase):
     def test_el_presupuesto_deriva_del_tamano_real_del_estado(self):
         self.assertLess(ui_state.MAX_CONVERSATION_CHARS, storage.MAX_UI_STATE_BYTES)
 
+    def test_muchos_documentos_nunca_hacen_rechazar_el_guardado(self):
+        """Regresión: una cuota por documento no acota el archivo completo.
+
+        Diez documentos, cada uno dentro de su presupuesto, sumaban 10 MB y
+        `save_ui_state` rechazaba el archivo entero. Con varios artículos en
+        «Recientes» el mismo defecto volvía por la vía global.
+        """
+        conversaciones: dict = {}
+        for indice in range(10):
+            turnos = []
+            for turno in range(15):
+                turnos.append(ChatMessage("user", f"p{turno} " + "x" * 199_995))
+                turnos.append(ChatMessage("assistant", "a" * 200_000))
+            conversaciones = ui_state.persistir_conversacion(
+                conversaciones, Path(f"doc{indice}.md"), turnos)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            storage.save_ui_state({"conversations": conversaciones}, Path(tmp) / "config.toml")
+        total = len(ui_state._serializar(conversaciones).encode("utf-8"))
+        self.assertLessEqual(total, ui_state.MAX_CONVERSATIONS_TOTAL_CHARS)
+        self.assertTrue(conversaciones, "no puede quedarse sin ninguna conversación")
+
 
 class TestPodarConversaciones(unittest.TestCase):
     def test_solo_conserva_los_documentos_vigentes(self):

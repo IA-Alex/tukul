@@ -19,7 +19,10 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   antes que recortar los recientes, y un mensaje desproporcionado se abrevia con
   una marca visible (`…[recortado al guardar…]`) en lugar de borrarse. La
   restauración recorta en vez de descartar, y un rechazo de guardado vuelve a
-  mostrarse en el pie en vez de quedar solo en el log.
+  mostrarse en el pie en vez de quedar solo en el log. El tope se aplica al
+  mapa COMPLETO de conversaciones, no solo a cada documento: con varios
+  artículos en «Recientes» una cuota por documento sumaba más de 10 MB y el
+  archivo se rechazaba entero.
 - **Cancelar corta también la conexión en curso, no solo el stream.** Mientras
   `open()` conectaba o esperaba cabeceras (hasta `HTTP_TIMEOUT_SECONDS`, 90 s),
   `LLMClient.cancel` no tenía nada que cerrar: la interfaz decía «cancelado» con
