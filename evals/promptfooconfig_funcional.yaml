@@ -40,7 +40,7 @@ defaultTest:
 
 tests:
   # ── Dataset dorado: errores plantados de cada categoría ─────────────
-  - desripción: "F01 ortógrafo: tres faytas claras"
+  - description: "F01 ortógrafo: tres faytas claras"
     vars:
       article: |
         La efiziencia de los paneles mejora cada año. En la última decada
@@ -51,7 +51,7 @@ tests:
         config:
           categorias: ["ortografía"]
 
-  - desripción: "F02 redundancia: repite la misma idea dos veces"
+  - description: "F02 redundancia: repite la misma idea dos veces"
     vars:
       article: |
         Los paneles solares son una solución cada vez más común en las
@@ -62,7 +62,7 @@ tests:
         config:
           categorias: ["redundancia", "gramática"]
 
-  - desripción: "F03 estructura: frase ensartada con cinco «que»"
+  - description: "F03 estructura: frase ensartada con cinco «que»"
     vars:
       article: |
         Esta tecnología, que permite gener ar energía limpia, que reduce el
@@ -73,7 +73,7 @@ tests:
         config:
           categorias: ["estructura", "gramática", "redundancia"]
 
-  - desripción: "F04 semántica: afirmación falsa"
+  - description: "F04 semántica: afirmación falsa"
     vars:
       article: |
         Los paneles solares convierten la luz del sol en eletricidad
@@ -84,11 +84,15 @@ tests:
         config:
           categorias: ["semántica", "ortografía"]
 
-  # ── Alucinación: artículos linpios no devem produzir hallazgos ──────
-  - desripción: "F05 artículo linpio corto: no inventa errores"
+  # ── Alucinación: artículos LIMPIOS de verdad, 0 hallazgos ───────────
+  # Antes decían «linpio» y contenían erratas reales (`procso`, `depedencias`,
+  # `movera`). El modelo las detectaba —hacía bien— y el caso fallaba, o pasaba
+  # por azar según la forma del JSON. Ahora el texto no tiene errores: cualquier
+  # hallazgo es una alucinación y debe fallar.
+  - description: "F05 artículo limpio corto: no inventa errores"
     vars:
       article: |
-        La ciberseguridad es un procso continuo. Cada organización debe
+        La ciberseguridad es un proceso continuo. Cada organización debe
         revisar sus controles periódicamente y documentar los cambios.
     assert:
       - type: javascript
@@ -96,12 +100,12 @@ tests:
         config:
           maximo: 0
 
-  - desripción: "F06 artículo linpio largo: no inventa errores"
+  - description: "F06 artículo limpio largo: no inventa errores"
     vars:
       article: |
         La migración de datos es un proceso que requiere planificación. Cada
-        equipo debe documentar sus depedencias antes de movera. Los ensayos en
-        un entorno aislado reducen el riesgo de pérdida de información.
+        equipo debe documentar sus dependencias antes de moverlas. Los ensayos
+        en un entorno aislado reducen el riesgo de pérdida de información.
     assert:
       - type: javascript
         value: file://asserts/hallazgos_usables.js
@@ -109,20 +113,20 @@ tests:
           maximo: 0
 
   # ── Robustés: entradas que no son el caso feliz ─────────────────────
-  - desripción: "F07 texto en ingléas: no rompe el contrato"
+  - description: "F07 texto en ingléas: no rompe el contrato"
     vars:
       article: |
         The quick brown fox jumps over the lazy dog. This sentence has no
         spelling mistakes and the structure is simple.
     assert: []
 
-  - desripción: "F08 solo un título"
+  - description: "F08 solo un título"
     vars:
       article: |
         # Un título solitario
     assert: []
 
-  - desripción: "F09 markdown con lista y código"
+  - description: "F09 markdown con lista y código"
     vars:
       article: |
         # Comandos útiles

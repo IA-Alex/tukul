@@ -19,6 +19,10 @@ function extraerFindings(texto) {
   const bloque = limpio.match(/```[a-zA-Z]*\s*([\s\S]*?)```/);
   if (bloque) limpio = bloque[1].trim();
   const datos = JSON.parse(limpio);
+  // El contrato admite un ARRAY raíz de hallazgos (DeepInfra lo devuelve así de
+  // forma esporádica; `review._decode_payload` lo normaliza). Un array vacío es
+  // entonces «ningún hallazgo», no un fallo.
+  if (Array.isArray(datos)) return datos;
   return Array.isArray(datos.findings) ? datos.findings : null;
 }
 
@@ -26,16 +30,27 @@ module.exports = (output, context) => {
   const bruto = JSON.parse(output || '{}');
   const texto = (bruto.output || '').trim();
   const articulo = ((context.vars || {}).article || '').toLowerCase();
+  // `config` de la aserción en el YAML. `maximo` es el número de hallazgos que
+  // se tolera: 0 significa «este artículo está limpio, no debe haber ninguno».
+  // Sin leerlo, el caso «artículo limpio» solo validaba la FORMA del JSON y
+  // pasaba igual si el modelo se inventaba diez hallazgos.
+  // Ruta medida con una sonda: promptfoo lo entrega en `context.config`; se
+  // acepta también la copia dentro de `test.assert[]` por si cambia de versión.
+  const config = (context && context.config) ||
+    (((context || {}).test || {}).assert || []).find((a) => a.config)?.config || {};
+  const maximo = Number.isInteger(config.maximo) ? config.maximo : Infinity;
 
-  if (!texto.includes('findings')) return NEGATIVA_LEGITIMA.test(texto);
-
+  // La guarda `includes('findings')` descartaba un array raíz (que no contiene
+  // la palabra) antes de intentar extraerlo. Ahora la extracción decide: si hay
+  // JSON de hallazgos se usa; si no, se admite la negativa legítima.
   let hallazgos;
   try {
     hallazgos = extraerFindings(texto);
   } catch {
-    return false;
+    hallazgos = null;
   }
-  if (hallazgos === null) return false;
+  if (hallazgos === null) return NEGATIVA_LEGITIMA.test(texto);
+  if (hallazgos.length > maximo) return false;
   if (hallazgos.length === 0) return true;
 
   return hallazgos.every((h) => {

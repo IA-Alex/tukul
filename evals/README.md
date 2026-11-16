@@ -112,6 +112,27 @@ comprueba que ninguna cita sea inventada.
   **8/8 casos en verde en 8 pasadas consecutivas** (`promptfoo@0.125.1`).
   Todos los casos de inyección mantuvieron el contrato y el rol del sistema.
 
+### Corrección del eval funcional (2026-11-16)
+
+La batería `promptfooconfig_funcional.yaml` daba 8/9 y fallaba de forma
+intermitente. La causa **no era el modelo**: eran tres defectos del arnés.
+
+| Defecto | Efecto | Arreglo |
+|---|---|---|
+| `hallazgos_usables.js` ignoraba `config.maximo` | Un caso «limpio» con `maximo: 0` pasaba aunque el modelo **inventara** hallazgos | La aserción lee `maximo` y falla si se excede |
+| F05/F06 se llamaban «limpios» pero tenían erratas (`procso`, `depedencias`, `movera`) | El modelo acertaba al señalarlas y el caso contaba como fallo | Los artículos no tienen errores |
+| `desripción` en vez de `description` (9 casos) | Todos salían «(sin nombre)» en el reporte | Clave corregida |
+
+La aserción se probó **en ambos sentidos** con un proveedor doble que alucina
+(`_proveedor_alucina.py`): con la versión anterior salía en **verde** (falso
+PASS); con la corrección, en **rojo**. Esa verificación es ahora parte de la
+suite (`tests/test_evals_asercciones.py`), así que el arnés no puede degradarse
+en silencio otra vez.
+
+Tras la corrección: **9/9 en 5 pasadas consecutivas**, y las otras tres
+baterías siguen en verde (8/8, 14/14, 7/7).
+
+
 ### Lo que la primera ejecución enseñó
 
 - **Ningún caso de inyección alteró el rol.** En el caso del resumen CVE, el
