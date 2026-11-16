@@ -265,6 +265,39 @@ class TestUxVentanaReal(unittest.TestCase):
         restaurada = self.app._restaurar_conversacion(self.documento.resolve())
         self.assertEqual(restaurada, [])
 
+    def test_una_respuesta_larga_no_hace_perder_la_conversacion(self):
+        """Regresión: el estado se rechazaba por tamaño y la hebra desaparecía.
+
+        La conversación tenía un mensaje por encima del presupuesto de
+        `estado.json`; `save_ui_state` lanzaba ValueError, el cierre lo tragaba
+        en el log y, al reabrir, el historial volvía vacío sin ningún aviso.
+        """
+        from tukul_core.models import ChatMessage
+        from tukul_ui import ui_state
+
+        self.app.load_document(self.documento)
+        self._asentar()
+        larga = "a" * (ui_state.MAX_CONVERSATION_CHARS * 2)
+        self.app.session.conversation = [
+            ChatMessage("user", "Explícame la sección 3"),
+            ChatMessage("assistant", larga),
+        ]
+        with patch.object(self.app, "show_error") as aviso:
+            self.app._guardar_estado_ui()
+            self.assertFalse(aviso.called, "el guardado no debe necesitar un error modal")
+
+        # Disco: el archivo se guardó y la conversación sigue ahí (recortada).
+        estado = storage.load_ui_state(self.config)
+        guardada = estado["conversations"][str(self.documento.resolve())]
+        self.assertEqual(len(guardada), 2)
+        self.assertEqual(guardada[0]["content"], "Explícame la sección 3")
+        self.assertTrue(guardada[1]["content"].endswith(ui_state.MARCA_RECORTE))
+
+        # Y al reabrir, la hebra está presente: no vuelve vacía.
+        self.app.ui_state = {"conversations": estado["conversations"]}
+        restaurada = self.app._restaurar_conversacion(self.documento.resolve())
+        self.assertEqual(len(restaurada), 2)
+
     def test_guardar_estado_ui_persiste_zoom_y_recientes(self):
         self.app.load_document(self.documento)
         es.ZOOM = 1.2

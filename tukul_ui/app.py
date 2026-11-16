@@ -2576,6 +2576,18 @@ class TukulApp(tk.Tk):
         try:
             self._persistir_conversacion_en_memoria(self.session.document_path)
             storage.save_ui_state(self._snapshot_estado_ui(), self.config_path)
+        except ValueError as error:
+            # Un rechazo por tamaño dejaba las conversaciones anteriores en
+            # disco y la actual sin guardar, en silencio: al reabrir, el
+            # historial había desaparecido y nada lo explicaba. El defecto de
+            # fondo (dos presupuestos incompatibles) está corregido en
+            # `ui_state`; esto solo garantiza que, si otro exceso vuelve a
+            # impedir el guardado, la persona lo sepa antes de cerrar.
+            logger.warning("No se pudo guardar el estado de interfaz: %s", error, exc_info=True)
+            self.status.set(
+                "⚠ No se guardó el estado de la sesión (conversaciones y preferencias): "
+                f"{error} Guarda el artículo con Ctrl+S para no perder el texto."
+            )
         except Exception:
             logger.warning("No se pudo guardar el estado de interfaz", exc_info=True)
 

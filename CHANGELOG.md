@@ -4,6 +4,22 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Corregido
+
+- **La conversación ya no desaparece tras una respuesta larga.** Había dos
+  presupuestos incompatibles: `ui_state` guardaba hasta 200 000 caracteres por
+  mensaje y 1 000 000 por conversación, mientras `estado.json` entero solo
+  admitía 2 MiB. Al superarlo, `save_ui_state` rechazaba el archivo completo,
+  el cierre lo registraba solo en el log y, al reabrir el artículo, su hebra
+  aparecía vacía sin ningún aviso. Ahora `MAX_CONVERSATION_CHARS` se deriva de
+  `storage.MAX_UI_STATE_BYTES` y se comprueba sobre la serialización real, de
+  modo que lo que se guarda siempre cabe; los turnos más antiguos se descartan
+  antes que recortar los recientes, y un mensaje desproporcionado se abrevia con
+  una marca visible (`…[recortado al guardar…]`) en lugar de borrarse. La
+  restauración recorta en vez de descartar, y un rechazo de guardado vuelve a
+  mostrarse en el pie en vez de quedar solo en el log.
 ## [0.8.0] - 2026-11-15
 
 Ciclo nuevo tras `0.7.2`. A diferencia de los parches `0.7.x`, cambia el
