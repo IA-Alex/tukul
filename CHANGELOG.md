@@ -32,6 +32,14 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
   despierta la lectura en curso (medido: de >10 s a 0,00 s). El registro vive en
   `http_safety.build_tracking_opener`, que conserva el rechazo de redirecciones.
 
+- **`_stream_event` ya no usa una variable sin definir.** `llamadas` (los
+  `tool_calls` del delta) solo se asignaba en la rama del protocolo compatible
+  con OpenAI, y los protocolos Anthropic y Gemini la leían sin haberla definido:
+  un `UnboundLocalError` en cuanto se registrara un perfil de esos protocolos.
+  Hoy no llega a producción porque los tres proveedores de la interfaz hablan
+  OpenAI-compatible, pero la trampa estaba puesta para el primero que se añada.
+  Se inicializa a `()` antes de las ramas y un test fija el contrato en las tres.
+
 ## [0.8.0] - 2026-11-15
 
 Ciclo nuevo tras `0.7.2`. A diferencia de los parches `0.7.x`, cambia el

@@ -554,6 +554,12 @@ class LLMClient:
 
     def _stream_event(self, profile: LlmProfile, event: dict) -> StreamChunk:
         protocol = provider_spec(profile.provider).protocol
+        # Se declara aquí, no dentro de la rama de OpenAI: `StreamChunk` solo
+        # trae `tool_calls` en el protocolo compatible con OpenAI, y usar la
+        # variable en los demás era un `UnboundLocalError` en potencia (lo
+        # marcaba pyright). El valor por defecto es «ninguna herramienta», que
+        # es justo lo que hace Tukul: no exponer herramientas al modelo.
+        llamadas: tuple[ToolCall, ...] = ()
         if protocol == "anthropic_messages":
             content = event.get("delta", {}).get("text", "") if event.get("type") == "content_block_delta" else ""
         elif protocol == "gemini_generate_content":
