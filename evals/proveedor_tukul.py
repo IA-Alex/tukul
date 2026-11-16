@@ -83,14 +83,38 @@ def _forma_de_revision(salida: str) -> str:
     return "prosa"
 
 
+def _temperatura() -> float:
+    """Temperatura del eval: 0 por defecto, configurable por entorno.
+
+    Un valor mal escrito no debe romper el eval silenciosamente: se cae al 0
+    determinista y se avisa por stderr (promptfoo lo muestra con el caso).
+    """
+    bruto = os.environ.get("TUKUL_EVAL_TEMPERATURE", "0")
+    try:
+        valor = float(bruto)
+    except ValueError:
+        print(f"[eval] TUKUL_EVAL_TEMPERATURE inválida ({bruto!r}); uso 0", file=sys.stderr)
+        return 0.0
+    if not 0.0 <= valor <= 2.0:
+        print(f"[eval] TUKUL_EVAL_TEMPERATURE fuera de rango ({valor}); uso 0", file=sys.stderr)
+        return 0.0
+    return valor
+
+
 def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     cuerpo = json.dumps({
         "model": MODELO,
-        # Temperatura 0: un eval que se lee como PASS/FAIL necesita que la
-        # única variable sea el prompt. Con 0.2 el mismo caso daba 7/8 y 8/8
-        # en ejecuciones distintas, y el fallo no distinguía un defecto del
+        # Temperatura 0 por defecto: un eval que se lee como PASS/FAIL necesita
+        # que la única variable sea el prompt. Con 0.2 el mismo caso daba 7/8 y
+        # 8/8 en ejecuciones distintas, y el fallo no distinguía un defecto del
         # sistema de la aleatoriedad del modelo.
-        "temperature": 0,
+        #
+        # `TUKUL_EVAL_TEMPERATURE` permite medir el riesgo residual: el producto
+        # envía `profile.temperature` (0.5 por defecto), así que correr el eval
+        # con 0.5 responde «¿la calidad se sostiene con el muestreo real?». Ese
+        # modo NO sustituye al determinista: añade la varianza del modelo y sirve
+        # para saber si el PASS es robusto, no para aislar el prompt.
+        "temperature": _temperatura(),
         # Semilla fija: además de temperature 0, acota el remuestreo del
         # proveedor cuando lo soporta (DeepInfra lo ignora si no aplica).
         "seed": 7,

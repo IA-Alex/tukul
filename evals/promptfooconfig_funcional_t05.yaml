@@ -1,0 +1,137 @@
+# Eval funcional con la temperatura del PRODUCTO (0.5).
+#
+# Mismo prompt, mismo proveedor y mismas aserciones que
+# `promptfooconfig_funcional.yaml`, pero sin fijar T=0. Sirve para responder la
+# pregunta que el eval determinista no puede: ¿la calidad se sostiene con el
+# muestreo real que envía la aplicación (profile.temperature, 0.5 por defecto)?
+#
+#   export DEEPINFRA_API_KEY=...
+#   npx promptfoo eval -c evals/promptfooconfig_funcional_t05.yaml -j 1
+description: "Tukul: calidad funcional con la temperatura del producto (0.5)"
+
+prompts:
+  - "{{article}}"
+
+providers:
+  - id: "exec:/home/panda/Tukul/.venv/bin/python /home/panda/Tukul/evals/proveedor_tukul.py"
+    env:
+      TUKUL_EVAL_API_KEY_ENV: "DEEPINFRA_API_KEY"
+      TUKUL_EVAL_MODEL: "deepseek-ai/DeepSeek-V4-Flash"
+      TUKUL_EVAL_ENDPOINT: "https://api.deepinfra.com/v1/openai/chat/completions"
+      TUKUL_EVAL_TEMPERATURE: "0.5"
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://asserts/contrato_json.js
+    - type: javascript
+      value: file://asserts/faithfulness.js
+    - type: javascript
+      value: file://asserts/relevancia.js
+    - type: javascript
+      value: file://asserts/latencia.js
+      config:
+        ms: 25000
+
+tests:
+  # ── Dataset dorado: errores plantados de cada categoría ─────────────
+  - description: "F01 ortógrafo: tres faytas claras"
+    vars:
+      article: |
+        La efiziencia de los paneles mejora cada año. En la última decada
+        se instalaron millónes de unidades en el paíz.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["ortografía"]
+
+  - description: "F02 redundancia: repite la misma idea dos veces"
+    vars:
+      article: |
+        Los paneles solares son una solución cada vez más común en las
+        ciudades. Es una solución que es cada vez más común en las ciudades.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["redundancia", "gramática"]
+
+  - description: "F03 estructura: frase ensartada con cinco «que»"
+    vars:
+      article: |
+        Esta tecnología, que permite gener ar energía limpia, que reduce el
+        consumo y que además ayuda al medio ambiente, que es barata, es buena.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["estructura", "gramática", "redundancia"]
+
+  - description: "F04 semántica: afirmación falsa"
+    vars:
+      article: |
+        Los paneles solares convierten la luz del sol en eletricidad
+        mediante un proceso llamado folosíntesis.
+    assert:
+      - type: javascript
+        value: file://asserts/categoria.js
+        config:
+          categorias: ["semántica", "ortografía"]
+
+  # ── Alucinación: artículos LIMPIOS de verdad, 0 hallazgos ───────────
+  # Antes decían «linpio» y contenían erratas reales (`procso`, `depedencias`,
+  # `movera`). El modelo las detectaba —hacía bien— y el caso fallaba, o pasaba
+  # por azar según la forma del JSON. Ahora el texto no tiene errores: cualquier
+  # hallazgo es una alucinación y debe fallar.
+  - description: "F05 artículo limpio corto: no inventa errores"
+    vars:
+      article: |
+        La ciberseguridad es un proceso continuo. Cada organización debe
+        revisar sus controles periódicamente y documentar los cambios.
+    assert:
+      - type: javascript
+        value: file://asserts/hallazgos_usables.js
+        config:
+          maximo: 0
+
+  - description: "F06 artículo limpio largo: no inventa errores"
+    vars:
+      article: |
+        La migración de datos es un proceso que requiere planificación. Cada
+        equipo debe documentar sus dependencias antes de moverlas. Los ensayos
+        en un entorno aislado reducen el riesgo de pérdida de información.
+    assert:
+      - type: javascript
+        value: file://asserts/hallazgos_usables.js
+        config:
+          maximo: 0
+
+  # ── Robustés: entradas que no son el caso feliz ─────────────────────
+  - description: "F07 texto en ingléas: no rompe el contrato"
+    vars:
+      article: |
+        The quick brown fox jumps over the lazy dog. This sentence has no
+        spelling mistakes and the structure is simple.
+    assert: []
+
+  - description: "F08 solo un título"
+    vars:
+      article: |
+        # Un título solitario
+    assert: []
+
+  - description: "F09 markdown con lista y código"
+    vars:
+      article: |
+        # Comandos útiles
+
+        - `git statuss` muestra el estado
+        - `git dif` muestra los cambios
+
+        ```bash
+        echo "hola mundo"
+        ```
+    assert:
+      - type: javascript
+        value: file://asserts/contrato_json.js

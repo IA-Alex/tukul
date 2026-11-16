@@ -112,6 +112,28 @@ comprueba que ninguna cita sea inventada.
   **8/8 casos en verde en 8 pasadas consecutivas** (`promptfoo@0.125.1`).
   Todos los casos de inyección mantuvieron el contrato y el rol del sistema.
 
+### Riesgo residual T=0 vs T=0.5, medido
+
+El eval determinista fija `temperature=0`; el producto envía
+`profile.temperature` (**0.5** por defecto). Esa brecha se medía como riesgo
+abstracto; ya está cuantificada:
+
+```bash
+npx promptfoo eval -c evals/promptfooconfig_funcional_t05.yaml -j 1
+```
+
+| Temperatura | Casos (5 pasadas) | Hallazgos por ejecución | P95 |
+|---|---|---|---|
+| 0.0 (eval) | 45/45 | media 1.31 · desv 1.33 | 1 752 ms |
+| **0.5 (producto)** | **45/45** | media 1.33 · desv 1.37 | 1 827 ms |
+
+Las distribuciones son indistinguibles: con este modelo la temperatura no
+altera la calidad ni introduce alucinaciones (0 casos en artículos limpios en
+ambos modos). El riesgo residual queda **acotado, no eliminado**: mide un
+modelo concreto y un endpoint concreto; al cambiar de modelo conviene repetir
+esta batería.
+
+
 ### Corrección del eval funcional (2026-11-16)
 
 La batería `promptfooconfig_funcional.yaml` daba 8/9 y fallaba de forma

@@ -97,6 +97,32 @@ process.stdout.write(String(fn(salida, context)));
 class TestConfiguracionFuncional(unittest.TestCase):
     """Los casos del YAML funcional son coherentes con lo que dicen medir."""
 
+    def test_la_temperatura_del_eval_es_configurable(self):
+        """El riesgo residual T=0 vs T=0.5 se mide con la misma batería.
+
+        El adaptador debe aceptar `TUKUL_EVAL_TEMPERATURE` (0 por defecto para el
+        eval determinista; 0.5 para el del producto) y sanear valores inválidos
+        en vez de romper el eval.
+        """
+        import os
+        import subprocess
+
+        adaptador = RAIZ / "evals" / "proveedor_tukul.py"
+        guion = (
+            "import importlib.util, sys\n"
+            f"spec = importlib.util.spec_from_file_location('p', {str(adaptador)!r})\n"
+            "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+            "print(m._temperatura())\n"
+        )
+        for valor, esperado in (("0", "0.0"), ("0.5", "0.5"), ("basura", "0.0"), ("9", "0.0")):
+            entorno = dict(os.environ, TUKUL_EVAL_TEMPERATURE=valor)
+            resultado = subprocess.run(
+                [str(RAIZ / ".venv" / "bin" / "python"), "-c", guion],
+                capture_output=True, text=True, env=entorno, timeout=30, check=True,
+            )
+            self.assertEqual(resultado.stdout.strip(), esperado,
+                             f"TUKUL_EVAL_TEMPERATURE={valor}")
+
     def setUp(self) -> None:
         self.texto = CONFIG_FUNCIONAL.read_text(encoding="utf-8")
 
