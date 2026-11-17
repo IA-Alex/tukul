@@ -51,6 +51,14 @@ Requiere `node`/`npx` en el `PATH` (probado con Node 24 y npm 11). Si el
 entorno no tiene red, el paso no es verificable: se registra como tal, no se
 declara verde.
 
+> **Estado de verificación (2026-11-16):** los tres `promptfooconfig*.yaml` **no**
+> se pudieron ejecutar en la sesión de cierre de `0.8.1`. `promptfoo` sí se
+> descarga (`npx --yes promptfoo@0.125.1`), pero la credencial del `.env`
+> responde **HTTP 401** contra el endpoint (comprobado con una llamada directa),
+> así que todas las baterías salían `0/8` por autenticación, no por el contrato.
+> No es un defecto del arnés: es una credencial caducada. Queda como
+> verificación **pendiente**, no como verde.
+
 Variables opcionales (solo nombres y valores públicos):
 
 | Variable | Uso | Valor por defecto |

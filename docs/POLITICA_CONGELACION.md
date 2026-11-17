@@ -1,6 +1,6 @@
 # Política de congelación — Tukul `0.8.1`
 
-**Estado:** CONTRATO NUEVO ABIERTO (corte en curso de `0.8.1`).
+**Estado:** CERRADO en `0.8.1` (dictamen `docs/audit/cierre-0.8.1.md`).
 **Vigente desde:** 2026-11-16. La política de `0.7.1` queda cerrada en
 `0.7.2` (dictamen `docs/audit/cierre-0.7.1.md`, CERRADO).
 **Base del contrato:** `docs/contracts/contratos-0.8.md`.
