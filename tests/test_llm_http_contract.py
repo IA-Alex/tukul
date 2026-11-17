@@ -30,17 +30,13 @@ from tukul_core.llm import (
 )
 
 # `PROVIDERS` solo registra los que la UI ofrece hoy (OpenAI-compatible,
-# DeepInfra y Novita): los tres hablan el mismo protocolo. Para ejercitar las
-# ramas de Anthropic y Gemini se registran aquí, y se retiran al terminar, en
-# lugar de añadirlos a la UI sin una decisión de producto.
+# DeepInfra y Novita): los tres hablan el mismo protocolo. Para ejercitar la
+# rama de Anthropic se registra aquí, y se retira al terminar, en lugar de
+# añadirlo a la UI sin una decisión de producto.
 _PROTOCOLOS_DE_PRUEBA = {
     "anthropic_prueba": ProviderSpec(
         "anthropic_prueba", "Anthropic (prueba)", "https://api.anthropic.com/v1/messages",
         protocol="anthropic_messages",
-    ),
-    "gemini_prueba": ProviderSpec(
-        "gemini_prueba", "Gemini (prueba)", "https://generativelanguage.googleapis.com/v1beta",
-        protocol="gemini_generate_content",
     ),
 }
 
@@ -395,18 +391,6 @@ class TestCabecerasPorProtocoloContraServidorReal(unittest.TestCase):
         cabeceras = self.servidor.peticiones[0]["headers"]
         self.assertEqual(cabeceras["x-api-key"], "k-anthropic")
         self.assertEqual(cabeceras["anthropic-version"], "2023-06-01")
-        self.assertNotIn("authorization", cabeceras)
-
-    def test_gemini_usa_x_goog_api_key(self):
-        perfil = LlmProfile(
-            provider="gemini_prueba",
-            endpoint=self.servidor.url,
-            model="modelo-de-prueba",
-        )
-        with self.assertRaises(LlmError):
-            LLMClient().complete(perfil, "k-gemini", "hola")
-        cabeceras = self.servidor.peticiones[0]["headers"]
-        self.assertEqual(cabeceras["x-goog-api-key"], "k-gemini")
         self.assertNotIn("authorization", cabeceras)
 
 

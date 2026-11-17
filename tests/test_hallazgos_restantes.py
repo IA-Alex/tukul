@@ -121,32 +121,21 @@ class TestRespuestaConToolCalls(unittest.TestCase):
         from tukul_core.llm import PROVIDERS, ProviderSpec
 
         con_anthropic = LlmProfile(provider="anthropic_prueba", endpoint="https://x/v1", model="m")
-        con_gemini = LlmProfile(provider="gemini_prueba", endpoint="https://x/v1", model="m")
         PROVIDERS.update({
             "anthropic_prueba": ProviderSpec(
                 "anthropic_prueba", "Anthropic (prueba)", "https://x/v1",
                 protocol="anthropic_messages"),
-            "gemini_prueba": ProviderSpec(
-                "gemini_prueba", "Gemini (prueba)", "https://x/v1",
-                protocol="gemini_generate_content"),
         })
         try:
             anthropic = LLMClient()._stream_event(
                 con_anthropic,
                 {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hola"}},
             )
-            gemini = LLMClient()._stream_event(
-                con_gemini,
-                {"candidates": [{"content": {"parts": [{"text": "Hola"}]}}]},
-            )
         finally:
             PROVIDERS.pop("anthropic_prueba", None)
-            PROVIDERS.pop("gemini_prueba", None)
 
         self.assertEqual(anthropic.content, "Hola")
         self.assertEqual(anthropic.tool_calls, ())
-        self.assertEqual(gemini.content, "Hola")
-        self.assertEqual(gemini.tool_calls, ())
 
 
 class TestConfirmacionUnicaDelDialogoDeIdeas(unittest.TestCase):

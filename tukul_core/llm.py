@@ -126,19 +126,6 @@ def estimate_prompt_tokens(system_prompt: str, json_payload: str) -> int:
     return max(1, int(total_chars / 3.2))
 
 
-def gemini_url(endpoint: str, model: str, stream: bool) -> str:
-    """Normaliza endpoint Gemini sin incluir secretos en la URL."""
-    formatted = endpoint.format(model=model) if "{model}" in endpoint else endpoint
-    parsed = urllib.parse.urlsplit(formatted)
-    path = parsed.path
-    if not stream:
-        path = path.replace(":streamGenerateContent", ":generateContent")
-    params = [(key, value) for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True) if key not in {"key", "alt"}]
-    if stream:
-        params.append(("alt", "sse"))
-    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, urllib.parse.urlencode(params), parsed.fragment))
-
-
 class LlmError(RuntimeError):
     """Error de la capa LLM con mensaje comprensible para el usuario final."""
     pass
@@ -444,11 +431,6 @@ class LLMClient:
             payload = {"model": profile.model, "max_tokens": profile.max_output_tokens, "system": sistema, "messages": [{"role": "user", "content": prompt}], "stream": stream}
             headers = {"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01", "Accept": "text/event-stream" if stream else "application/json"}
             return urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
-        if spec.protocol == "gemini_generate_content":
-            endpoint = validate_endpoint(gemini_url(profile.endpoint, profile.model, stream))
-            payload = {"systemInstruction": {"parts": [{"text": sistema}]}, "contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": profile.max_output_tokens, "temperature": profile.temperature}}
-            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key, "Accept": "text/event-stream" if stream else "application/json"}
-            return urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
         endpoint = validate_endpoint(profile.endpoint)
         payload = {"model": profile.model, "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": prompt}], "max_tokens": profile.max_output_tokens, "temperature": profile.temperature, "stream": stream}
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
@@ -562,10 +544,6 @@ class LLMClient:
         llamadas: tuple[ToolCall, ...] = ()
         if protocol == "anthropic_messages":
             content = event.get("delta", {}).get("text", "") if event.get("type") == "content_block_delta" else ""
-        elif protocol == "gemini_generate_content":
-            candidates = event.get("candidates") or []
-            parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
-            content = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
         else:
             delta = (event.get("choices") or [{}])[0].get("delta") or {}
             content = delta.get("content") or ""
@@ -664,7 +642,6 @@ class LLMClient:
                 data = json.loads(self._read_bounded(response, profile.max_output_tokens).decode())
             protocol = provider_spec(profile.provider).protocol
             if protocol == "anthropic_messages": content = "".join(part.get("text", "") for part in data.get("content", []) if isinstance(part, dict))
-            elif protocol == "gemini_generate_content": content = "".join(part.get("text", "") for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []) if isinstance(part, dict))
             else: content = data["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as error:
             raise LlmError(provider_error_message(error)) from error

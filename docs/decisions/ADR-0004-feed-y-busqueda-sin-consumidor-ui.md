@@ -18,8 +18,8 @@ ni siquiera la propia app:
    parámetro. `contexto_dialogo.py:184` llama `build_threat_context(hours=...)`
    a secas, así que el diálogo de contexto CVE nunca añade MITRE ATT&CK ni
    arXiv.
-3. Protocolos `anthropic_messages` y `gemini_generate_content`
-   (`tukul_core/llm.py:301-310`): implementados y cubiertos por pruebas de
+3. Protocolo `anthropic_messages`
+   (`tukul_core/llm.py`): implementado y cubierto por pruebas de
    contrato, pero `PROVIDERS` (`llm.py:81`) solo registra los tres
    OpenAI-compatibles (OpenAI-compatible, DeepInfra, Novita), así que la UI no
    puede seleccionarlos.
@@ -45,7 +45,7 @@ explícitos:
    cuadro y sus pruebas, fuera del alcance de la auditoría. Mientras no se
    cableen, el paquete CVE sigue conteniendo solo NVD + EPSS + KEV, que es el
    comportamiento actual y probado.
-3. **Protocolos Anthropic/Gemini** — se mantienen implementados y probados como
+3. **Protocolo Anthropic** — se mantiene implementado y probado como
    soporte de transporte para perfiles personalizados. La UI sigue sin
    ofrecerlos como selector hasta que exista una decisión de producto explícita
    (evita prometer proveedores que el usuario no puede elegir, ver H-05 de la

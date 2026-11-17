@@ -186,7 +186,7 @@ flowchart LR
   subgraph ORPHAN["API programática de tukul_core sin consumidor de UI"]
     A1["FeedOrchestrator.available_sources()"]
     A2["build_threat_context(include_mitre, include_arxiv)"]
-    A3["protocolos anthropic_messages / gemini_generate_content"]
+    A3["protocolo anthropic_messages"]
   end
   ORPHAN -.->|"no cableado"| UI3["UI / producto"]
 ```

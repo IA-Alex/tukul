@@ -29,7 +29,7 @@ Actores: usuario local, proveedor LLM configurado y sistema operativo/servicios 
 | `tukul_ui.tema` | Aplica el sistema ttk (estilos, mapas de estado, opciones) por tema | raíz Tk, nombre de tema; estilos aplicados | ninguno | ttk, `estilo` | tema inválido (se usa el validado) |
 | `tukul_ui.ventana` | Saneado puro del estado de ventana (geometría, zoom, recientes) | valores persistidos; valores acotados | ninguno | `estilo` | entrada corrupta → valor por defecto |
 | `control_queue` | Entrega de `complete`/`error` | eventos de ciclo de vida | propiedad de la UI | `queue.Queue` | evento malformado, manejador defectuoso |
-| Adaptadores de proveedor | Traducen OpenAI-compatible, Anthropic y Gemini | prompt/key; protocolo externo | ninguno persistente | HTTP | respuesta incompatible |
+| Adaptadores de proveedor | Traducen OpenAI-compatible y Anthropic | prompt/key; protocolo externo | ninguno persistente | HTTP | respuesta incompatible |
 | `storage` | Config, estado UI, credenciales, proyectos y escritura atómica | TOML/JSON/rutas | archivos locales y keyring | filesystem, `tomli-w`, keyring opcional | corrupción, permisos, keyring no disponible |
 | `autosave` | Respaldo periódico del artículo sucio | ruta/contenido; `.md` | archivo en estado del usuario | storage | directorio no escribible |
 | `logging_config` | Log JSON rotativo y consola | eventos internos | handlers y archivos rotativos | logging | destino no escribible |
@@ -74,7 +74,7 @@ flowchart LR
   `~/.local/state/tukul/feed_cache`. El detalle de diseño está en
   [ADR-0003](decisions/ADR-0003-real-time-query-and-impact-suggestions.md).
 - **API programática sin consumidor de UI:** `FeedOrchestrator.available_sources()`
-  y los protocolos `anthropic_messages`/`gemini_generate_content` de
+  y el protocolo `anthropic_messages` de
   `LLMClient` se mantienen como API de `tukul_core` para consumidores
   programáticos y perfiles personalizados, no como controles de la interfaz.
   `build_threat_context(include_mitre=…, include_arxiv=…)` también es API
