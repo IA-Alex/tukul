@@ -42,9 +42,9 @@ RAIZ = Path(__file__).resolve().parent.parent
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from tukul_core.llm import SYSTEM_PROMPT  # noqa: E402
 from tukul_core.models import ChatMessage  # noqa: E402
 from tukul_core.prompting import build_editor_prompt  # noqa: E402
+from tukul_core.prompts import MODO_POR_DEFECTO, prompt_sistema  # noqa: E402
 from tukul_core.review import diagnose_findings, omitted_reasons  # noqa: E402
 
 ENDPOINT = os.environ.get(
@@ -196,6 +196,12 @@ def main() -> int:
     articulo = vars_.get("article", "")
     contexto = vars_.get("context", "")
     conversacion = [ChatMessage("user", m) for m in _turnos_previos(vars_)]
+    # Modo del prompt de sistema. Por defecto `revision`, que es lo que miden
+    # estos evals; un caso puede pedir otro modo con `vars.mode`. Antes el
+    # adaptador importaba el re-export fijo `SYSTEM_PROMPT` (= prompt de
+    # revisión), así que no podía ejercitar los otros modos pese a afirmar que
+    # medía «lo que la aplicación envía de verdad» (defecto H-4).
+    modo = str(vars_.get("mode") or MODO_POR_DEFECTO)
 
     clave = os.environ.get(VARIABLE_KEY, "")
     if not clave:
@@ -207,7 +213,8 @@ def main() -> int:
         }))
         return 0
 
-    # El prompt de revisión es el mismo que envía la aplicación.
+    # El prompt de usuario replica el de la aplicación para el modo pedido: en
+    # revisión, el prompt técnico de revisión precede a la conversación.
     from tukul_ui.app import REVIEW_PROMPT  # import diferido: arrastra Tk
 
     conversacion_con_revision = [ChatMessage("user", REVIEW_PROMPT), *conversacion]
@@ -215,7 +222,7 @@ def main() -> int:
 
     try:
         inicio = time.monotonic()
-        salida = _llamar(SYSTEM_PROMPT, prompt_usuario, clave)
+        salida = _llamar(prompt_sistema(modo), prompt_usuario, clave)
         latencia_ms = int((time.monotonic() - inicio) * 1000)
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         print(json.dumps({"output": "", "error": _redactar(str(error), clave)}))
@@ -257,6 +264,9 @@ def main() -> int:
             "latency_ms": latencia_ms,
             "endpoint": ENDPOINT,
             "model": MODELO,
+            # Modo del prompt de sistema con el que se midió: permite ver, en el
+            # reporte, que un caso no cayó en el prompt de revisión por descuido.
+            "prompt_mode": modo,
         },
     }, ensure_ascii=False))
     return 0

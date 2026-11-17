@@ -8,11 +8,19 @@ red y una credencial, y el pipeline debe seguir sin ellas.
 
 ## Qué mide
 
-El adaptador `proveedor_tukul.py` no reescribe el prompt: importa
-`SYSTEM_PROMPT` de `tukul_core.llm`, monta la petición con
+El adaptador `proveedor_tukul.py` no reescribe el prompt: resuelve el prompt
+de sistema con `tukul_core.prompts.prompt_sistema(modo)` (modo por defecto
+`revision`, configurable con `vars.mode`), monta la petición con
 `build_editor_prompt()` y evalúa la respuesta con `parse_findings()`, que es lo
 que hace la aplicación. El eval, por tanto, mide el contrato de verdad; no una
 copia que puede desviarse del código.
+
+> **Corrección (0.8.1, H-4):** antes importaba el re-export fijo
+> `SYSTEM_PROMPT` de `tukul_core.llm`, que es **siempre** el prompt de revisión.
+> Eso hacía imposible medir otro modo y convertía en falsa la afirmación «mide
+> lo que la aplicación envía de verdad» para todo lo que no fuera revisión. Los
+> evals actuales siguen siendo de revisión; el modo es explícito y queda en la
+> metadata (`prompt_mode`).
 
 | Grupo | Qué se exige |
 |---|---|

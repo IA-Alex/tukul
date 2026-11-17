@@ -124,7 +124,8 @@ def persistir_conversacion(
     # turnos que sí cabían recortados.
     while persistidos and not _cabe_en_presupuesto(persistidos):
         mas_largo = max(persistidos, key=lambda item: len(item["content"]))
-        if not _abreviar(persistidos, mas_largo):
+        exceso = _peso(persistidos) - MAX_CONVERSATION_CHARS
+        if not _abreviar(mas_largo, exceso):
             persistidos.pop(0)
     base[str(path)] = persistidos
     _ajustar_al_presupuesto_global(base)
@@ -157,7 +158,11 @@ def _ajustar_al_presupuesto_global(conversaciones: dict) -> None:
         ruta = max(mapa, key=lambda clave: _peso(mapa[clave]))
         turnos = mapa[ruta]
         mas_largo = max(turnos, key=lambda item: len(item["content"]))
-        if _abreviar(turnos, mas_largo):
+        # El exceso se mide sobre el MAPA completo: es el mapa el que debe caber
+        # en el tope global. Medirlo sobre el documento (como antes) daba
+        # siempre ≤ 0 y forzaba el descarte de turnos enteros.
+        exceso = _peso(mapa) - MAX_CONVERSATIONS_TOTAL_CHARS
+        if _abreviar(mas_largo, exceso):
             continue
         turnos.pop(0)  # ya no hay texto que ceder: fuera el turno más antiguo
         if not turnos:
@@ -174,29 +179,47 @@ def _cabe_si_se_recorta(persistidos: list[dict]) -> bool:
     return len(_serializar(vacio).encode("utf-8")) <= MAX_CONVERSATION_CHARS
 
 
-def _abreviar(persistidos: list[dict], mas_largo: dict) -> bool:
-    """Recorta el mensaje más largo para hacer sitio. False si ya no puede.
+def _abreviar(mas_largo: dict, exceso: int) -> bool:
+    """Recorta el mensaje más largo para liberar `exceso` bytes. False si no puede.
+
+    `exceso` es cuántos bytes hay que liberar en el contexto de la llamada: la
+    cuota por documento en `persistir_conversacion` y el tope global del mapa en
+    `_ajustar_al_presupuesto_global`. Antes `_abreviar` medía ella misma contra
+    la cuota por documento, así que la poda global nunca encontraba exceso que
+    ceder (cada documento ya cabía en su cuota) y descartaba turnos enteros en
+    lugar de abreviarlos, contra lo que promete su docstring y el CHANGELOG. Con
+    el exceso como entrada, cada llamador mide lo que de verdad sobra en su
+    ámbito.
 
     Cada carácter del mensaje ocupa al menos un byte en la salida serializada,
     así que recortar tantos caracteres como bytes sobran libera al menos esos
-    bytes. La marca de recorte añade unos pocos y el bucle de
-    `persistir_conversacion` reintenta con el exceso restante; no hace falta
-    estimar a mano el escapado de comillas o el UTF-8 multibyte: medir el
-    exceso REAL sobre la serialización ya lo cubre. El suelo es la marca: si el
-    mensaje es más corto que ella, no hay nada honesto que guardar y se deja
-    que se descarte el turno.
+    bytes. La marca de recorte añade unos pocos y el bucle del llamador
+    reintenta con el exceso restante; no hace falta estimar a mano el escapado
+    de comillas o el UTF-8 multibyte: medir el exceso REAL sobre la
+    serialización ya lo cubre. El suelo es la marca: si el mensaje es más corto
+    que ella, no hay nada honesto que guardar y se deja que se descarte el
+    turno.
     """
-    exceso = len(_serializar(persistidos).encode("utf-8")) - MAX_CONVERSATION_CHARS
     if exceso <= 0:
         return False
     actual = mas_largo["content"]
-    # El corte deja el texto en `len(actual) - exceso` SIN contar la marca
-    # (que añade unos pocos bytes). Se descuenta también su longitud para que un
-    # solo recorte suela bastar; si aún sobra algún byte, el bucle de
-    # `persistir_conversacion` lo corrige midiendo de nuevo.
-    objetivo = len(actual) - exceso - len(MARCA_RECORTE)
-    if objetivo < len(MARCA_RECORTE):
-        return False
+    # El corte intenta dejar el texto en `len(actual) - exceso` SIN contar la
+    # marca (que añade unos pocos bytes). Se descuenta también su longitud para
+    # que un solo recorte suela bastar; si aún sobra algún byte, el bucle del
+    # llamador lo corrige midiendo de nuevo.
+    #
+    # El objetivo se acota al suelo de la marca: cuando el exceso supera lo que
+    # un solo mensaje puede ceder (p. ej. un mapa con muchos documentos casi
+    # llenos), no se devuelve False —eso descartaba el turno entero—, sino que
+    # el mensaje se lleva a su mínimo y el bucle reintenta. Solo cuando el
+    # mensaje YA está en el mínimo no hay nada honesto que ceder y se permite
+    # el descarte.
+    objetivo = max(len(MARCA_RECORTE), len(actual) - exceso - len(MARCA_RECORTE))
+    if objetivo >= len(actual):
+        # No queda nada que recortar sin destruir el final del mensaje.
+        if MARCA_RECORTE in actual and actual.endswith(MARCA_RECORTE):
+            return False
+        objetivo = len(MARCA_RECORTE)
     mas_largo["content"] = _recortar_al_limite(actual, objetivo)
     return True
 

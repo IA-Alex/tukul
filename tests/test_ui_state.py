@@ -143,6 +143,44 @@ class TestPersistirConversacion(unittest.TestCase):
         self.assertLessEqual(total, ui_state.MAX_CONVERSATIONS_TOTAL_CHARS)
         self.assertTrue(conversaciones, "no puede quedarse sin ninguna conversación")
 
+    def test_la_poda_global_abrevia_y_no_descarta_turnos(self):
+        """Regresión H-5: el recorte global debe abreviar, no vaciar hebras.
+
+        Antes `_abreviar` medía el exceso contra la cuota POR DOCUMENTO, así que
+        al podar el mapa global —donde cada documento ya cabe en su cuota— no
+        encontraba nada que ceder y ejecutaba `turnos.pop(0)`: los artículos
+        perdían turnos enteros (y a veces documentos completos) sin marca de
+        recorte, contra lo que promete el docstring y el CHANGELOG.
+        """
+        # Diez documentos, cada uno dentro de su cuota, que juntos exceden el
+        # tope global. Reproduce el escenario «varios artículos en Recientes».
+        por_mensaje = ui_state.MAX_CONVERSATION_CHARS // 12
+        texto = "y" * por_mensaje
+        mapa = {
+            f"d{i}.md": [
+                {"role": "user", "content": texto},
+                {"role": "assistant", "content": texto},
+            ]
+            for i in range(10)
+        }
+        self.assertGreater(ui_state._peso(mapa), ui_state.MAX_CONVERSATIONS_TOTAL_CHARS)
+
+        turnos_antes = sum(len(v) for v in mapa.values())
+        documentos_antes = set(mapa)
+
+        ui_state._ajustar_al_presupuesto_global(mapa)
+
+        self.assertLessEqual(ui_state._peso(mapa), ui_state.MAX_CONVERSATIONS_TOTAL_CHARS)
+        self.assertEqual(set(mapa), documentos_antes, "no debe desaparecer ningún documento")
+        self.assertEqual(
+            sum(len(v) for v in mapa.values()), turnos_antes,
+            "ningún turno debe descartarse: el recorte es por abreviación",
+        )
+        marcados = sum(
+            1 for v in mapa.values() for t in v if ui_state.MARCA_RECORTE in t["content"]
+        )
+        self.assertGreater(marcados, 0, "el recorte debe dejar constancia de la abreviación")
+
 
 class TestPodarConversaciones(unittest.TestCase):
     def test_solo_conserva_los_documentos_vigentes(self):

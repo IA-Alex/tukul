@@ -4,6 +4,33 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.8.2] - 2026-11-16
+
+Parche de `0.8.1`: dos **defectos confirmados** de la deuda P1 que el cierre de
+`0.8.1` dejó abierta. No añade capacidades.
+
+### Corregido
+
+- **El recorte del estado ya no borra turnos ni documentos: abrevia.** La poda
+  global (`_ajustar_al_presupuesto_global`) reutilizaba `_abreviar`, que medía el
+  exceso contra la cuota **por documento**. Cuando el mapa de conversaciones
+  superaba el tope global pero cada documento cabía en su cuota, `_abreviar`
+  devolvía `False` y el bucle ejecutaba `turnos.pop(0)`: se perdían turnos
+  enteros —y a veces artículos completos— **sin marca de recorte**, contra lo
+  que promete el docstring de `persistir_conversacion` y este CHANGELOG.
+  Reproducido: 10 documentos de 20 turnos → 17 turnos, 0 marcas. Ahora
+  `_abreviar` recibe el exceso a liberar y cada llamador lo mide en su ámbito
+  (cuota por documento o tope global); el mensaje más largo se recorta hasta el
+  mínimo antes de descartar nada. Tras la corrección: 20 → 20 turnos, 3
+  mensajes abreviados con marca.
+- **El adaptador del eval resuelve el prompt por modo, no por re-export.**
+  `evals/proveedor_tukul.py` importaba `SYSTEM_PROMPT` de `tukul_core.llm`,
+  que es **siempre** el prompt de revisión: el eval no podía ejercitar otro modo
+  pese a documentar que medía «lo que la aplicación envía de verdad». Ahora usa
+  `prompt_sistema(modo)` con modo por defecto `revision` (configurable con
+  `vars.mode`) y publica `prompt_mode` en la metadata. Los evals actuales siguen
+  siendo de revisión; el README deja de afirmar una fidelidad que no tenía.
+
 ## [0.8.1] - 2026-11-16
 
 Correcciones tras el corte de `0.8.0`. Cambia `0.8.0` → `0.8.1` por

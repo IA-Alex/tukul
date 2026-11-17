@@ -79,6 +79,32 @@ class TestFormaDeRevision(unittest.TestCase):
         self.assertEqual(adaptador._forma_de_revision('{"findings":[]}'), "vacia")
 
 
+class TestModoDelPrompt(unittest.TestCase):
+    """H-4 de 0.8.1: el adaptador resuelve el prompt por modo, no por re-export.
+
+    Antes importaba `SYSTEM_PROMPT` de `tukul_core.llm` (que es siempre el
+    prompt de revisión), así que no podía ejercitar los otros modos pese a
+    documentar que medía «lo que la aplicación envía de verdad».
+    """
+
+    def test_por_defecto_usa_el_modo_de_revision(self):
+        self.assertEqual(adaptador.MODO_POR_DEFECTO, "revision")
+        self.assertEqual(adaptador.prompt_sistema(None), adaptador.prompt_sistema("revision"))
+
+    def test_el_prompt_por_defecto_lleva_el_contrato_de_revision(self):
+        """El re-export histórico (`SYSTEM_PROMPT`) era el de revisión."""
+        from tukul_core.llm import SYSTEM_PROMPT
+
+        self.assertEqual(adaptador.prompt_sistema(adaptador.MODO_POR_DEFECTO), SYSTEM_PROMPT)
+
+    def test_los_modos_dan_prompts_distintos(self):
+        """Si el adaptador siguiera fijo, no habría forma de medir conversación."""
+        self.assertNotEqual(
+            adaptador.prompt_sistema("revision"),
+            adaptador.prompt_sistema("conversacion"),
+        )
+
+
 class TestAdaptadorEnSeco(unittest.TestCase):
     def test_sin_key_el_adaptador_falla_con_un_motivo_legible(self):
         import json
