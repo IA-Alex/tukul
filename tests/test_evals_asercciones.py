@@ -106,6 +106,7 @@ class TestConfiguracionFuncional(unittest.TestCase):
         """
         import os
         import subprocess
+        import sys
 
         adaptador = RAIZ / "evals" / "proveedor_tukul.py"
         guion = (
@@ -116,8 +117,11 @@ class TestConfiguracionFuncional(unittest.TestCase):
         )
         for valor, esperado in (("0", "0.0"), ("0.5", "0.5"), ("basura", "0.0"), ("9", "0.0")):
             entorno = dict(os.environ, TUKUL_EVAL_TEMPERATURE=valor)
+            # `sys.executable` es el intérprete que corre esta suite. Con la ruta
+            # fija `.venv/bin/python` el test pasaba en local pero fallaba en CI,
+            # donde no hay venv en el checkout (FileNotFoundError, runs de 0.8.0).
             resultado = subprocess.run(
-                [str(RAIZ / ".venv" / "bin" / "python"), "-c", guion],
+                [sys.executable, "-c", guion],
                 capture_output=True, text=True, env=entorno, timeout=30, check=True,
             )
             self.assertEqual(resultado.stdout.strip(), esperado,

@@ -4,10 +4,24 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [Sin publicar]
+## [0.8.1] - 2026-11-16
+
+Correcciones tras el corte de `0.8.0`. Cambia `0.8.0` → `0.8.1` por
+`docs/POLITICA_CONGELACION.md`: la H-1 es un **defecto confirmado** —el
+comportamiento observable no cumplía lo prometido en el contrato— y el
+arreglo del test de CI es un **defecto confirmado** también. `0.7.x` está
+cerrada en `0.7.2`, así que el parche va sobre la versión en curso.
 
 ### Corregido
 
+- **El test de configuración del eval ya no fija el intérprete del venv local.**
+  `tests/test_evals_asercciones.py` invocaba
+  `.venv/bin/python` por ruta relativa al repositorio, que solo existe en una
+  máquina de desarrollo. En GitHub Actions no hay `.venv` en el checkout, así
+  que el subproceso fallaba con `FileNotFoundError: …/.venv/bin/python` y el job
+  `test` caía en 3.11, 3.12 y 3.13 desde que se añadió la prueba. Ahora usa
+  `sys.executable`, el intérprete que corre la suite, que es lo que el test
+  necesita de verdad.
 - **La revisión vuelve a enviar el contrato JSON, no el prompt de chat.** El
   prompt por modo de `0.8.0` (F5) quedó sin cablear en la ruta de la interfaz:
   `RequestLifecycle` recibía `request_type="review"` pero nunca traducía eso a

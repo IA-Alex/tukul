@@ -1,11 +1,14 @@
-# Política de congelación — Tukul `0.8.0`
+# Política de congelación — Tukul `0.8.1`
 
-**Estado:** CONTRATO NUEVO ABIERTO (corte en curso de `0.8.0`).
-**Vigente desde:** 2026-11-15. La política de `0.7.1` queda cerrada en
+**Estado:** CONTRATO NUEVO ABIERTO (corte en curso de `0.8.1`).
+**Vigente desde:** 2026-11-16. La política de `0.7.1` queda cerrada en
 `0.7.2` (dictamen `docs/audit/cierre-0.7.1.md`, CERRADO).
 **Base del contrato:** `docs/contracts/contratos-0.8.md`.
 **Sucede a:** `0.7.0`/`0.7.1`/`0.7.2`. La rama `0.7.x` no admite más parches:
 los defectos nuevos se atienden por este contrato o por uno posterior.
+`0.8.1` es un parche de `0.8.0`: corrige la H-1 (la revisión no recibía el
+prompt de revisión) y un defecto de CI preexistente, ambos defectos
+confirmados. No añade capacidades ni abre contrato nuevo.
 
 ## Qué significa «contrato nuevo»
 
