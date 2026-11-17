@@ -23,8 +23,8 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Resultados de la batería | [RESULTADOS_BATERIA_2026-11-13.md](RESULTADOS_BATERIA_2026-11-13.md) | calidad | SUPPORTING / mantenedores |
 | Batería de evaluación del modelo | [BATERIA_EVALUACION_MODELO.md](BATERIA_EVALUACION_MODELO.md) | calidad | SUPPORTING / mantenedores |
 | Política de congelación | [POLITICA_CONGELACION.md](POLITICA_CONGELACION.md) | calidad | NORMATIVE / mantenedores |
-| Dictamen de cierre vigente | [audit/cierre-0.7.1.md](audit/cierre-0.7.1.md) (CIERRE CONDICIONADO; sucede a [audit/cierre-2026-11-13-final.md](audit/cierre-2026-11-13-final.md)) | calidad | NORMATIVE / mantenedores |
-| Contratos posteriores a 0.5.2 | [contracts/contratos-0.6.md](contracts/contratos-0.6.md) | calidad | NORMATIVE / mantenedores |
+| Dictamen de cierre vigente | [audit/cierre-0.7.1.md](audit/cierre-0.7.1.md) (CERRADO en `0.7.2`; el contrato `0.8.0` está abierto y lo sucede al cortarse) | calidad | NORMATIVE / mantenedores |
+| Contratos por versión | [contracts/contratos-0.6.md](contracts/contratos-0.6.md), [contracts/contratos-0.7.md](contracts/contratos-0.7.md) (cerrado), [contracts/contratos-0.8.md](contracts/contratos-0.8.md) (**abierto**) | calidad | NORMATIVE / mantenedores |
 | Uso rápido | [../README.md](../README.md) | usuarios | SUPPORTING / mantenedores |
 | Flujo de contribución | [../CONTRIBUTING.md](../CONTRIBUTING.md) | desarrollo, revisores | NORMATIVE / mantenedores |
 | Historial | [archive/README.md](archive/README.md) y `CHANGELOG.md` | contexto histórico | HISTORICAL |

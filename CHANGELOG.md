@@ -8,6 +8,17 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- **La revisión vuelve a enviar el contrato JSON, no el prompt de chat.** El
+  prompt por modo de `0.8.0` (F5) quedó sin cablear en la ruta de la interfaz:
+  `RequestLifecycle` recibía `request_type="review"` pero nunca traducía eso a
+  `modo`, así que `stream_response` caía en su valor por defecto
+  («conversacion») y el modelo recibía el prompt de conversación. La revisión no
+  tenía el contrato JSON y se rechazaba con «El modelo respondió en prosa en vez
+  de la revisión estructurada». La suite no lo detectaba porque todos los tests
+  miraban al cliente (`LLMClient`) directamente, no la ruta de la app. Ahora el
+  modo viaja explícito de la interfaz al cliente (`revision` para revisar,
+  `conversacion` para el chat) y dos pruebas fijan el contrato en los dos
+  flujos, incluida una de extremo a extremo sobre `review()`.
 - **La conversación ya no desaparece tras una respuesta larga.** Había dos
   presupuestos incompatibles: `ui_state` guardaba hasta 200 000 caracteres por
   mensaje y 1 000 000 por conversación, mientras `estado.json` entero solo

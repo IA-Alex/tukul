@@ -1773,7 +1773,7 @@ class TukulApp(tk.Tk):
         self._ciclo_peticion().start(
             request_id=request_id, profile=profile, article=texto, packet="",
             conversation=conversacion, cancel_event=cancel_event,
-            request_type="review",
+            request_type="review", modo="revision",
         )
 
     @staticmethod
@@ -1925,7 +1925,7 @@ class TukulApp(tk.Tk):
         self._ciclo_peticion().start(
             request_id=request_id, profile=profile, article=selected, packet=packet,
             conversation=conversation_with_message, cancel_event=cancel_event,
-            request_type=request_type, files=files,
+            request_type=request_type, files=files, modo="conversacion",
         )
 
     def _pedir_aprobacion(self, request_id: int, files: list[str],

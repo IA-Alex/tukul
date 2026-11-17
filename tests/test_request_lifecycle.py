@@ -37,11 +37,11 @@ class _Sesion:
 
     def stream_response(self, profile, api_key, article, packet, conversation,
                         on_chunk, on_error, on_complete, request_id=None,
-                        cancel_event=None):
+                        cancel_event=None, modo=None):
         self.llamadas.append({
             "api_key": api_key, "article": article, "packet": packet,
             "conversation": list(conversation), "request_id": request_id,
-            "cancel_event": cancel_event,
+            "cancel_event": cancel_event, "modo": modo,
         })
         on_chunk(self.texto)
         if self.fallar:
@@ -174,6 +174,37 @@ class TestFallos(_Base):
                     conversation=[], cancel_event=threading.Event())
         self.correr()
         self.assertEqual(pedidas, ["x"])
+
+
+class TestModoDelPrompt(_Base):
+    """H-1 de 0.8.0: el modo debe viajar de la UI al prompt de sistema.
+
+    La revisión se enviaba sin `modo`, así que `stream_response` usaba su
+    default («conversacion») y el modelo recibía el prompt de chat en vez del
+    contrato JSON. Estas pruebas fijan el contrato en ambos flujos.
+    """
+
+    def test_la_revision_envia_modo_revision(self):
+        sesion = _Sesion()
+        ciclo, _ = self.construir(sesion)
+        ciclo.start(
+            request_id=1, profile=_perfil(), article="a", packet="",
+            conversation=[], cancel_event=threading.Event(),
+            request_type="review", modo="revision",
+        )
+        self.correr()
+        self.assertEqual(sesion.llamadas[0]["modo"], "revision")
+
+    def test_el_chat_envia_modo_conversacion(self):
+        sesion = _Sesion()
+        ciclo, _ = self.construir(sesion)
+        ciclo.start(
+            request_id=2, profile=_perfil(), article="a", packet="",
+            conversation=[], cancel_event=threading.Event(),
+            request_type="normal", modo="conversacion",
+        )
+        self.correr()
+        self.assertEqual(sesion.llamadas[0]["modo"], "conversacion")
 
 
 class TestCancelacion(_Base):

@@ -53,6 +53,8 @@ pase después**.
    cobertura ≥ 70 %).
 4. **Evals verdes.** Los tres `promptfooconfig*.yaml` al 100 %: la separación
    por modo no puede ganar naturalidad a costa de la resistencia a inyección.
+   La versión de `promptfoo` está fijada en `evals/README.md` (`0.125.1`) para
+   que el arnés sea reproducible; requiere `node`/`npx` y red.
 5. **Cortar el tag.** Tag anotado de la entrega (`v0.8.0`) sobre el HEAD
    validado; `git describe --tags` → `v0.8.0` limpio. Push/Release es acción
    externa: se pide confirmación antes.

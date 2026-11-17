@@ -141,6 +141,30 @@ class TestFlujoDeRevision(unittest.TestCase):
         self.assertEqual(enviado, self.app.editor.get("1.0", "end-1c"))
         self.assertEqual(enviar.call_args[0][3], "", "Sin paquete de contexto local")
 
+    def test_revisar_envia_el_modo_revision(self):
+        """H-1 de 0.8.0: la revisión debe pedir el prompt de revisión.
+
+        Sin `modo`, `stream_response` caía en su default («conversacion») y el
+        modelo recibía el prompt de chat en vez del contrato JSON: la revisión
+        se rechazaba con «respondió en prosa». El defecto no lo veía ningún
+        test porque todos miraban el cliente, no la ruta de la app.
+        """
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
+            self.app.review()
+            _esperar_llamada(self.app, enviar)
+            self._asentar()
+
+        self.assertEqual(enviar.call_args.kwargs.get("modo"), "revision")
+
+    def test_el_chat_envia_el_modo_conversacion(self):
+        """Contrapartida: la conversación no debe recibir el contrato JSON."""
+        with patch.object(self.app.llm, "stream_response", return_value=None) as enviar:
+            self.app.request("¿qué es Tukul?")
+            _esperar_llamada(self.app, enviar)
+            self._asentar()
+
+        self.assertEqual(enviar.call_args.kwargs.get("modo"), "conversacion")
+
     def test_revisar_envia_solo_la_seleccion_cuando_la_hay(self):
         self.app.editor.tag_add("sel", "1.0", "1.16")
         seleccion = self.app.editor.get("sel.first", "sel.last")

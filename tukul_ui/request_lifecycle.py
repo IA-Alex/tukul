@@ -41,6 +41,7 @@ class SessionLike(Protocol):
         on_complete: Callable[[str, tuple[int | None, int | None]], None],
         request_id: int | None = None,
         cancel_event: threading.Event | None = None,
+        modo: str | None = None,
     ) -> None: ...
 
     def cancel(self, request_id: int) -> None: ...
@@ -86,11 +87,17 @@ class RequestLifecycle:
         request_type: str = "normal",
         files: list[str] | None = None,
         api_key: str = "",
+        modo: str | None = None,
     ) -> None:
         """Lanza la petición en un worker y publica el evento final.
 
         La key se resuelve **dentro** del worker: leerla en el hilo de Tk
         congelaba la interfaz mientras D-Bus respondía.
+
+        `modo` elige el prompt de sistema (ver `tukul_core.prompts`). Debe
+        llegar explícito desde la UI: si se omitía, `stream_response` caía en
+        su valor por defecto («conversacion») y la revisión se enviaba con el
+        prompt de chat, sin el contrato JSON (defecto H-1 de `0.8.0`).
         """
         archivos = list(files or [])
         # El generador se materializa aquí: el worker corre en otro hilo y la
@@ -119,6 +126,7 @@ class RequestLifecycle:
                 ),
                 request_id=request_id,
                 cancel_event=cancel_event,
+                modo=modo,
             )
 
         self._arrancar(work)
