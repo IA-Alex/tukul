@@ -4,6 +4,37 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.8.3] - 2026-11-17
+
+Parche de `0.8.2`: un **defecto confirmado** del arnés de evals y la retirada
+del transporte Gemini, que quedó sin consumidor ni decisión de producto.
+
+### Corregido
+
+- **Un `401` del proveedor ya no se lee como un fallo críptico del eval.** El
+  adaptador publicaba el error tal cual (`HTTP Error 401: Unauthorized`),
+  indistinguible de un fallo de red o de contrato, y una credencial revocada
+  aparecía como ocho casos rojos sin causa. Ahora un `401`/`403` se traduce a
+  `CredencialInvalidaError`, con el mensaje accionable y sin filtrar la key.
+  Regresión: `test_una_key_revocada_explica_el_401_en_vez_de_propagarlo_crudo`
+  falla con el código previo (`AttributeError: CredencialInvalidaError`) y pasa
+  con la corrección.
+
+### Retirado
+
+- **Transporte Gemini.** Se eliminan `gemini_url()` y las ramas
+  `gemini_generate_content` de `_request`, `_stream_event` y `complete`. No
+  tenía consumidor en la UI ni en los evals, y su rama de `complete` accedía a
+  `candidates[0]["content"]["parts"]` sin defensa: con un `candidates` sin
+  `content` reventaba como «respuesta no válida». `docs/ARCHITECTURE.md`,
+  el diagrama C4 y `ADR-0004` quedan sincronizados. El protocolo
+  `anthropic_messages` se mantiene.
+
+### Cambiado
+
+- El modelo por defecto de los evals y de la batería pasa a
+  `deepseek-ai/DeepSeek-V4-Flash-0731`.
+
 ## [0.8.2] - 2026-11-16
 
 Parche de `0.8.1`: dos **defectos confirmados** de la deuda P1 que el cierre de
