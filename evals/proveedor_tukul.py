@@ -50,9 +50,13 @@ from tukul_core.review import diagnose_findings, omitted_reasons  # noqa: E402
 ENDPOINT = os.environ.get(
     "TUKUL_EVAL_ENDPOINT", "https://api.deepinfra.com/v1/openai/chat/completions"
 )
-MODELO = os.environ.get("TUKUL_EVAL_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
+MODELO = os.environ.get("TUKUL_EVAL_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
 VARIABLE_KEY = os.environ.get("TUKUL_EVAL_API_KEY_ENV", "DEEPINFRA_API_KEY")
 TIMEOUT = 120
+
+
+class CredencialInvalidaError(RuntimeError):
+    """La credencial del eval no sirve: hay que renovarla, no depurar el código."""
 
 
 def _redactar(texto: str, clave: str) -> str:
@@ -133,8 +137,16 @@ def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(peticion, timeout=TIMEOUT) as respuesta:
-        datos = json.loads(respuesta.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(peticion, timeout=TIMEOUT) as respuesta:
+            datos = json.loads(respuesta.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise CredencialInvalidaError(
+                f"El proveedor rechazó la credencial (HTTP {error.code}): revisa que "
+                f"${VARIABLE_KEY} siga siendo válida y no esté revocada."
+            ) from error
+        raise
     contenido = datos["choices"][0]["message"]["content"]
     return str(contenido)
 
@@ -224,6 +236,9 @@ def main() -> int:
         inicio = time.monotonic()
         salida = _llamar(prompt_sistema(modo), prompt_usuario, clave)
         latencia_ms = int((time.monotonic() - inicio) * 1000)
+    except CredencialInvalidaError as error:
+        print(json.dumps({"output": "", "error": _redactar(str(error), clave)}))
+        return 0
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         print(json.dumps({"output": "", "error": _redactar(str(error), clave)}))
         return 0

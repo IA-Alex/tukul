@@ -26,7 +26,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 CORPUS = RAIZ / "Articulos" / "_eval"
 SALIDA = RAIZ / "evals" / "resultados"
 ENDPOINT = "https://api.deepinfra.com/v1/openai/chat/completions"
-MODELO = "deepseek-ai/DeepSeek-V4-Flash"
+MODELO = "deepseek-ai/DeepSeek-V4-Flash-0731"
 
 CIFRA = re.compile(r"\b\d[\d.,]*\b")
 FECHA = re.compile(r"\b(?:19|20)\d{2}\b")

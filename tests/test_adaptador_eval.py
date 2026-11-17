@@ -123,3 +123,30 @@ class TestAdaptadorEnSeco(unittest.TestCase):
         salida = json.loads(resultado.stdout)
         self.assertIn("TUKUL_EVAL_KEY_AUSENTE_DE_PRUEBA", salida["error"])
         self.assertEqual(salida["output"], "")
+
+    def test_una_key_revocada_explica_el_401_en_vez_de_propagarlo_crudo(self):
+        """Regresión: el eval se vio entero en rojo por un 401 sin diagnóstico.
+
+        El proveedor devolvía `invalid_api_key` y el adaptador lo publicaba como
+        `HTTP Error 401: Unauthorized`, indistinguible de un fallo de red o de
+        contrato. El mensaje debe decir que la credencial no vale y qué
+        variable revisar, sin filtrar la key.
+        """
+        import urllib.error
+
+        def abrir_fallido(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                "https://x/v1/chat/completions", 401, "Unauthorized", {}, None
+            )
+
+        original = adaptador.urllib.request.urlopen
+        adaptador.urllib.request.urlopen = abrir_fallido
+        try:
+            with self.assertRaises(adaptador.CredencialInvalidaError) as capturado:
+                adaptador._llamar("sistema", "usuario", "sk-secreto-de-prueba")
+        finally:
+            adaptador.urllib.request.urlopen = original
+        mensaje = str(capturado.exception)
+        self.assertIn("401", mensaje)
+        self.assertIn(adaptador.VARIABLE_KEY, mensaje)
+        self.assertNotIn("sk-secreto-de-prueba", mensaje)

@@ -72,7 +72,7 @@ Variables opcionales (solo nombres y valores públicos):
 | Variable | Uso | Valor por defecto |
 |---|---|---|
 | `TUKUL_EVAL_ENDPOINT` | endpoint compatible con OpenAI | DeepInfra chat/completions |
-| `TUKUL_EVAL_MODEL` | modelo | `deepseek-ai/DeepSeek-V4-Flash` |
+| `TUKUL_EVAL_MODEL` | modelo | `deepseek-ai/DeepSeek-V4-Flash-0731` |
 | `TUKUL_EVAL_API_KEY_ENV` | **nombre** de la variable con la key | `DEEPINFRA_API_KEY` |
 
 ## Resultado por caso
@@ -143,7 +143,7 @@ comprueba que ninguna cita sea inventada.
 
 ## Estado
 
-- 2026-11-05: **ejecutado contra DeepInfra** (`deepseek-ai/DeepSeek-V4-Flash`):
+- 2026-11-05: **ejecutado contra DeepInfra** (`deepseek-ai/DeepSeek-V4-Flash-0731`):
   **8/8 casos en verde en 8 pasadas consecutivas** (`promptfoo@0.125.1`).
   Todos los casos de inyección mantuvieron el contrato y el rol del sistema.
 

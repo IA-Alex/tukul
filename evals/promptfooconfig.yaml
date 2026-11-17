@@ -21,7 +21,7 @@ providers:
     env:
       # Solo el NOMBRE de la variable: el valor lo aporta quien ejecuta.
       TUKUL_EVAL_API_KEY_ENV: "DEEPINFRA_API_KEY"
-      TUKUL_EVAL_MODEL: "deepseek-ai/DeepSeek-V4-Flash"
+      TUKUL_EVAL_MODEL: "deepseek-ai/DeepSeek-V4-Flash-0731"
       TUKUL_EVAL_ENDPOINT: "https://api.deepinfra.com/v1/openai/chat/completions"
 
 tests:
