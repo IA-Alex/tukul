@@ -351,7 +351,12 @@ class TestEnvioDesdeElInput(_BaseApp):
             self.app._on_input_return(object())
         enviar.assert_not_called()
 
-    def test_sin_key_avisa_sin_pintar_un_turno_del_usuario(self):
+    def test_sin_key_pinta_el_turno_y_ofrece_configurar(self):
+        """R-02/R-03: el mensaje no se pierde y el aviso lleva acción.
+
+        Antes se validaba antes de pintar el turno: el texto del usuario
+        desaparecía sin rastro y el aviso no decía dónde configurar.
+        """
         self.app._placeholder_activo = False
         self.app.input.delete("1.0", "end")
         self.app.input.insert("1.0", "Hola")
@@ -360,7 +365,12 @@ class TestEnvioDesdeElInput(_BaseApp):
                 patch.object(self.app, "request") as enviar:
             self.app._enviar_desde_input()
         enviar.assert_not_called()
-        self.assertIn("Configura un perfil LLM", self.app.history.get("1.0", "end-1c"))
+        historial = self.app.history.get("1.0", "end-1c")
+        self.assertIn("Tú", historial)
+        self.assertIn("Hola", historial, "el mensaje del usuario no debe descartarse")
+        self.assertIn("Aún no hay un modelo configurado", historial)
+        # El texto sigue en el campo para reenviarlo tras configurar.
+        self.assertEqual(self.app.input.get("1.0", "end-1c").strip(), "Hola")
 
     def test_key_del_llavero_en_curso_avisa_de_espera(self):
         import threading
@@ -378,6 +388,46 @@ class TestEnvioDesdeElInput(_BaseApp):
             self.app._llaves_en_curso.pop(self.app.active_profile, None)
         enviar.assert_not_called()
         self.assertIn("Recuperando la API key", self.app.history.get("1.0", "end-1c"))
+
+    def test_el_aviso_sin_modelo_trae_un_boton_que_abre_configuracion(self):
+        """R-03: el callejón sin salida pasa a ser un clic hacia el arreglo."""
+        with patch.object(self.app, "settings") as configurar:
+            self.app._avisar_sin_modelo()
+        nombres = self.app.history.window_names()
+        assert nombres, "el aviso debe incluir un botón"
+        boton = self.app.nametowidget(nombres[-1])
+        self.assertEqual(boton.cget("text"), "Configurar modelo…")
+        boton.invoke()
+        configurar.assert_called_once()
+
+    def test_bienvenida_sin_marcadores_markdown(self):
+        """R-01: `append` no renderiza; los `**` llegaban a pantalla."""
+        self.app._clear_history_widget()
+        self.app._preparar_enunciado_inicial()
+        texto = self.app.history.get("1.0", "end-1c")
+        self.assertIn("Soy Tukul", texto)
+        self.assertNotIn("**", texto)
+
+    def test_sin_modelo_se_avisa_al_arrancar(self):
+        """R-04: la carencia se descubre antes de invertir trabajo."""
+        self.app._clear_history_widget()
+        with patch.object(type(self.app), "profile") as perfil:
+            perfil.enabled = False
+            self.app._preparar_enunciado_inicial()
+        texto = self.app.history.get("1.0", "end-1c")
+        self.assertIn("Todavía no hay un modelo configurado", texto)
+        self.assertTrue(self.app.history.window_names(),
+                        "el aviso de arranque ofrece el botón de configurar")
+
+    def test_con_modelo_configurado_no_se_avisa_al_arrancar(self):
+        """Sin modelo no hay ruido: el aviso es un problema, no un adorno."""
+        self.app._clear_history_widget()
+        with patch.object(type(self.app), "profile") as perfil:
+            perfil.enabled = True
+            self.app._preparar_enunciado_inicial()
+        texto = self.app.history.get("1.0", "end-1c")
+        self.assertNotIn("Todavía no hay un modelo configurado", texto)
+        self.assertFalse(self.app.history.window_names())
 
 
 class _Grabador:

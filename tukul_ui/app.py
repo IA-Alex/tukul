@@ -778,14 +778,18 @@ class TukulApp(tk.Tk):
         encima: se retira hasta que el modelo informe de consumo real.
         """
         if not self._tiene_enunciado(self.history):
+            # Sin marcadores Markdown: `append` escribe el texto tal cual en un
+            # widget Text, así que los `**…**` llegaban a pantalla como
+            # asteriscos y la primera frase que lee una persona parecía rota.
             self.append("Tukul",
                 "¡Hola! Soy Tukul, tu asistente de escritura.\n\n"
-                "• **Escribe o pega** un artículo en el panel izquierdo.\n"
-                "• **Pregúntame** cualquier cosa sobre tu texto en el chat de la derecha.\n"
-                "• **Selecciona texto** y pregúntame solo sobre esa parte.\n"
-                "• **Revisar artículo** analiza ortografía, gramática y estructura.\n\n"
+                "• Escribe o pega un artículo en el panel izquierdo.\n"
+                "• Pregúntame cualquier cosa sobre tu texto en el chat de la derecha.\n"
+                "• Selecciona texto y pregúntame solo sobre esa parte.\n"
+                "• Revisar artículo analiza ortografía, gramática y estructura.\n\n"
                 "Empieza con un mensaje o abre un documento con Ctrl+O.",
                 es_respuesta=False)
+            self._avisar_sin_modelo_si_procede()
         self.cost_label.pack_forget()
         self._vestir_cancelar(self.estado_actual in ESTADOS_ACTIVOS)
         self._actualizar_boton_limpiar()
@@ -1042,15 +1046,16 @@ class TukulApp(tk.Tk):
     def _sincronizar_boton_panel(self) -> None:
         """Mantiene el botón coherente con la visibilidad del panel.
 
-        El texto es fijo («Panel IA»): el nombre del control no cambia, solo su
-        estado. Quien dice qué hará (ocultar o mostrar) es el tooltip, porque
-        al variar el ancho del botón la barra completa se desplazaba cada vez
-        que se plegaba el panel.
+        El texto es fijo («Asistente»): el nombre del control no cambia, solo su
+        estado. Es el mismo nombre que el encabezado del panel, para que el
+        botón y lo que muestra hablen de una sola cosa. Quien dice qué hará
+        (ocultar o mostrar) es el tooltip, porque al variar el ancho del botón
+        la barra completa se desplazaba cada vez que se plegaba el panel.
         """
         if self.asistente_visible:
-            self.boton_panel.config(text="◧  Panel IA  (F6)")
+            self.boton_panel.config(text="◧  Asistente  (F6)")
         else:
-            self.boton_panel.config(text="◨  Panel IA  (F6)")
+            self.boton_panel.config(text="◨  Asistente  (F6)")
         tooltip = getattr(getattr(self, "barra", None), "tooltip_panel", None)
         if tooltip is not None:
             tooltip.set_texto("Ocultar el panel IA (F6)" if self.asistente_visible
@@ -1647,16 +1652,20 @@ class TukulApp(tk.Tk):
         message = self.input.get("1.0", "end-1c").strip()
         if not message or self.session.request_active:
             return
-        # Validar ANTES de pintar el turno: sin perfil/key el mensaje quedaría
-        # como un turno fantasma del usuario que nunca recibe respuesta.
+        # Sin perfil/key no se puede responder, pero el mensaje NUNCA se
+        # descarta: antes se validaba antes de pintar el turno y el texto
+        # desaparecía sin rastro (una pérdida de trabajo silenciosa). Ahora se
+        # pinta el turno, el aviso lleva el botón que resuelve el bloqueo y el
+        # texto sigue en el campo para reenviarlo tras configurar.
         if not self.profile.enabled or not self._resolver_credenciales():
+            self.append("Tú", message)
             if self._credenciales.en_curso(self.active_profile):
                 # La key del llavero aún se está leyendo: se lanza en segundo
                 # plano y el usuario puede reintentar en un instante.
                 self.append("Tukul", "Recuperando la API key del llavero. "
                                      "Vuelve a enviar en un momento.")
             else:
-                self.append("Tukul", "Configura un perfil LLM y una key para responder.")
+                self._avisar_sin_modelo()
             return
         self.input.delete("1.0", "end")
         # Si el envío llegó desde Enter, el foco sigue en el Text y el usuario
@@ -1677,6 +1686,54 @@ class TukulApp(tk.Tk):
         """Enter envía el mensaje y detiene la propagación del evento."""
         self._enviar_desde_input()
         return "break"
+
+    def _avisar_sin_modelo(self) -> None:
+        """Explica que falta el modelo y ofrece el botón que lo resuelve.
+
+        Antes el aviso era texto plano: «Configura un perfil LLM y una key para
+        responder». No decía ni dónde ni cómo, así que el usuario quedaba en un
+        callejón sin salida y tenía que recordar que la opción vive dentro del
+        menú ☰. El botón abre el diálogo de configuración directamente.
+        """
+        self.append("Tukul",
+                    "Aún no hay un modelo configurado, así que no puedo responder. "
+                    "Configúralo y vuelve a enviar; tu mensaje sigue en el campo.")
+        self._mostrar_accion_configurar()
+
+    def _avisar_sin_modelo_si_procede(self) -> None:
+        """Avisa al arrancar, una sola vez, de que no hay modelo.
+
+        Sin esto, alguien podía escribir y enviar antes de descubrir que no
+        había modelo: la carencia aparecía justo cuando ya había invertido
+        trabajo. Es una línea en el chat, no un modal: informa sin interrumpir
+        ni robar el foco al documento.
+        """
+        try:
+            configurado = self.profile.enabled
+        except (AttributeError, KeyError):
+            return
+        if configurado:
+            return
+        self.append("Tukul",
+                    "Todavía no hay un modelo configurado. Puedes escribir ya mismo; "
+                    "para recibir respuestas, configura un proveedor y su API key.",
+                    es_respuesta=False)
+        self._mostrar_accion_configurar()
+
+    def _mostrar_accion_configurar(self) -> None:
+        """Pinta en el historial un botón que abre «Configurar modelo».
+
+        Vive dentro del widget de historial y no en la barra porque el bloqueo
+        ocurre en el punto de conversación: el botón aparece justo donde la
+        persona se queda sin respuesta, no en otro rincón de la ventana.
+        """
+        self.history.config(state="normal")
+        boton = ttk.Button(self.history, text="Configurar modelo…",
+                           command=self.settings, style="Secundaria.TButton")
+        self.history.window_create("end", window=boton, padx=es.ESP["sm"])
+        self.history.insert("end", "\n", "separacion")
+        self.history.see("end")
+        self.history.config(state="disabled")
 
     def _resolver_credenciales(self) -> str:
         """Key del perfil activo sin bloquear el hilo de Tk.
@@ -1803,7 +1860,13 @@ class TukulApp(tk.Tk):
         if self.session.request_active:
             self.status.set("Ya hay una consulta en curso; espera a que termine para enviar otra.")
             return
-        if not self.profile.enabled or not self.key: self.append("Tukul","Configura un perfil LLM y una key para responder."); return
+        if not self.profile.enabled or not self.key:
+            # Mismo criterio que el compositor: se explica y se ofrece la
+            # acción que lo resuelve, en vez de un texto sin salida.
+            self.append("Tukul", "Aún no hay un modelo configurado, así que no puedo "
+                         "revisar el artículo. Configúralo y vuelve a intentarlo.")
+            self._mostrar_accion_configurar()
+            return
         article = self.editor.get("1.0","end-1c")
         selected = self.editor.get("sel.first","sel.last") if self.editor.tag_ranges("sel") else article
         self.session.request_active=True; self.cancel_event=threading.Event(); self.set_estado(EstadoUI.TRANSMITIENDO)

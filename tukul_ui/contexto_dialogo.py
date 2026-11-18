@@ -93,15 +93,16 @@ class ContextController:
     # ─── Mutadores del conjunto de contexto ─────────────────────────────────
 
     def update_references_button(self) -> None:
-        """Contexto: solo el número; las palabras se añaden cuando hay algo."""
+        """Contexto: el número con su unidad siempre.
+
+        En reposo decía «Contexto: 0», un número sin unidad del que no se sabía
+        si era un error o un estado correcto. «Contexto: 0 artículos» responde
+        de inmediato qué se cuenta y que cero es normal.
+        """
         host = self._host
         count = len(host.context_articles)
-        if count == 0:
-            texto = "Contexto: 0"
-        else:
-            label = "artículo" if count == 1 else "artículos"
-            texto = f"Contexto: {count} {label}"
-        host.references_button.config(text=texto)
+        label = "artículo" if count == 1 else "artículos"
+        host.references_button.config(text=f"Contexto: {count} {label}")
 
     def add_current_article_to_context(self) -> bool:
         """Guarda el texto visible como contexto antes de abrir o editar otro."""

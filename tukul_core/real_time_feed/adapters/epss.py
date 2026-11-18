@@ -55,7 +55,13 @@ class EpssAdapter(SourceAdapter):
         """
         url = f"{EPSS_ENDPOINT}?date={datetime.now(UTC).strftime('%Y-%m-%d')}"
         if cve_ids:
-            params = urllib.parse.urlencode([("cve", cve) for cve in cve_ids])
+            # EPSS 1.0 solo honra el ÚLTIMO `cve=` repetido: `?cve=A&cve=B`
+            # devuelve una sola fila (la de B), así que un lote de 100 CVE de
+            # NVD se enriquecía con un score —o con ninguno, si B no existe—.
+            # La lista separada por comas devuelve una fila por cada CVE
+            # (medido 2026-11-17: dos CVE en coma → dos filas; dos repetidos →
+            # una), que es lo que el enriquecimiento necesita para cruzarlos.
+            params = urllib.parse.urlencode({"cve": ",".join(cve_ids)})
             url = f"{EPSS_ENDPOINT}?{params}"
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
 

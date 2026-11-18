@@ -35,6 +35,12 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 1.0
 BACKOFF_MAX_SECONDS = 8.0
+# El 429 de GDELT no es un fallo transitorio del servicio: es la cuota por IP
+# (compartida tras NAT/CGNAT), y su propio texto pide "one request every 5
+# seconds". Reintentar al segundo con el backoff normal vuelve a caer en el
+# mismo 429, así que se espera un minuto —suficiente para que la ventana se
+# abra— y, si aun así persiste, el error dice qué pasa en vez de "no respondió".
+GDELT_RATE_LIMIT_WAIT_SECONDS = 30.0
 
 
 class SearchProvider(ABC):
@@ -89,6 +95,12 @@ class GdeltProvider(SearchProvider):
             body = self._read_bounded(response)
             payload = json.loads(body.decode("utf-8"))
         except urllib.error.HTTPError as error:
+            if error.code == 429:
+                raise RuntimeError(
+                    "GDELT respondió 429: limita las peticiones por IP (una cada "
+                    f"{GDELT_MIN_REQUEST_INTERVAL:.0f} s) y la cuota es compartida "
+                    "tras NAT. Espera un minuto y reintenta."
+                ) from error
             raise RuntimeError(f"GDELT respondió {error.code}.") from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise RuntimeError(f"No se pudo consultar GDELT: {error}") from error
@@ -150,15 +162,33 @@ class GdeltProvider(SearchProvider):
         self._last_request_at = time.monotonic()
 
     def _sleep(self, error: urllib.error.HTTPError | None, attempt: int) -> None:
-        """Backoff exponencial con jitter; respeta `Retry-After` si viene."""
+        """Backoff de espera antes de reintentar.
+
+        Un 429 es cuota por IP, no un servicio caído: esperar el backoff normal
+        (1-8 s) reintroducía la petición en la misma ventana cerrada y agotaba
+        los intentos sin haber esperado lo que GDELT pide. Para 429 se usa
+        `GDELT_RATE_LIMIT_WAIT_SECONDS`, salvo que el proveedor mande un
+        `Retry-After` mayor. El resto de estados transitorios conserva el
+        backoff exponencial con jitter, acotado por `BACKOFF_MAX_SECONDS`.
+        """
+        retry_after = None
+        if error is not None and error.headers:
+            retry_after = error.headers.get("Retry-After")
+        if error is not None and error.code == 429:
+            delay = GDELT_RATE_LIMIT_WAIT_SECONDS
+            try:
+                if retry_after is not None:
+                    delay = max(delay, float(retry_after))
+            except (ValueError, TypeError):
+                pass
+            time.sleep(delay)
+            return
         delay = min(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_MAX_SECONDS)
-        if error is not None:
-            retry_after = error.headers.get("Retry-After") if error.headers else None
-            if retry_after:
-                try:
-                    delay = min(max(float(retry_after), 0.0), BACKOFF_MAX_SECONDS)
-                except (ValueError, TypeError):
-                    pass
+        if retry_after:
+            try:
+                delay = min(max(float(retry_after), 0.0), BACKOFF_MAX_SECONDS)
+            except (ValueError, TypeError):
+                pass
         delay += delay * 0.25 * random.random()
         time.sleep(delay)
 

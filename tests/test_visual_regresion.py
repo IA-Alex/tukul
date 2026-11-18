@@ -81,6 +81,29 @@ class TestRepartoDeLaBarra(unittest.TestCase):
         holgado = self._desplazamiento(TopBar.ANCHO_SECUNDARIOS)
         self.assertTrue(holgado["secundarios"])
 
+    def test_el_umbral_no_deja_el_nombre_del_articulo_sin_espacio(self):
+        """R-07: con los controles visibles, el nombre conserva sitio.
+
+        El umbral fijo de 1280 px se quedó corto al ampliar el chip de modelo:
+        a 1300 px el nombre del artículo medía 9 px. El umbral debe reservar
+        al menos el ancho mínimo legible del nombre.
+        """
+        ancho_piezas = (
+            TopBar.ANCHO_MODELO + 3 * 140 + TopBar.ANCHO_DOCUMENTO_MINIMO
+        )
+        self.assertGreaterEqual(
+            TopBar.ANCHO_SECUNDARIOS, ancho_piezas,
+            "el umbral debe cubrir el chip, los otros controles y el nombre",
+        )
+
+    def test_el_chip_de_modelo_cede_el_ultimo_entre_los_secundarios(self):
+        """R-07: el modelo solo se ve en el chip; Contexto y Tema están en el menú."""
+        # Justo por encima del umbral: caben los secundarios y el modelo debe
+        # quedar visible; si algo tiene que ceder, no es el chip.
+        desplazamiento = self._desplazamiento(TopBar.ANCHO_SECUNDARIOS)
+        self.assertTrue(desplazamiento.get("modelo", True))
+        self.assertTrue(desplazamiento.get("contexto", True))
+
 
 def es_ancho_minimo() -> int:
     from tukul_ui.app import ANCHO_MINIMO_VENTANA

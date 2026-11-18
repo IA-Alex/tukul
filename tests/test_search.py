@@ -178,6 +178,63 @@ def test_gdelt_429_persistente_agota_intentos_y_lanza(monkeypatch):
     assert intentos["n"] == providers_module.MAX_ATTEMPTS
 
 
+def test_gdelt_429_espera_la_ventana_de_cuota_antes_de_reintentar(monkeypatch):
+    """H-02: el 429 de GDELT es cuota por IP; el backoff normal no la abre."""
+    import urllib.error
+
+    intentos = {"n": 0}
+    esperas: list[float] = []
+
+    def open_(request, timeout):
+        intentos["n"] += 1
+        raise urllib.error.HTTPError(request.full_url, 429, "slow down", {}, None)
+
+    monkeypatch.setattr(providers_module.NO_REDIRECT_OPENER, "open", open_)
+    monkeypatch.setattr(providers_module.time, "sleep", lambda s: esperas.append(s))
+
+    with pytest.raises(RuntimeError, match="429"):
+        GdeltProvider().search(SearchQuery("tema"))
+
+    # `_wait_for_rate_limit` también duerme para espaciar peticiones (5 s); lo
+    # que esta prueba fija es que la espera del 429 nunca sea el backoff corto.
+    esperas_429 = [espera for espera in esperas if espera >= 10.0]
+    assert len(esperas_429) >= 2, esperas
+    assert all(espera >= providers_module.GDELT_RATE_LIMIT_WAIT_SECONDS for espera in esperas_429)
+
+
+def test_gdelt_429_respeta_retry_after_si_es_mayor(monkeypatch):
+    """`Retry-After` manda cuando supera la espera por defecto de cuota."""
+    import urllib.error
+
+    esperas: list[float] = []
+
+    def open_(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url, 429, "slow down", {"Retry-After": "90"}, None)
+
+    monkeypatch.setattr(providers_module.NO_REDIRECT_OPENER, "open", open_)
+    monkeypatch.setattr(providers_module.time, "sleep", lambda s: esperas.append(s))
+
+    with pytest.raises(RuntimeError, match="429"):
+        GdeltProvider().search(SearchQuery("tema"))
+
+    assert esperas and esperas[0] == pytest.approx(90.0)
+
+
+def test_gdelt_429_persistente_explica_la_causa(monkeypatch):
+    """El error final dice que es cuota por IP, no «no respondió»."""
+    import urllib.error
+
+    def open_(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 429, "slow down", {}, None)
+
+    monkeypatch.setattr(providers_module.NO_REDIRECT_OPENER, "open", open_)
+    monkeypatch.setattr(providers_module.time, "sleep", lambda _s: None)
+
+    with pytest.raises(RuntimeError, match="compartida"):
+        GdeltProvider().search(SearchQuery("tema"))
+
+
 def test_gdelt_error_no_reintentable_falla_de_inmediato(monkeypatch):
     import urllib.error
 

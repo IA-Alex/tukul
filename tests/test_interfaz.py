@@ -196,15 +196,17 @@ class TestVentanaReal(unittest.TestCase):
         self.app.toggle_asistente()
         self._asentar()
         self.assertFalse(self.app.asistente_visible)
-        # El texto es fijo («Panel IA»): no cambia para no desplazar la barra.
-        self.assertIn("Panel IA", self.app.boton_panel.cget("text"))
+        # El texto es fijo («Asistente»): no cambia para no desplazar la barra.
+        # Es el mismo nombre que el encabezado del panel: un solo objeto, un
+        # solo nombre (antes el botón decía «Panel IA» y el panel «Asistente»).
+        self.assertIn("Asistente", self.app.boton_panel.cget("text"))
         # Quien dice qué hará es el tooltip, y sí cambia.
         self.assertIn("Mostrar", self.app.barra.tooltip_panel.texto)
 
         self.app.toggle_asistente()
         self._asentar()
         self.assertTrue(self.app.asistente_visible)
-        self.assertIn("Panel IA", self.app.boton_panel.cget("text"))
+        self.assertIn("Asistente", self.app.boton_panel.cget("text"))
         self.assertIn("Ocultar", self.app.barra.tooltip_panel.texto)
 
     def test_f6_pliega_el_asistente_desde_el_teclado(self):
@@ -409,6 +411,23 @@ class TestVentanaReal(unittest.TestCase):
         fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
         self.assertLessEqual(fuente.measure(texto), TopBar.ANCHO_MODELO,
                              "El recorte se mide en píxeles, no en caracteres")
+
+    def test_el_chip_no_gasta_ancho_en_el_prefijo_modelo(self):
+        """R-05: sin «Modelo: » cabe mucho más del nombre real."""
+        modelo = "deepseek-ai/DeepSeek-V4.1-Flash"
+        with patch.object(type(self.app), "profile") as perfil:
+            perfil.model = modelo
+            texto = self.app.barra._texto_modelo()
+        self.assertEqual(texto, modelo, "un id de modelo real se muestra entero")
+        self.assertNotIn("Modelo:", texto)
+
+    def test_el_chip_sin_modelo_es_una_accion_no_un_estado(self):
+        """R-05: «sin configurar» no decía qué hacer; el chip es el camino."""
+        with patch.object(type(self.app), "profile") as perfil:
+            perfil.model = ""
+            texto = self.app.barra._texto_modelo()
+        self.assertEqual(texto, TopBar.TEXTO_SIN_MODELO)
+        self.assertIn("Configurar", texto)
 
     def test_el_boton_de_menu_no_hereda_el_ancho_del_desplegable(self):
         # En `clam` el Menubutton se estira hasta el ancho de su desplegable

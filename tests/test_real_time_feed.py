@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -857,7 +858,11 @@ class TestEpssAdapter:
         assert abrir.call_count == 1, "404 no es reintentable."
 
     def test_url_con_cve_ids_filtra_por_cve(self):
-        """Con `cve_ids` la URL lleva los parámetros cve y no la fecha."""
+        """Con `cve_ids` la URL lleva los CVE juntos y no la fecha.
+
+        Debe ser una sola lista `cve=A,B`: EPSS honra solo el último `cve=`
+        repetido, así que la forma antigua pedía cien CVE y devolvía uno.
+        """
         respuesta = MagicMock()
         respuesta.read.side_effect = [b'{"data": []}', b""]
         urls: list[str] = []
@@ -871,6 +876,37 @@ class TestEpssAdapter:
 
         assert "cve=CVE-2026-0001" in urls[0]
         assert "date=" not in urls[0]
+
+    def test_lote_de_cve_ids_produce_un_score_por_cve(self):
+        """Un lote de N CVE devuelve N filas, como la API real.
+
+        El doble reproduce la semántica medida en api.first.org: `cve=A,B`
+        devuelve una fila por CVE, mientras que `cve=A&cve=B` devuelve solo la
+        última. Con la URL repetida, 100 CVE se enriquecían con 1 score.
+        """
+        cves = ["CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003"]
+        urls: list[str] = []
+
+        def _open(request, timeout=None):
+            urls.append(request.full_url)
+            cves = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)["cve"]
+            # Semántica real: solo la última ocurrencia de `cve` cuenta, y la
+            # lista separada por comas trae todas.
+            devueltos = cves[-1].split(",")
+            cuerpo = json.dumps({
+                "data": [{"cve": cve, "epss": "0.5"} for cve in devueltos],
+            }).encode()
+            respuesta = MagicMock()
+            respuesta.read.side_effect = [cuerpo, b""]
+            return respuesta
+
+        with patch.object(NO_REDIRECT_OPENER_EPSS, "open", side_effect=_open):
+            crudos = EpssAdapter().fetch(24, cve_ids=cves)
+
+        entradas = EpssAdapter().normalize(crudos)
+        assert len(urls) == 1
+        assert urls[0].count("cve=") == 1, urls[0]
+        assert [e.source_id for e in entradas] == [f"epss:{cve}" for cve in cves]
 
     def test_respuesta_sobredimensionada_se_rechaza(self):
         from tukul_core.real_time_feed.adapters.epss import MAX_RESPONSE_BYTES

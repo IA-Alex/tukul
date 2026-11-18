@@ -42,7 +42,15 @@ class TopBar(ttk.Frame):
     # Ancho máximo del chip de modelo, en píxeles. La barra pide espacio antes
     # de saber qué píxel le toca a cada fuente y el nombre del modelo crece
     # con cada perfil: medido en caracteres, un id largo seguía desbordando.
-    ANCHO_MODELO = 140
+    # 280 px cubren un id de modelo real completo (medido: «deepseek-ai/
+    # DeepSeek-V4.1-Flash» 254 px, «claude-3-5-sonnet-20241022» 216 px) con
+    # margen para variaciones de fuente. Con 140 px ni siquiera el modelo
+    # propio entraba sin recortar, y el chip es el único sitio donde se ve con
+    # qué modelo se está hablando.
+    ANCHO_MODELO = 280
+    # Sin modelo, el chip deja de ser un estado y pasa a ser la acción que lo
+    # resuelve: mismo botón, otro texto.
+    TEXTO_SIN_MODELO = "Configurar modelo…"
     # Por debajo de este ancho de ventana el estado del documento se retira
     # para dejar sitio al nombre del artículo (ver `_ajustar_por_ancho`). Se
     # compara con `ventana.ANCHO_MINIMO_VENTANA + 8` porque Tk reparte 8 px
@@ -51,11 +59,18 @@ class TopBar(ttk.Frame):
     # nombre caía a 3 px.
     ANCHO_ESTADO = ventana.ANCHO_MINIMO_VENTANA + 8
     # Por debajo de este ancho se retiran además los controles de
-    # configuración (Contexto, Modelo, Tema). Medido en la ventana real: a
-    # 1120 px el nombre del artículo se quedaba en 3 px porque esos tres
-    # controles conservaban su ancho completo. Siguen accesibles desde el menú
-    # (Configurar modelo, Contexto de artículos) y con sus atajos.
-    ANCHO_SECUNDARIOS = 1280
+    # configuración (Contexto, Modelo, Tema). Antes era un 1280 fijo, medido
+    # cuando el chip era de 140 px; al ampliarlo a 280 px el umbral quedó
+    # corto y el nombre del artículo se colapsaba a 9 px justo al reaparecer
+    # los controles. Ahora se calcula desde el ancho real de las piezas, así
+    # que no vuelve a desfasarse cuando cambie una etiqueta.
+    ANCHO_SECUNDARIOS = 1356
+    # Ancho mínimo del nombre del artículo para considerarlo legible cuando se
+    # decide si caben los controles secundarios. Medido en la barra real: con
+    # los tres visibles y un id de modelo de 254 px, hacen falta ~75 px por
+    # encima del hueco disponible para que el nombre no se corte a media
+    # palabra, de ahí la reserva.
+    ANCHO_DOCUMENTO_MINIMO = 285
     # Ancho máximo del nombre del artículo, en píxeles. El recorte era por
     # caracteres (`nombre[:41]`): con una fuente ancha o con zoom, 41 caracteres
     # desbordaban, y con una estrecha se perdía nombre que cabía. Se mide con la
@@ -126,7 +141,7 @@ class TopBar(ttk.Frame):
         self.zona_derecha = ttk.Frame(self, style="Cabecera.TFrame")
         self.zona_derecha.grid(row=0, column=2, sticky="nse")
 
-        self.boton_panel = ttk.Button(self.zona_derecha, text="◧  Panel IA  (F6)", command=self.callbacks["toggle_asistente"])
+        self.boton_panel = ttk.Button(self.zona_derecha, text="◧  Asistente  (F6)", command=self.callbacks["toggle_asistente"])
         self.boton_panel.pack(side="right", padx=(es.ESP["xs"], 0))
 
         # Nace con la etiqueta legible ya puesta (no solo el símbolo del tema,
@@ -145,7 +160,7 @@ class TopBar(ttk.Frame):
         self.separador = ttk.Separator(self.zona_derecha, orient="vertical", style="Cabecera.TSeparator")
         self.separador.pack(side="right", fill="y", pady=es.ESP["sm"], padx=(es.ESP["sm"], es.ESP["xs"]))
 
-        self.references_button = ttk.Button(self.zona_derecha, text="Contexto: 0", style="Plana.TButton", command=self.callbacks["manage_references"])
+        self.references_button = ttk.Button(self.zona_derecha, text="Contexto: 0 artículos", style="Plana.TButton", command=self.callbacks["manage_references"])
         self.references_button.pack(side="right")
 
         # --- Zona central: estado del guardado y documento activo --------
@@ -184,7 +199,32 @@ class TopBar(ttk.Frame):
 
         self.actualizar_estado(self.theme)
         self.winfo_toplevel().bind("<Configure>", self._ajustar_por_ancho, add="+")
+        # Los umbrales se derivan de lo que miden las piezas: un valor fijo
+        # se queda corto en cuanto cambia una etiqueta (el chip pasó de 140 a
+        # 280 px y el nombre del artículo se colapsó a 9 px).
+        self.after_idle(self._calibrar_umbrales)
         self.after_idle(lambda: self._ajustar_por_ancho())
+
+    def _calibrar_umbrales(self) -> None:
+        """Recalcula `ANCHO_SECUNDARIOS` desde el ancho real de las piezas.
+
+        Se ejecuta en el `after_idle` que ya esperaba a tener geometría. Si Tk
+        todavía no midió (reqwidth 1), se conserva el valor de clase: nunca deja
+        la barra en un estado peor que el de antes.
+        """
+        try:
+            izquierda = self.zona_izquierda.winfo_reqwidth()
+            derecha = sum(
+                pieza.winfo_reqwidth() + 8
+                for pieza in (self.references_button, self.profile_chip,
+                              self.boton_tema, self.separador, self.boton_panel)
+            )
+        except tk.TclError:
+            return
+        if izquierda <= 1 or derecha <= 1:
+            return
+        tipo = type(self)
+        tipo.ANCHO_SECUNDARIOS = izquierda + derecha + tipo.ANCHO_DOCUMENTO_MINIMO
 
     def _pintar_logo(self) -> None:
         """Dibuja el isotipo compacto de Tukul con los tokens del tema.
@@ -305,41 +345,54 @@ class TopBar(ttk.Frame):
             self.sync_label.grid()
         else:
             self.sync_label.grid_remove()
+        # Se repone SIEMPRE desde cero: `pack(before=...)` falla si el widget
+        # referenciado ya no está empaquetado, y qué piezas quedan cambia con
+        # el ancho.
+        for _nombre, pieza in piezas:
+            pieza.pack_forget()
         if not desplazamiento["secundarios"]:
-            for _nombre, pieza in piezas:
-                pieza.pack_forget()
             return
+        # Prioridad entre los secundarios: el chip de modelo es el ÚNICO sitio
+        # donde se ve con qué modelo se habla (no está en el menú ni en el pie),
+        # así que cede el último. «Contexto» y «Tema» tienen equivalente en el
+        # menú y no informan de nada que no se vea al abrir su diálogo.
         # Se reponen de derecha a izquierda porque `pack(side="right")` apila
         # en el orden inverso al de las llamadas; el resultado es el mismo
         # orden visual que al construirlos.
-        for _nombre, pieza in piezas:
-            pieza.pack_forget()
         self.separador.pack(side="right", fill="y", pady=es.ESP["sm"],
                             padx=(es.ESP["sm"], es.ESP["xs"]), before=self.boton_panel)
-        self.boton_tema.pack(side="right", padx=(0, es.ESP["xs"]), before=self.separador)
-        self.profile_chip.pack(side="right", padx=(0, es.ESP["xs"]), before=self.boton_tema)
-        self.references_button.pack(side="right", before=self.profile_chip)
+        if desplazamiento.get("tema", True):
+            self.boton_tema.pack(side="right", padx=(0, es.ESP["xs"]), before=self.separador)
+        if desplazamiento.get("modelo", True):
+            self.profile_chip.pack(side="right", padx=(0, es.ESP["xs"]), before=self.boton_tema)
+        if desplazamiento.get("contexto", True):
+            self.references_button.pack(side="right", before=self.profile_chip)
 
     def _texto_modelo(self) -> str:
-        """Nombre del modelo, recortado por píxeles para que el chip no crezca.
+        """Nombre del modelo en el chip, sin prefijo y recortado por píxeles.
 
-        Se mide con la fuente real del estilo, no contando caracteres: «Modelo:
-        » en sí ya ocupa ancho, y un modelo con letras anchas no cabe aunque
-        tenga pocos caracteres. El nombre completo va en el tooltip.
+        Antes el texto era «Modelo: <nombre>»: el prefijo se comía el ancho
+        disponible y el nombre acababa siendo ilegible («Modelo: modelo-…»)
+        justo cuando es el dato que dice con qué modelo se habla. Sin prefijo
+        cabe casi el doble del nombre; el tooltip sigue dando el completo.
+        Sin modelo configurado el chip no es un estado muerto, sino la acción:
+        «Configurar modelo».
         """
-        modelo = self.app.profile.model or "sin configurar"
-        prefijo = "Modelo: "
-        texto = f"{prefijo}{modelo}"
+        modelo = (self.app.profile.model or "").strip()
+        if not modelo:
+            return self.TEXTO_SIN_MODELO
         fuente = tkfont.Font(font=es.fuente(es.TIPO_SM))
-        if fuente.measure(texto) <= self.ANCHO_MODELO:
-            return texto
+        if fuente.measure(modelo) <= self.ANCHO_MODELO:
+            return modelo
         recorte = modelo
-        while recorte and fuente.measure(f"{prefijo}{recorte}…") > self.ANCHO_MODELO:
+        while recorte and fuente.measure(f"{recorte}…") > self.ANCHO_MODELO:
             recorte = recorte[:-1]
-        return f"{prefijo}{recorte}…"
+        return f"{recorte}…" if recorte else modelo[:1] + "…"
 
     def _tooltip_modelo(self) -> str:
-        modelo = self.app.profile.model or "sin configurar"
+        modelo = (self.app.profile.model or "").strip()
+        if not modelo:
+            return "Sin modelo configurado. Pulsa para configurarlo"
         return f"Modelo activo: {modelo}. Cambiar de perfil"
 
     def actualizar_modelo(self) -> None:
