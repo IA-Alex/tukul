@@ -272,6 +272,10 @@ class LLMClient:
         # otro hilo y la petición limpia al volver de su propio `open()`.
         self._sockets: list[tuple[Any, int]] = []
         self._socket_lock = threading.Lock()
+        # Frames SSE saltados en el último stream: sano saltarlos, pero una
+        # respuesta truncada por un cambio de esquema no debe verse igual que
+        # un `[DONE]` limpio. Se reinicia en cada `_consume_sse`.
+        self.last_skipped_frames = 0
 
     def registrar_socket(self, socket_obj: Any) -> None:
         """Guarda un socket recién conectado (lo llama el opener)."""
@@ -556,7 +560,15 @@ class LLMClient:
         return StreamChunk(content, input_tokens, output_tokens, llamadas)
 
     def _consume_sse(self, profile: LlmProfile, response: Any, cancel_event: threading.Event | None) -> Iterator[StreamChunk]:
-        """Traduce el cuerpo SSE en StreamChunk, saltando líneas ilegibles."""
+        """Traduce el cuerpo SSE en StreamChunk, saltando líneas ilegibles.
+
+        Un frame ilegible no aborta el stream —el proveedor puede colar una
+        línea rara—, pero tampoco se descarta en silencio: se cuenta en
+        `last_skipped_frames` y, si hubo alguno, se deja un aviso al cerrar.
+        Así una respuesta truncada por un cambio de esquema se distingue de un
+        `[DONE]` limpio.
+        """
+        self.last_skipped_frames = 0
         for raw in self._iter_lines(response):
             if cancel_event is not None and cancel_event.is_set():
                 return
@@ -564,10 +576,15 @@ class LLMClient:
             if data is None:
                 continue
             if data == "[DONE]":
-                return
+                break
             try:
                 chunk = self._stream_event(profile, json.loads(data))
-            except (ValueError, KeyError, IndexError, TypeError):
+            except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+                # `AttributeError` cubre un frame que es JSON válido pero no un
+                # objeto (`[1,2,3]`, `"hola"`, `null`): el proveedor cambió el
+                # esquema a mitad de stream. Es un salto, no una caída.
+                # No se vuelca el frame: es dato no confiable del proveedor.
+                self.last_skipped_frames += 1
                 continue
             if chunk.tool_calls:
                 # Defensa en profundidad: una respuesta que intenta pedir
@@ -577,6 +594,10 @@ class LLMClient:
                     "Tukul no expone herramientas al modelo", len(chunk.tool_calls))
             if chunk.content or chunk.input_tokens is not None or chunk.output_tokens is not None:
                 yield chunk
+        if self.last_skipped_frames:
+            logger.warning(
+                "Stream SSE con %d frame(s) ilegible(s) saltado(s); "
+                "la respuesta puede estar truncada", self.last_skipped_frames)
 
     def stream(self, profile: LlmProfile, api_key: str, prompt: str, request_id: int | None = None, cancel_event: threading.Event | None = None, modo: str | None = None) -> Iterator[StreamChunk]:
         """Abre la respuesta del proveedor en streaming y emite sus eventos SSE.
