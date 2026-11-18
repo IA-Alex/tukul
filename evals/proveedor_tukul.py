@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import sys
 import time
 import urllib.error
@@ -42,7 +43,8 @@ RAIZ = Path(__file__).resolve().parent.parent
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from tukul_core.models import ChatMessage  # noqa: E402
+from tukul_core.llm import LLMClient  # noqa: E402
+from tukul_core.models import ChatMessage, LlmProfile  # noqa: E402
 from tukul_core.prompting import build_editor_prompt  # noqa: E402
 from tukul_core.prompts import MODO_POR_DEFECTO, prompt_sistema  # noqa: E402
 from tukul_core.review import diagnose_findings, omitted_reasons  # noqa: E402
@@ -53,10 +55,34 @@ ENDPOINT = os.environ.get(
 MODELO = os.environ.get("TUKUL_EVAL_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
 VARIABLE_KEY = os.environ.get("TUKUL_EVAL_API_KEY_ENV", "DEEPINFRA_API_KEY")
 TIMEOUT = 120
+# Reintentos ante un proveedor saturado. DeepInfra devuelve 429 «Model busy»
+# sin `Retry-After`; con presupuesto bajo (por defecto 6 intentos, backoff
+# exponencial acotado con jitter) el eval convierte un pico de carga en un caso
+# lento pero válido, en vez de en un fallo que envenena el veredicto. Un número
+# mayor encarece la corrida cuando el proveedor está caído de verdad.
+MAX_INTENTOS = int(os.environ.get("TUKUL_EVAL_MAX_INTENTOS", "6"))
+BACKOFF_BASE = 2.0
+BACKOFF_MAX = 30.0
+# Códigos que SÍ se reintentan: el proveedor está ocupado o inestable, no hay
+# nada que corregir en la petición. 401/403 quedan fuera a propósito: son
+# credencial, y reintentarlas solo alarga el fallo.
+CODIGOS_REINTENTABLES = {408, 429, 500, 502, 503, 504}
+
 
 
 class CredencialInvalidaError(RuntimeError):
     """La credencial del eval no sirve: hay que renovarla, no depurar el código."""
+
+
+class ProveedorOcupadoError(RuntimeError):
+    """El proveedor siguió «ocupado» (429) agotado el presupuesto de reintentos.
+
+    DeepInfra responde `429 {"error":{"message":"Model busy, retry later"}}` sin
+    `Retry-After` cuando está saturado. Sin reintentos, cada 429 se cuenta como
+    un fallo del caso: se midió una batería a 9/24 con 15 de esos fallos siendo
+    429, no contrato. Distinguirlo de `CredencialInvalidaError` mantiene legible
+    el motivo real del fallo.
+    """
 
 
 def _redactar(texto: str, clave: str) -> str:
@@ -105,7 +131,64 @@ def _temperatura() -> float:
     return valor
 
 
+def _usar_streaming() -> bool:
+    """¿El eval debe medir por streaming? `TUKUL_EVAL_STREAM` (dinámico).
+
+    Se lee en cada llamada, no al importar: los tests y el operador pueden
+    cambiarla por caso. Modelos de razonamiento como `Qwen/Qwen3.5-9B` de
+    DeepInfra devuelven vacío o cortan la conexión en no-streaming y solo
+    responden bien por SSE; forzar no-streaming los mediría con salida vacía y
+    convertiría cada caso en un fallo del modelo, no del contrato.
+    """
+    return os.environ.get("TUKUL_EVAL_STREAM", "").strip().lower() in {"1", "true", "yes", "si", "sí"}
+
+
+def _llamar_streaming(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
+    """Llama por streaming reusando el `LLMClient` real del repo.
+
+    No reimplementa el parseo SSE: el cliente de producción ya lo hace y está
+    probado. Así el eval mide el mismo transporte que la app. `LlmProfile` se
+    construye con el endpoint/modelo del eval; `temperature` y `seed` del
+    adaptador no viajan aquí porque `LLMClient` no expone esos campos en el
+    perfil, así que en streaming el muestreo lo fija el proveedor.
+    """
+    perfil = LlmProfile(
+        provider="openai_compatible",
+        endpoint=ENDPOINT,
+        model=MODELO,
+        max_output_tokens=1024,
+    )
+    # Los modelos de razonamiento tardan más que `HTTP_TIMEOUT_SECONDS` (90 s) en
+    # una revisión completa. Se permite ampliarlo SOLO en el proceso del eval,
+    # sin tocar el valor de producción, para no cortar a mitad una respuesta
+    # válida que el modelo aún está escribiendo.
+    timeout = os.environ.get("TUKUL_EVAL_HTTP_TIMEOUT")
+    if timeout:
+        import tukul_core.llm as _llm
+
+        _llm.HTTP_TIMEOUT_SECONDS = float(timeout)
+    cliente = LLMClient()
+    partes: list[str] = []
+    for chunk in cliente.stream(perfil, clave, prompt_usuario, modo=None):
+        if chunk.content:
+            partes.append(chunk.content)
+    return "".join(partes)
+
+
 def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
+    """Llama al proveedor por el transporte que pida `TUKUL_EVAL_STREAM`.
+
+    Sin streaming (por defecto) preserva el comportamiento histórico y el
+    muestreo determinista (`temperature=0`, `seed=7`). Con streaming delega en
+    `_llamar_streaming`, que usa el `LLMClient` real: es la única forma de medir
+    modelos que solo responden por SSE.
+    """
+    if _usar_streaming():
+        return _llamar_streaming(prompt_sistema, prompt_usuario, clave)
+    return _llamar_sin_streaming(prompt_sistema, prompt_usuario, clave)
+
+
+def _llamar_sin_streaming(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
     cuerpo = json.dumps({
         "model": MODELO,
         # Temperatura 0 por defecto: un eval que se lee como PASS/FAIL necesita
@@ -137,18 +220,57 @@ def _llamar(prompt_sistema: str, prompt_usuario: str, clave: str) -> str:
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(peticion, timeout=TIMEOUT) as respuesta:
-            datos = json.loads(respuesta.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        if error.code in (401, 403):
-            raise CredencialInvalidaError(
-                f"El proveedor rechazó la credencial (HTTP {error.code}): revisa que "
-                f"${VARIABLE_KEY} siga siendo válida y no esté revocada."
-            ) from error
-        raise
+    ultimo_429: urllib.error.HTTPError | None = None
+    for intento in range(1, MAX_INTENTOS + 1):
+        try:
+            with urllib.request.urlopen(peticion, timeout=TIMEOUT) as respuesta:
+                datos = json.loads(respuesta.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as error:
+            if error.code in (401, 403):
+                raise CredencialInvalidaError(
+                    f"El proveedor rechazó la credencial (HTTP {error.code}): revisa que "
+                    f"${VARIABLE_KEY} siga siendo válida y no esté revocada."
+                ) from error
+            if error.code not in CODIGOS_REINTENTABLES or intento == MAX_INTENTOS:
+                if error.code == 429:
+                    ultimo_429 = error
+                    break
+                raise
+            _esperar_reintento(error, intento)
+    else:  # el bucle siempre sale por break/raise; defensivo
+        raise ProveedorOcupadoError("No se pudo contactar con el proveedor del eval.")
+
+    if ultimo_429 is not None:
+        raise ProveedorOcupadoError(
+            f"El proveedor siguió ocupado (HTTP 429) tras {MAX_INTENTOS} intentos; "
+            "la corrida no puede medir el contrato con este nivel de saturación."
+        ) from ultimo_429
+
     contenido = datos["choices"][0]["message"]["content"]
     return str(contenido)
+
+
+def _esperar_reintento(error: urllib.error.HTTPError, intento: int) -> None:
+    """Espera antes del siguiente intento, respetando `Retry-After` si viene.
+
+    DeepInfra hoy no manda `Retry-After` («Model busy»), así que el respaldo es
+    un backoff exponencial acotado con jitter para no sincronizar varios casos
+    contra el mismo pico de carga.
+    """
+    retry_after = error.headers.get("Retry-After") if error.headers else None
+    if retry_after is not None:
+        try:
+            espera = min(max(float(retry_after), 0.0), BACKOFF_MAX)
+        except (TypeError, ValueError):
+            espera = min(BACKOFF_BASE * (2 ** (intento - 1)), BACKOFF_MAX)
+    else:
+        espera = min(BACKOFF_BASE * (2 ** (intento - 1)), BACKOFF_MAX)
+    jitter = espera * 0.25 * random.random()
+    print(f"[eval] {error.code} del proveedor; reintento {intento}/{MAX_INTENTOS} "
+          f"en {espera + jitter:.1f}s", file=sys.stderr)
+    time.sleep(espera + jitter)
+
 
 
 SEPARADOR_TURNOS = "\n---\n"
@@ -237,6 +359,11 @@ def main() -> int:
         salida = _llamar(prompt_sistema(modo), prompt_usuario, clave)
         latencia_ms = int((time.monotonic() - inicio) * 1000)
     except CredencialInvalidaError as error:
+        print(json.dumps({"output": "", "error": _redactar(str(error), clave)}))
+        return 0
+    except ProveedorOcupadoError as error:
+        # Distinto de un fallo del contrato: el veredicto de la corrida es
+        # INCONCLUYENTE por saturación del proveedor, y el mensaje debe decirlo.
         print(json.dumps({"output": "", "error": _redactar(str(error), clave)}))
         return 0
     except (urllib.error.URLError, TimeoutError, OSError) as error:
