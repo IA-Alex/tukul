@@ -1,7 +1,7 @@
-# Política de congelación — Tukul `0.8.2`
+# Política de congelación — Tukul `0.8.3`
 
-**Estado:** CERRADO en `0.8.2` (dictamen `docs/audit/cierre-0.8.2.md`).
-**Vigente desde:** 2026-11-16. La política de `0.7.1` queda cerrada en
+**Estado:** CERRADO en `0.8.3` (dictamen `docs/audit/cierre-0.8.3.md`).
+**Vigente desde:** 2026-11-18. La política de `0.7.1` queda cerrada en
 `0.7.2` (dictamen `docs/audit/cierre-0.7.1.md`, CERRADO).
 **Base del contrato:** `docs/contracts/contratos-0.8.md`.
 **Sucede a:** `0.7.0`/`0.7.1`/`0.7.2`. La rama `0.7.x` no admite más parches:

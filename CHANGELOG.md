@@ -35,6 +35,29 @@ del transporte Gemini, que quedó sin consumidor ni decisión de producto.
 - El modelo por defecto de los evals y de la batería pasa a
   `deepseek-ai/DeepSeek-V4-Flash-0731`.
 
+### Corregido (búsqueda y UI)
+
+- **GDELT: el `429` ya no se ignora.** Es cuota por IP compartida tras NAT (no
+  un fallo transitorio del servicio), así que el backoff normal volvía a caer en
+  el mismo `429`. Ahora se espera la ventana de cuota y, si persiste, el error
+  explica qué ocurre. **EPSS: el enriquecimiento en lote ya no pierde CVE.** La
+  clave `cve=` repetida solo honra la última; la lista separada por comas
+  devuelve una fila por CVE.
+- **Barra superior:** el chip del modelo se ensancha (280 px) para caber un id
+  real, y sin modelo pasa a ser la acción que lo configura. La ayuda inicial
+  deja de mostrar marcadores Markdown crudos.
+
+### Añadido (auditoría)
+
+- Arnés reproducible de C3 (`scripts/verificar_atspi.py`,
+  `diagnostico_tk_atspi.py`, `control_positivo_atspi.py`). No entra en la suite
+  ni en CI: necesita `orca`/`gi` del sistema.
+
+### Retirado (limpieza)
+
+- `_cabe_si_se_recorta` en `ui_state.py`: sin consumidor (grep exhaustivo); su
+  caso lo cubre la verificación por marca de `_abreviar`.
+
 ## [0.8.2] - 2026-11-16
 
 Parche de `0.8.1`: dos **defectos confirmados** de la deuda P1 que el cierre de
