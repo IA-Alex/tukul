@@ -38,7 +38,10 @@ descargado**:
 ### Coherencia de versión
 
 `pyproject.toml` = `uv.lock` = `--health` = **`0.8.3`**; tag `v0.8.3` sobre
-`bfae907`; `git describe --tags` → **`v0.8.3` limpio**.
+`bfae907`; `git describe --tags bfae907` → **`v0.8.3` limpio** sobre el commit
+tageado. Sobre el HEAD que añade este acta, `git describe --tags` devuelve
+`v0.8.3-1-g<sha>`: el tag no cubre el commit de documentación, y eso es
+esperado, no un desajuste de versión.
 
 ## C3 — lector de pantalla
 
