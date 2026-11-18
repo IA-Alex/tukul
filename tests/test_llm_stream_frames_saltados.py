@@ -41,7 +41,32 @@ class TestStreamConFramesSaltados(unittest.TestCase):
         self.assertEqual([c.content for c in chunks], ["Hola", " mundo"])
         self.assertEqual(cliente.last_skipped_frames, 1)
         log.warning.assert_called_once()
-        assert "1" in log.warning.call_args.args[0] % log.warning.call_args.args[1:]
+        # Se comprueba el conteo de forma robusta a la forma del log (f-string,
+        # `.format`, kwargs…): no se acopla al formato posicional de `%s`.
+        self.assertIn("1", str(log.warning.call_args))
+
+    def test_un_frame_json_no_dict_tampoco_corta_el_stream(self):
+        # Un `data:` que es JSON válido pero no un objeto (lista, cadena, null)
+        # llega a `_stream_event`, donde `event.get(...)` lanza AttributeError.
+        # Es justo el caso «el proveedor cambió el esquema a mitad de stream»:
+        # debe degradar a un salto contado, no abortar la respuesta.
+        respuesta = iter([
+            _frame("Hola"),
+            b"data: [1,2,3]\n",
+            _frame(" mundo"),
+            b"data: [DONE]\n",
+        ])
+        cliente = LLMClient()
+        with patch("tukul_core.llm.logger") as log:
+            chunks = list(cliente._consume_sse(_perfil(), respuesta, None))
+
+        self.assertEqual([c.content for c in chunks], ["Hola", " mundo"])
+        self.assertEqual(cliente.last_skipped_frames, 1)
+        log.warning.assert_called_once()
+        self.assertIn("1", str(log.warning.call_args))
+
+    def test_una_instancia_nueva_no_cuenta_saltos(self):
+        self.assertEqual(LLMClient().last_skipped_frames, 0)
 
     def test_un_done_limpio_no_produce_aviso_ni_cuenta(self):
         respuesta = iter([_frame("Hola"), b"data: [DONE]\n"])
@@ -69,6 +94,6 @@ class TestStreamConFramesSaltados(unittest.TestCase):
         with patch("tukul_core.llm.logger") as log:
             list(cliente._consume_sse(_perfil(), respuesta, None))
 
-        mensaje = log.warning.call_args.args[0] % log.warning.call_args.args[1:]
+        mensaje = str(log.warning.call_args)
         self.assertNotIn("secreto", mensaje)
         self.assertNotIn("123", mensaje)

@@ -579,7 +579,10 @@ class LLMClient:
                 break
             try:
                 chunk = self._stream_event(profile, json.loads(data))
-            except (ValueError, KeyError, IndexError, TypeError):
+            except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+                # `AttributeError` cubre un frame que es JSON válido pero no un
+                # objeto (`[1,2,3]`, `"hola"`, `null`): el proveedor cambió el
+                # esquema a mitad de stream. Es un salto, no una caída.
                 # No se vuelca el frame: es dato no confiable del proveedor.
                 self.last_skipped_frames += 1
                 continue
