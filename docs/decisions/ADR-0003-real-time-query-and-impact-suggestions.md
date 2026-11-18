@@ -34,6 +34,21 @@ Paquete con submodulos:
 - **`normalizer.py`**: unifica formatos dispares a `FeedEntry`, deduplica
   por ID, filtra por relevancia y etiqueta por tema/tipo.
 
+> **Nota de vigencia (2026-11-18): ventana temporal de MITRE ATT&CK.**
+> `mitre_attack.py` filtra las técnicas por `modified >= now - hours` (la
+> ventana de la consulta). Es **intencional**: MITRE aporta al pipeline «qué
+> cambió en la ventana», no «qué técnicas existen». Consecuencia observada en la
+> auditoría conector del 2026-11-18 (`DF-004` en
+> `docs/audit/auditoria-conector-2026-11-18.md`): en una ventana de 24 h el
+> adaptador devuelve **0 técnicas** con frecuencia (las técnicas ATT&CK se
+> modifican con poca frecuencia), así que las correlaciones «MITRE + CVE» de
+> `impact_analyzer.py` suelen no disponer de técnicas que las sustenten. La fuente
+> **no falla**: el bundle STIX se descarga y parsea (medido: ~5,4 s, 867 técnicas
+> en una ventana amplia). Si en el futuro se quiere que MITRE aporte siempre, el
+> criterio a cambiar es «relevancia a los CVE/tópicos de la ventana» (cruce en
+> `orchestrator.py`/`CorrelationEngine`), no la mera ampliación de la ventana;
+> esa decisión no se toma aquí y queda sin efecto.
+
 ### 2. Nuevo módulo `tukul_core/impact_analyzer.py`
 
 > **Nota de vigencia (2026-11-10):** el pipeline Fogg aquí descrito

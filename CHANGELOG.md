@@ -4,6 +4,42 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+Tercera pasada de la auditoría conector-fullstack sobre las fuentes externas
+(`docs/audit/auditoria-conector-2026-11-18.md`).
+
+### Corregido
+
+- **Una fuente lenta ya no desaparece en silencio (DF-001, 2026-11-18).** El orquestador unía
+  los hilos de fetch con `join(timeout=45)` pero no distinguía «terminó» de
+  «seguía vivo»: una fuente que excedía el presupuesto no quedaba ni en los
+  resultados ni en los errores, y su causa se perdía. Ahora toda fuente que sigue
+  viva al vencer `FETCH_THREAD_TIMEOUT_SECONDS` se registra como error con su
+  motivo. Regresión:
+  `test_una_fuente_que_excede_el_timeout_se_registra_como_error` falla con el
+  orquestador previo y pasa con la corrección.
+- **El parser STIX ya no puede leer la lista equivocada (DF-005, 2026-11-18).**
+  `_encontrar_inicio_lista` buscaba la primera aparición literal de `"objects"`:
+  un bundle con una clave anidada `"objects"` antes que la raíz hacía leer esa
+  lista y perder las técnicas (JSON válido, fallo silencioso). El escaneo ahora
+  reconoce la clave de la **raíz**, fuera de cadenas y a profundidad 1, sin
+  depender del orden de las claves. Regresión: cuatro casos en
+  `TestBundleValido`; los del caso raíz fallan con el localizador previo
+  (`['nested'] != ['real']`) y pasan con el nuevo.
+
+### Cambiado
+
+- **`MitreAttackAdapter._read_bounded` retirado (DF-003, 2026-11-18).** Código muerto: el techo
+  de bytes de MITRE lo impone `_stix_stream.iter_stix_objects`, no el método. La
+  prueba del techo se conserva por el camino de producción (`fetch()`), ahora en
+  `TestTechoDeBytes`.
+- **Nota de vigencia del filtro temporal de MITRE ATT&CK (DF-004, 2026-11-18)** en
+  `ADR-0003`: filtrar por `modified` es intencional, así que en ventanas de 24 h
+  el adaptador suele devolver 0 técnicas sin que la fuente falle.
+- Docstrings de `_dates.py` y `nvd.py` (DF-002, 2026-11-18): dejan de decir «cinco
+  fuentes» (el registro tiene siete).
+
 ## [0.8.3] - 2026-11-17
 
 Parche de `0.8.2`: un **defecto confirmado** del arnés de evals y la retirada
