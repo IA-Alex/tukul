@@ -61,6 +61,44 @@ class TestBundleValido:
         assert [o["id"] for o in objetos] == ["a", "b"]
         assert objetos[0]["name"] == "café ñ"
 
+    def test_la_llave_raiz_manda_sobre_una_anidada_previa(self):
+        """Una clave `"objects"` anidada antes que la raíz no debe secuestrar.
+
+        La búsqueda literal de `"objects"` encontraba la primera aparición en
+        cualquier parte: si un objeto declaraba antes una clave anidada
+        `"objects"`, se extraía esa lista y se perdían los objetos de la raíz
+        (bundle JSON válido, leído en silencio incorrectamente). El parser debe
+        anclar la clave a la raíz (profundidad 1).
+        """
+        cuerpo = (
+            b'{"meta": {"objects": [{"id": "nested", "type": "bogus"}]}, '
+            b'"objects": [{"id": "real", "type": "attack-pattern"}]}'
+        )
+        objetos = list(iter_stix_objects(_respuesta(cuerpo), 10_000))
+        assert [o["id"] for o in objetos] == ["real"]
+
+    def test_la_llave_raiz_manda_con_cabecera_troceada(self):
+        """El anclaje por profundidad también con la cabecera partida en tramos."""
+        cuerpo = (
+            b'{"meta": {"objects": [{"id": "nested"}]}, '
+            b'"objects": [{"id": "real"}]}'
+        )
+        objetos = list(iter_stix_objects(_respuesta(cuerpo, trozo=5), 10_000))
+        assert [o["id"] for o in objetos] == ["real"]
+
+    def test_un_valor_de_cadena_objects_no_confunde_a_la_llave(self):
+        """Un valor `"objects"` (raíz) no es la clave: se busca la clave real."""
+        cuerpo = (
+            b'{"note": "objects", "objects": [{"id": "real"}]}'
+        )
+        objetos = list(iter_stix_objects(_respuesta(cuerpo), 10_000))
+        assert [o["id"] for o in objetos] == ["real"]
+
+    def test_la_clave_con_espacios_antes_del_corchete_se_reconoce(self):
+        cuerpo = b'{"objects":\n\t[{"id": "real"}]}'
+        objetos = list(iter_stix_objects(_respuesta(cuerpo), 10_000))
+        assert [o["id"] for o in objetos] == ["real"]
+
 
 class TestJsonSinObjectsDegradaAVacio:
     """Un JSON válido sin lista `objects` no es un error: es un bundle vacío.

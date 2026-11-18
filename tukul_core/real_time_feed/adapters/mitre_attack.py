@@ -169,21 +169,6 @@ class MitreAttackAdapter(SourceAdapter):
             ))
         return entries
 
-    def _read_bounded(self, response: Any) -> bytes:
-        chunks: list[bytes] = []
-        total = 0
-        while True:
-            chunk = response.read(64 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
-                raise RuntimeError(
-                    "La respuesta de MITRE ATT&CK supera el límite de bytes."
-                )
-            chunks.append(chunk)
-        return b"".join(chunks)
-
     def _sleep(
         self, error: urllib.error.HTTPError | None, attempt: int
     ) -> None:

@@ -31,6 +31,13 @@ from typing import Any
 MARKER = b'"objects"'
 READ_CHUNK_BYTES = 64 * 1024
 
+# Estados del reconocimiento de la clave raíz `"objects"`.
+_CORCHETE = 0  # ya está el `[` que abre la lista
+_INCOMPLETO = 1  # la secuencia clave:`objects`:[ aún no está completa
+_NO_LLAVE = 2  # no es la clave raíz (otra clave, un valor, o no hay clave)
+
+_ESPACIOS = (b" ", b"\t", b"\r", b"\n")
+
 
 class StixStreamError(RuntimeError):
     """El cuerpo no tiene la forma esperada de un bundle STIX."""
@@ -91,8 +98,21 @@ def iter_stix_objects(response: Any, max_bytes: int) -> Iterator[dict]:
 def _encontrar_inicio_lista(buffer: bytearray) -> bool:
     """Recorta el búfer hasta dejar solo lo que sigue al `[` de `"objects"`.
 
-    Devuelve True cuando la llave y su `[` ya están en el búfer (y lo deja
+    Devuelve True cuando la llave raíz y su `[` ya están en el búfer (y lo deja
     posicionado justo después). Sin la llave aún, devuelve False sin consumir.
+
+    El escaneo es **estructural**, no una simple búsqueda de bytes: localiza la
+    clave `"objects"` *fuera de cadenas* y *a profundidad de llave 1* (dentro del
+    objeto raíz). Una búsqueda literal de `"objects"` encontraba la primera
+    aparición en cualquier parte: si un objeto del bundle declaraba antes una
+    clave anidada `"objects"`, se extraía esa lista y se perdían los objetos de
+    la raíz (bundle JSON válido, silenciosamente mal leído). En el bundle real de
+    MITRE la raíz va primero, pero el parser no debe depender de ese orden.
+
+    Se ignoran los contenidos de cadena (comillas con escape `\\`) para no
+    confundir un valor `"objects"` con la clave. Los bytes multibyte de UTF-8 no
+    coinciden con `"`, `\\`, `{`, `}` ni `[`, así que el escaneo por bytes es
+    seguro para la estructura.
 
     Cuando la llave no aparece, el búfer se conserva intacto: si el cuerpo se
     agota sin `objects`, hace falta completo para decidir si es un JSON válido
@@ -100,14 +120,82 @@ def _encontrar_inicio_lista(buffer: bytearray) -> bool:
     camino normal: un bundle real declara `objects` en los primeros KB, así que
     el bucle sale antes de acumular nada grande.
     """
-    idx = buffer.find(MARKER)
-    if idx < 0:
-        return False
-    corchete = buffer.find(b"[", idx + len(MARKER))
-    if corchete < 0:
-        return False
-    del buffer[: corchete + 1]
-    return True
+    i = 0
+    profundidad = 0
+    en_cadena = False
+    n = len(buffer)
+    while i < n:
+        byte = buffer[i]
+        if en_cadena:
+            if byte == 0x5C:  # barra invertida: el siguiente byte es literal
+                i += 2
+                continue
+            if byte == 0x22:  # comilla de cierre
+                en_cadena = False
+            i += 1
+            continue
+        if byte == 0x22:  # comilla de apertura
+            estado, corchete = _clave_objects_en_raiz(buffer, i, profundidad)
+            if estado == _CORCHETE:
+                del buffer[: corchete + 1]
+                return True
+            if estado == _INCOMPLETO:
+                # La forma clave:`objects`:[ aún no está completa en el búfer:
+                # conviene seguir leyendo sin consumir nada.
+                return False
+            # Sin clave todavía (o valor `"objects"`): se trata como cadena.
+            en_cadena = True
+            i += 1
+            continue
+        if byte == 0x7B:  # {
+            profundidad += 1
+        elif byte == 0x7D:  # }
+            profundidad -= 1
+        i += 1
+    return False
+
+
+def _clave_objects_en_raiz(
+    buffer: bytearray, i: int, profundidad: int
+) -> tuple[int, int]:
+    """Decide si la comilla en `i` abre la clave `"objects"` de la raíz.
+
+    Devuelve `(_CORCHETE, idx)` con el `[` de la lista si es esa clave y ya está
+    completa; `(_INCOMPLETO, -1)` si la forma `clave:`objects`:[` aún no cabe en
+    el búfer; y `(_NO_LLAVE, -1)` si no es la clave raíz (otra clave, un valor,
+    o no estamos a profundidad 1). Reconoce la clave solo *fuera* de cadenas y a
+    profundidad 1 (dentro del objeto raíz).
+    """
+    if profundidad != 1 or not buffer.startswith(MARKER, i):
+        return _NO_LLAVE, -1
+    return _corchete_tras_llave(buffer, i + len(MARKER))
+
+
+def _corchete_tras_llave(buffer: bytearray, desde: int) -> tuple[int, int]:
+    """Estado e índice del `[` que abre la lista de una clave `"objects"`.
+
+    Tras la clave `"objects"` debe venir `:`, espacios opcionales y `[`. Devuelve
+    `(_CORCHETE, indice)` si el `[` ya está; `(_INCOMPLETO, -1)` si el búfer
+    termina antes de completar la secuencia (conviene seguir leyendo); y
+    `(_NO_LLAVE, -1)` si lo que sigue no es la forma `clave: [` (p. ej. un valor
+    de cadena igual a `objects`), en cuyo caso se sigue escaneando.
+    """
+    n = len(buffer)
+    j = desde
+    while j < n and buffer[j : j + 1] in _ESPACIOS:
+        j += 1
+    if j >= n:
+        return _INCOMPLETO, -1
+    if buffer[j : j + 1] != b":":
+        return _NO_LLAVE, -1
+    j += 1
+    while j < n and buffer[j : j + 1] in _ESPACIOS:
+        j += 1
+    if j >= n:
+        return _INCOMPLETO, -1
+    if buffer[j : j + 1] != b"[":
+        return _NO_LLAVE, -1
+    return _CORCHETE, j
 
 
 def _es_json_valido(buffer: bytearray | bytes) -> bool:

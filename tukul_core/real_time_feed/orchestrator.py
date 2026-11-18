@@ -176,13 +176,28 @@ class FeedOrchestrator:
                 logger.warning("FeedOrchestrator: %s falló: %s", sid, error)
 
         threads = [
-            threading.Thread(target=_fetch_one, args=(sid,), daemon=True)
+            (sid, threading.Thread(target=_fetch_one, args=(sid,), daemon=True))
             for sid in sources
         ]
-        for t in threads:
+        for _, t in threads:
             t.start()
-        for t in threads:
-            t.join(timeout=45)
+        for sid, t in threads:
+            t.join(timeout=FETCH_THREAD_TIMEOUT_SECONDS)
+            if t.is_alive():
+                # Una fuente que no termina dentro del presupuesto se registra
+                # como error en vez de desaparecer: sin esto no quedaba ni en
+                # `results` ni en `errors`, así que el fallo se reportaba como
+                # «no devolvió nada» y su causa se perdía.
+                with lock:
+                    errors[sid] = (
+                        f"Timeout de {FETCH_THREAD_TIMEOUT_SECONDS} s "
+                        "esperando a la fuente."
+                    )
+                logger.warning(
+                    "FeedOrchestrator: %s excedió el timeout de %s s",
+                    sid,
+                    FETCH_THREAD_TIMEOUT_SECONDS,
+                )
 
         if not results and errors:
             detail = "; ".join(f"{k}: {v}" for k, v in errors.items())
@@ -211,6 +226,11 @@ class FeedOrchestrator:
 # EPSS acepta lotes por query string; se trocea como en `threat_feed.fetch_epss`
 # para no construir URLs frágiles con cientos de CVE.
 EPSS_BATCH_SIZE = 100
+
+# Presupuesto por fuente antes de darla por perdida. Los adaptadores ya acotan su
+# propio `HTTP_TIMEOUT` (30 s) y reintentos; este tope superior evita que una
+# fuente colgada bloquee el pipeline indefinidamente.
+FETCH_THREAD_TIMEOUT_SECONDS = 45
 
 _CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$")
 

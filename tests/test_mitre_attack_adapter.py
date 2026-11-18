@@ -284,23 +284,14 @@ class TestFetch:
 # ─── Lectura acotada ──────────────────────────────────────────────────────
 
 
-class TestReadBounded:
-    def test_lee_a_trozos_hasta_el_final(self):
-        cuerpo = b'{"objects": []}'
-        respuesta = MagicMock()
-        respuesta.read.side_effect = [cuerpo[:5], cuerpo[5:], b""]
-
-        assert MitreAttackAdapter()._read_bounded(respuesta) == cuerpo
-
-    def test_rechaza_respuestas_por_encima_del_limite(self):
-        respuesta = MagicMock()
-        respuesta.read.side_effect = [b"x" * (MAX_RESPONSE_BYTES + 1)]
-
-        with pytest.raises(RuntimeError, match="límite de bytes"):
-            MitreAttackAdapter()._read_bounded(respuesta)
-
+class TestTechoDeBytes:
     def test_una_respuesta_demasiado_grande_aborta_el_fetch(self):
-        """El tope de bytes se aplica antes de parsear: no se carga JSON gigante."""
+        """El tope de bytes se aplica antes de parsear: no se carga JSON gigante.
+
+        El techo lo impone `_stix_stream.iter_stix_objects` (el único lector de
+        la ruta de producción), no un método del adaptador: por eso se verifica
+        por `fetch()` y no por un `_read_bounded` interno.
+        """
         with patch.object(NO_REDIRECT_OPENER, "open", return_value=_response(
             b"x" * (MAX_RESPONSE_BYTES + 1)
         )):

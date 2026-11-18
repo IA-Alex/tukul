@@ -12,6 +12,7 @@ Cubre:
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.parse
 from datetime import UTC, datetime
@@ -687,6 +688,36 @@ class TestFeedOrchestrator:
         o = FeedOrchestrator(tmp_path / "c.json")
         resultado = o.fetch_all(sources=["ok", "rota"])
         assert len(resultado) == 1 and resultado[0].source_id == "ok:1"
+
+    def test_una_fuente_que_excede_el_timeout_se_registra_como_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Una fuente colgada no desaparece en silencio: queda como timeout.
+
+        Antes, el `join(timeout=...)` no distinguía «terminó» de «seguía vivo»,
+        así que la fuente no aparecía ni en `results` ni en `errors` y el fallo
+        se reportaba como «no devolvió nada», perdiendo la causa.
+        """
+        liberar = threading.Event()
+
+        class _Colgada(_AdaptadorDoble):
+            def fetch(self, hours):
+                liberar.wait(timeout=5)  # bloquea hasta que el test la libere
+                return []
+
+        monkeypatch.setattr(orchestrator_module, "REGISTRY",
+                            {"lenta": lambda: _Colgada("lenta")})
+        monkeypatch.setattr(orchestrator_module, "FETCH_THREAD_TIMEOUT_SECONDS", 0.1)
+
+        o = FeedOrchestrator(tmp_path / "c.json")
+        try:
+            with pytest.raises(RuntimeError) as excinfo:
+                o.fetch_all(sources=["lenta"])
+        finally:
+            liberar.set()
+
+        mensaje = str(excinfo.value)
+        assert "lenta" in mensaje and "Timeout" in mensaje
 
     def test_usa_el_cache_y_no_reconsulta(self, tmp_path, monkeypatch):
         """Con caché vigente no se vuelve a llamar al adaptador."""

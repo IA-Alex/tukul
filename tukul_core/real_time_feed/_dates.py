@@ -1,7 +1,8 @@
 """Normalización de fechas de las fuentes del feed a un único contrato.
 
-Las cinco fuentes oficiales publican fechas ISO 8601 con variantes que antes se
-manejaban con cuatro implementaciones casi idénticas:
+Las fuentes oficiales registradas en `adapters/__init__.py` publican fechas ISO
+8601 con variantes que antes se manejaban con varias implementaciones casi
+idénticas:
 
 - NVD: `2026-11-11T22:17:10.820` — **sin** sufijo de zona.
 - CISA KEV: `2026-11-10` — solo fecha, sin zona.

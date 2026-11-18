@@ -163,6 +163,6 @@ def _parse_nvd_date(raw: str) -> datetime:
     que `fromisoformat` produciría un datetime NAIVE: `normalize_all` lo compara
     contra un `since` aware y lanzaría `TypeError`, tumbando el pipeline de
     ideas. La normalización vive en `_dates.parse_feed_date` (única fuente de
-    verdad para las cinco fuentes del feed).
+    verdad para las fuentes del feed).
     """
     return parse_feed_date(raw, default=datetime.now(UTC))
