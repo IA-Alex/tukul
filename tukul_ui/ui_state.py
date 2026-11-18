@@ -170,14 +170,6 @@ def _ajustar_al_presupuesto_global(conversaciones: dict) -> None:
     conversaciones.clear()
     conversaciones.update(mapa)
 
-def _cabe_si_se_recorta(persistidos: list[dict]) -> bool:
-    """¿Cabe si los mensajes se recortaran hasta la marca de recorte?
-
-    Es la condición que decide si un turno se descarta o simplemente se abrevia.
-    """
-    vacio = [{"role": item["role"], "content": MARCA_RECORTE} for item in persistidos]
-    return len(_serializar(vacio).encode("utf-8")) <= MAX_CONVERSATION_CHARS
-
 
 def _abreviar(mas_largo: dict, exceso: int) -> bool:
     """Recorta el mensaje más largo para liberar `exceso` bytes. False si no puede.
