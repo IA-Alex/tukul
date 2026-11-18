@@ -156,3 +156,124 @@ class TestConfiguracionFuncional(unittest.TestCase):
         casos_limpios = self.texto.count("no inventa errores")
         self.assertGreaterEqual(casos_limpios, 2)
         self.assertEqual(self.texto.count("maximo: 0"), casos_limpios)
+
+
+class TestReintentosDelAdaptador(unittest.TestCase):
+    """El adaptador reintenta un proveedor «ocupado» en vez de contarlo como fallo.
+
+    DeepInfra devuelve `429 {"error":{"message":"Model busy, retry later"}}` sin
+    `Retry-After` cuando está saturado. Sin reintentos, cada 429 se convierte en
+    un fallo del caso y envenena el veredicto: se midió una batería a 9/24 por
+    esta causa, no por el contrato. Un 401/403, en cambio, es credencial y NO
+    debe reintentarse: se propaga como `CredencialInvalidaError`.
+    """
+
+    def _cargar_adaptador(self):
+        import importlib.util
+
+        adaptador = RAIZ / "evals" / "proveedor_tukul.py"
+        spec = importlib.util.spec_from_file_location("proveedor_tukul_test", adaptador)
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+        return modulo
+
+    def test_un_429_seguido_de_200_reintenta_y_devuelve_la_respuesta(self):
+        """El caso central: el proveedor está ocupado y luego responde."""
+        from unittest import mock
+
+        modulo = self._cargar_adaptador()
+        respuesta_ok = mock.MagicMock()
+        respuesta_ok.__enter__ = mock.MagicMock(return_value=respuesta_ok)
+        respuesta_ok.__exit__ = mock.MagicMock(return_value=False)
+        respuesta_ok.read.return_value = json.dumps(
+            {"choices": [{"message": {"content": "hola"}}]}).encode()
+
+        error_429 = urllib_error_http(429)
+        with mock.patch.object(modulo.urllib.request, "urlopen",
+                               side_effect=[error_429, respuesta_ok]) as abrir, \
+             mock.patch.object(modulo.time, "sleep"):
+            resultado = modulo._llamar("sys", "user", "clave")
+        self.assertEqual(resultado, "hola")
+        self.assertEqual(abrir.call_count, 2, "debió reintentar tras el 429")
+
+    def test_un_401_no_se_reintenta_porque_es_credencial(self):
+        """Reintentar una credencial inválida solo alarga el fallo."""
+        from unittest import mock
+
+        modulo = self._cargar_adaptador()
+        with mock.patch.object(modulo.urllib.request, "urlopen",
+                               side_effect=urllib_error_http(401)) as abrir, \
+             mock.patch.object(modulo.time, "sleep"):
+            with self.assertRaises(modulo.CredencialInvalidaError):
+                modulo._llamar("sys", "user", "clave")
+        self.assertEqual(abrir.call_count, 1, "un 401 no debe reintentarse")
+
+
+class TestModoStreamingDelAdaptador(unittest.TestCase):
+    """`TUKUL_EVAL_STREAM` mide modelos que solo responden bien en streaming.
+
+    `Qwen/Qwen3.5-9B` (DeepInfra) devuelve vacío o corta la conexión en
+    no-streaming; en streaming responde. Sin este modo, el eval lo mediría con
+    salida vacía y TODOS los casos fallarían por el modelo, no por el contrato.
+    En modo streaming el adaptador debe reusar el `LLMClient` real del repo, que
+    ya habla SSE, en vez de reimplementar el parseo.
+    """
+
+    def _cargar_adaptador(self):
+        import importlib.util
+
+        adaptador = RAIZ / "evals" / "proveedor_tukul.py"
+        spec = importlib.util.spec_from_file_location("proveedor_tukul_stream_test", adaptador)
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+        return modulo
+
+    def test_modo_streaming_activo_segun_entorno(self):
+        import os
+        from unittest import mock
+
+        modulo = self._cargar_adaptador()
+        for valor, esperado in (("1", True), ("true", True), ("0", False), ("", False), ("no", False)):
+            with mock.patch.dict(os.environ, {"TUKUL_EVAL_STREAM": valor}, clear=False):
+                # La lectura es dinámica: se consulta el entorno en cada llamada.
+                self.assertEqual(modulo._usar_streaming(), esperado,
+                                 f"TUKUL_EVAL_STREAM={valor!r}")
+
+    def test_en_modo_streaming_se_usa_el_llmclient_del_repo(self):
+        """El eval debe medir el transporte real (SSE), no uno paralelo."""
+        import os
+        from unittest import mock
+
+        modulo = self._cargar_adaptador()
+        chunk = mock.MagicMock(content="Hola", input_tokens=None, output_tokens=None)
+        cliente = mock.MagicMock()
+        cliente.stream.return_value = iter([chunk])
+        with mock.patch.dict(os.environ, {"TUKUL_EVAL_STREAM": "1"}), \
+             mock.patch.object(modulo, "LLMClient", return_value=cliente):
+            salida = modulo._llamar("sys", "user", "clave")
+        self.assertEqual(salida, "Hola")
+        self.assertTrue(cliente.stream.called, "debe usar LLMClient.stream en modo streaming")
+
+    def test_los_429_agotan_el_presupuesto_y_degradan_a_error(self):
+        """Si el proveedor sigue ocupado, el error llega con un motivo claro."""
+        from unittest import mock
+
+        modulo = self._cargar_adaptador()
+        with mock.patch.object(modulo.urllib.request, "urlopen",
+                               side_effect=urllib_error_http(429)) as abrir, \
+             mock.patch.object(modulo.time, "sleep"):
+            with self.assertRaises(modulo.ProveedorOcupadoError):
+                modulo._llamar("sys", "user", "clave")
+        self.assertEqual(abrir.call_count, modulo.MAX_INTENTOS)
+
+
+def urllib_error_http(code: int):
+    """Construye un `HTTPError` con el cuerpo que devuelve DeepInfra."""
+    import io
+    import urllib.error
+
+    cuerpo = json.dumps({"error": {"message": "Model busy, retry later"}}).encode()
+    return urllib.error.HTTPError(
+        "https://api.deepinfra.com/v1/openai/chat/completions", code, "busy",
+        {}, io.BytesIO(cuerpo),
+    )

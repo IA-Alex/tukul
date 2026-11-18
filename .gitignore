@@ -79,3 +79,5 @@ Articulos/*
 !Articulos/_eval/
 !Articulos/_eval/**
 .superdesign/
+
+.worktrees/
