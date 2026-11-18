@@ -75,3 +75,8 @@ copiando historia.
 Los informes fechados viven en [`docs/audit/`](docs/audit/). Los hallazgos se
 numeran `DF-NNN` **reiniciando el contador en cada auditoría con fecha**; al
 citarlos, incluye siempre la fecha para evitar colisiones entre informes.
+
+La serie histórica `auditoria-conector-*.md` (hasta el 2026-11-18) numeró con el
+prefijo `H-NN`; se conserva tal cual y se cita con su fecha. La reconciliación
+entre la norma y esa excepción está en
+[`decisions/ADR-0006-numeracion-hallazgos-auditoria.md`](docs/decisions/ADR-0006-numeracion-hallazgos-auditoria.md).

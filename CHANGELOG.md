@@ -40,6 +40,12 @@ Tercera pasada de la auditoría conector-fullstack sobre las fuentes externas
 - Docstrings de `_dates.py` y `nvd.py` (DF-002, 2026-11-18): dejan de decir «cinco
   fuentes» (el registro tiene siete).
 
+### Documentación
+
+- ADR-0006: reconciliación de la numeración de hallazgos de auditoría (`DF-NNN`
+  para informes nuevos; `H-NN` como excepción histórica de la serie conector),
+  con la cita siempre fechada.
+
 ## [0.8.3] - 2026-11-17
 
 Parche de `0.8.2`: un **defecto confirmado** del arnés de evals y la retirada
