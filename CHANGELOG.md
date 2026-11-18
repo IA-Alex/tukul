@@ -4,6 +4,21 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Corregido
+
+- **Un stream SSE con frames ilegibles ya no queda truncado en silencio.** El
+  proveedor puede cambiar el esquema a mitad de respuesta (o emitir un frame que
+  no sea un objeto JSON como `[1,2,3]`, `"hola"` o `null`): antes esos frames se
+  descartaban sin rastro y un `AttributeError` podía abortar la respuesta entera.
+  Ahora `LLMClient._consume_sse` los cuenta en `last_skipped_frames`, deja un
+  aviso en el log de diagnóstico al cerrar (sin volcar el contenido del frame,
+  que es dato no confiable) y degrada a un salto en lugar de una caída. Regresión:
+  `test_un_frame_json_no_dict_tampoco_corta_el_stream` falla con el código previo
+  (`AttributeError: 'list' object has no attribute 'get'`) y pasa con la
+  corrección.
+
 ## [0.9.0] - 2026-11-20
 
 ### Cambiado
@@ -58,7 +73,6 @@ conector-fullstack sobre las fuentes externas
 - ADR-0006: reconciliación de la numeración de hallazgos de auditoría (`DF-NNN`
   para informes nuevos; `H-NN` como excepción histórica de la serie conector),
   con la cita siempre fechada.
-
 ## [0.8.3] - 2026-11-17
 
 Parche de `0.8.2`: un **defecto confirmado** del arnés de evals y la retirada
