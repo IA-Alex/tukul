@@ -1,6 +1,6 @@
-# Política de congelación — Tukul `0.8.3`
+# Política de congelación — Tukul `0.8.4`
 
-**Estado:** CERRADO en `0.8.3` (dictamen `docs/audit/cierre-0.8.3.md`).
+**Estado:** CERRADO en `0.8.4` (dictamen `docs/audit/cierre-0.8.4.md`).
 **Vigente desde:** 2026-11-18. La política de `0.7.1` queda cerrada en
 `0.7.2` (dictamen `docs/audit/cierre-0.7.1.md`, CERRADO).
 **Base del contrato:** `docs/contracts/contratos-0.8.md`.
@@ -10,6 +10,10 @@ los defectos nuevos se atienden por este contrato o por uno posterior.
 (la revisión no recibía el prompt de revisión), el test de CI con ruta `.venv`,
 H-5 (el recorte global borraba turnos) y H-4 (el adaptador del eval no resolvía
 por modo)—. No añaden capacidades ni abren contrato nuevo.
+`0.8.4` es un parche de `0.8.3`: corrige defectos confirmados de las fuentes
+externas —DF-001 (una fuente lenta desaparecía sin error en el orquestador),
+DF-005 (el parser STIX podía leer la lista equivocada)— y las correcciones
+menores DF-002 (docstrings) y DF-003 (código muerto). No añade capacidades.
 
 ## Qué significa «contrato nuevo»
 

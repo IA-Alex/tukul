@@ -23,7 +23,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 | Resultados de la batería | [RESULTADOS_BATERIA_2026-11-13.md](RESULTADOS_BATERIA_2026-11-13.md) | calidad | SUPPORTING / mantenedores |
 | Batería de evaluación del modelo | [BATERIA_EVALUACION_MODELO.md](BATERIA_EVALUACION_MODELO.md) | calidad | SUPPORTING / mantenedores |
 | Política de congelación | [POLITICA_CONGELACION.md](POLITICA_CONGELACION.md) | calidad | NORMATIVE / mantenedores |
-| Dictamen de cierre vigente | [audit/cierre-0.8.3.md](audit/cierre-0.8.3.md) (CERRADO; sucede a [audit/cierre-0.8.2.md](audit/cierre-0.8.2.md), CERRADO) | calidad | NORMATIVE / mantenedores |
+| Dictamen de cierre vigente | [audit/cierre-0.8.4.md](audit/cierre-0.8.4.md) (PREPARADO, pendiente de tag; sucede a [audit/cierre-0.8.3.md](audit/cierre-0.8.3.md), CERRADO) | calidad | NORMATIVE / mantenedores |
 | Contratos por versión | [contracts/contratos-0.6.md](contracts/contratos-0.6.md), [contracts/contratos-0.7.md](contracts/contratos-0.7.md) (cerrado), [contracts/contratos-0.8.md](contracts/contratos-0.8.md) (cerrado en `0.8.1`/`0.8.2`) | calidad | NORMATIVE / mantenedores |
 | Uso rápido | [../README.md](../README.md) | usuarios | SUPPORTING / mantenedores |
 | Flujo de contribución | [../CONTRIBUTING.md](../CONTRIBUTING.md) | desarrollo, revisores | NORMATIVE / mantenedores |

@@ -4,10 +4,11 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [0.8.4] - 2026-11-18
 
-Tercera pasada de la auditoría conector-fullstack sobre las fuentes externas
-(`docs/audit/auditoria-conector-2026-11-18.md`).
+Parche de `0.8.3`: correcciones de la tercera pasada de la auditoría
+conector-fullstack sobre las fuentes externas
+(`docs/audit/auditoria-conector-2026-11-18.md`). No añade capacidades.
 
 ### Corregido
 
