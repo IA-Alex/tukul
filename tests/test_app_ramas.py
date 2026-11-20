@@ -405,8 +405,35 @@ class TestEnvioDesdeElInput(_BaseApp):
         self.app._clear_history_widget()
         self.app._preparar_enunciado_inicial()
         texto = self.app.history.get("1.0", "end-1c")
-        self.assertIn("Soy Tukul", texto)
+        self.assertIn("llevar una idea hasta un artículo", texto)
+        self.assertIn("Buscar en Internet", texto)
+        self.assertIn("Contexto de artículos", texto)
+        self.assertIn("enfoque y un esquema", texto)
+        self.assertIn("abre la fuente para leerla completa", texto)
         self.assertNotIn("**", texto)
+
+    def test_menu_da_acceso_a_la_guia_de_usuario(self):
+        """La guía se descubre desde la aplicación, no solo desde el README."""
+        ultimo = self.app.menu_archivo.index("end")
+        etiquetas = [
+            self.app.menu_archivo.entrycget(i, "label")
+            for i in range(ultimo + 1)
+            if self.app.menu_archivo.type(i) == "command"
+        ]
+        self.assertIn("Guía de usuario…", etiquetas)
+        indice = next(
+            i for i in range(ultimo + 1)
+            if self.app.menu_archivo.type(i) == "command"
+            and self.app.menu_archivo.entrycget(i, "label") == "Guía de usuario…"
+        )
+        self.app.menu_archivo.invoke(indice)
+        self.app.update()
+        guia = [
+            widget for widget in self.app.winfo_children()
+            if isinstance(widget, tk.Toplevel) and widget.title() == "Guía de usuario"
+        ]
+        self.assertEqual(len(guia), 1)
+        guia[0].destroy()
 
     def test_sin_modelo_se_avisa_al_arrancar(self):
         """R-04: la carencia se descubre antes de invertir trabajo."""

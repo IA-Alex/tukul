@@ -1,7 +1,7 @@
 [project]
 name = "tukul"
 version = "0.8.4"
-description = "Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional"
+description = "Taller de escritura local para desarrollar ideas y artículos Markdown con apoyo opcional de un LLM"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

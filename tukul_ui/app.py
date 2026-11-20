@@ -45,7 +45,11 @@ from tukul_ui.components.top_bar import TopBar
 from tukul_ui.context_approval import ContextApprovalCache, ContextApprovalKey
 from tukul_ui.contexto_dialogo import ContextController
 from tukul_ui.credentials import CredentialStore, resolver_key
-from tukul_ui.dialogs import show_review_dialog, show_settings_dialog
+from tukul_ui.dialogs import (
+    show_review_dialog,
+    show_settings_dialog,
+    show_user_guide_dialog,
+)
 from tukul_ui.document_manager import DocumentManager
 from tukul_ui.document_scope import DocumentScope
 from tukul_ui.editor_session import AUTOSAVE_INTERVAL_MS, EditorSession  # noqa: F401
@@ -767,27 +771,24 @@ class TukulApp(tk.Tk):
         self._coste_reservado = True
 
     def _preparar_enunciado_inicial(self) -> None:
-        """Deja el enunciado en el historial y aparta los controles redundantes.
+        """Deja una orientación práctica en el historial antes de mostrar la ventana.
 
-        Se ejecuta antes de que la ventana se muestre para que la primera
-        frase nunca compita por el foco con el buscador de la barra (Tk enfoca
-        el primer widget enfocable del recorrido) y para que el reparto de
-        espacio con `pack` sea correcto.
-
-        La etiqueta de uso (`cost_label`) es idéntica al texto de ayuda justo
-        encima: se retira hasta que el modelo informe de consumo real.
+        El primer mensaje conecta la conversación con las acciones existentes:
+        buscar referencias, recuperar artículos y revisar el borrador.
         """
         if not self._tiene_enunciado(self.history):
-            # Sin marcadores Markdown: `append` escribe el texto tal cual en un
-            # widget Text, así que los `**…**` llegaban a pantalla como
-            # asteriscos y la primera frase que lee una persona parecía rota.
             self.append("Tukul",
-                "¡Hola! Soy Tukul, tu asistente de escritura.\n\n"
-                "• Escribe o pega un artículo en el panel izquierdo.\n"
-                "• Pregúntame cualquier cosa sobre tu texto en el chat de la derecha.\n"
-                "• Selecciona texto y pregúntame solo sobre esa parte.\n"
-                "• Revisar artículo analiza ortografía, gramática y estructura.\n\n"
-                "Empieza con un mensaje o abre un documento con Ctrl+O.",
+                "¡Hola! Tukul te ayuda a llevar una idea hasta un artículo.\n\n"
+                "1. Cuéntame la idea, el tema o el borrador que tienes. Podemos encontrar un enfoque,\n"
+                "   ordenar los puntos y desarrollar el texto paso a paso.\n"
+                "2. Para inspirarte, usa «Buscar en Internet…» o «Contexto de artículos…» en el menú.\n"
+                "   Elige qué referencias quieres compartir conmigo.\n"
+                "3. Escribe o pega el borrador en el panel izquierdo; selecciona un fragmento para\n"
+                "   trabajar solo esa parte, o pulsa «Revisar artículo» para revisar el texto completo.\n\n"
+                "Puedes empezar con: «Tengo esta idea… Ayúdame a encontrar un enfoque y un esquema».\n"
+                "La búsqueda web muestra títulos, enlaces y fragmentos; abre la fuente para leerla completa.\n"
+                "Abre un documento existente con Ctrl+O. Al añadir referencias eliges y autorizas\n"
+                "qué compartir conmigo.",
                 es_respuesta=False)
             self._avisar_sin_modelo_si_procede()
         self.cost_label.pack_forget()
@@ -830,6 +831,8 @@ class TukulApp(tk.Tk):
             ("Configurar modelo…", self.settings, ""),
             ("Contexto de artículos…", self.manage_references, ""),
             ("Buscar en Internet…", self.search_web, ""),
+            None,
+            ("Guía de usuario…", self.show_user_guide, ""),
             ("Limpiar conversación", self.clear_history, ""),
         ]
         for entrada in entradas:
@@ -901,7 +904,7 @@ class TukulApp(tk.Tk):
         # el panel se estreche. El reparto vive ahora en AssistantPanel.
         # Placeholder en el campo de entrada: orienta sin estorbar
         self._placeholder_activo = True
-        self._placeholder_texto = "Escribe tu mensaje aquí…"
+        self._placeholder_texto = "Cuéntame tu idea o qué quieres mejorar…"
         self.input.insert("1.0", self._placeholder_texto)
         self.input.config(foreground=es.TEXTO_TENUE)
 
@@ -2509,6 +2512,10 @@ class TukulApp(tk.Tk):
     def settings(self):
         """Abre el diálogo de configuración de perfiles LLM."""
         show_settings_dialog(self)
+
+    def show_user_guide(self) -> None:
+        """Abre la guía breve disponible sin conexión desde el menú."""
+        show_user_guide_dialog(self)
 
     def _cancel_active_request(self):
         """Baja la petición viva y devuelve la interfaz al reposo.

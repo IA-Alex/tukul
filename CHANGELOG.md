@@ -4,6 +4,17 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Cambiado
+
+- La bienvenida y el README presentan Tukul como un taller para desarrollar ideas y convertirlas en artículos, con las acciones existentes para buscar referencias, usar artículos locales, redactar y revisar.
+- La guía rápida también se puede abrir desde el menú de la aplicación.
+
+### Documentación
+
+- Añadida una guía de usuario con el flujo de trabajo, configuración mínima, búsqueda web, memoria local y límites de las fuentes.
+
 ## [0.8.4] - 2026-11-18
 
 Parche de `0.8.3`: correcciones de la tercera pasada de la auditoría

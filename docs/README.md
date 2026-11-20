@@ -6,6 +6,7 @@ Este índice define qué documentos describen el estado actual. La implementaci�
 
 | Tema | Fuente canónica | Audiencia | Estado / ownership |
 |---|---|---|---|
+| Guía práctica para empezar y desarrollar artículos | [USER_GUIDE.md](USER_GUIDE.md) | usuarios | SUPPORTING / mantenedores |
 | Arquitectura y límites del sistema | [ARCHITECTURE.md](ARCHITECTURE.md) | desarrollo, revisión | NORMATIVE / mantenedores |
 | Seguridad y amenazas | [SECURITY.md](SECURITY.md) | desarrollo, operaciones | NORMATIVE / mantenedores |
 | Datos y privacidad | [DATA_AND_PRIVACY.md](DATA_AND_PRIVACY.md) | usuarios, operaciones | NORMATIVE / mantenedores |

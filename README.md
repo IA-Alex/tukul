@@ -1,6 +1,6 @@
 # Tukul
 
-Editor conversacional local para escribir y revisar artículos Markdown con un LLM remoto opcional. La conversación es el espacio principal; el artículo permanece editable a la izquierda.
+Taller de escritura para desarrollar ideas y convertirlas en artículos Markdown. Conversa con un modelo para encontrar el enfoque, ordenar los puntos y pulir el borrador; el artículo permanece editable en tu equipo.
 
 <img src="docs/assets/tukul-logo.svg" alt="Logotipo de Tukul" width="320">
 
@@ -45,16 +45,14 @@ Otras opciones de línea de comandos:
 | `--config RUTA` | Usa un `config.toml` de perfiles LLM distinto del predeterminado. |
 | `--health` | Imprime el diagnóstico de la instalación (config, logging, llavero) y sale, sin abrir la ventana. |
 
-## Flujo
+## De una idea a un artículo
 
-1. Escribe o abre un artículo. El menú **Recientes** guarda los últimos 10 documentos abiertos.
-2. Conversa con Tukul en lenguaje natural; selecciona texto si quieres enfocar la consulta.
-3. Usa **Revisar artículo** para una revisión de ortografía, gramática, semántica, redundancias y estructura.
-4. Guarda el Markdown o un proyecto recuperable que conserva artículo y conversación.
+1. **Cuéntale tu idea.** Pide ayuda para acotar el tema, elegir un enfoque, definir a quién escribes o proponer una estructura. Por ejemplo: «Tengo esta idea… Ayúdame a encontrar un enfoque y un esquema».
+2. **Reúne referencias si te hacen falta.** **Buscar en Internet…** encuentra títulos, enlaces y fragmentos; **Contexto de artículos…** permite buscar en una carpeta local o añadir archivos. Tú eliges qué usar.
+3. **Desarrolla el borrador.** Escribe o pega texto en el panel izquierdo y conversa con Tukul. Selecciona un fragmento para enfocar una petición concreta.
+4. **Pule y guarda.** **Revisar artículo** analiza ortografía, gramática, semántica, redundancias y estructura. Guarda el Markdown o un proyecto que conserva el artículo y la conversación.
 
-El contexto local es explícito: puedes añadir artículos previos desde **Contexto de artículos…**. Se conservan al abrir otro artículo y, antes de enviarlos junto al artículo activo, Tukul pide confirmación de privacidad.
-
-La conversación es por documento: cada artículo mantiene su propia hebra y se recupera al reabrirlo, incluso tras cerrar y volver a abrir Tukul.
+La búsqueda web descubre fuentes, pero no descarga ni lee las páginas completas: abre el enlace original para verificarlas. Solo las referencias que añades pasan al contexto; las autorizas al agregarlas. El artículo activo se incluye en cada consulta al modelo. La conversación es por documento y se recupera al volver a abrirlo.
 
 ## Atajos de teclado
 
@@ -115,7 +113,7 @@ y el impacto de seguridad en
 
 ## Documentación
 
-Consulta el [índice documental](docs/README.md), que enlaza arquitectura,
+Si es tu primera vez, sigue la [guía de usuario](docs/USER_GUIDE.md) o abre **Guía de usuario…** desde el menú de Tukul. Consulta también el [índice documental](docs/README.md), que enlaza arquitectura,
 seguridad, privacidad, configuración, operaciones, testing, releases y
 trazabilidad. La seguridad de las API keys depende del endpoint, proveedor,
 variable de entorno o keyring que configure el usuario; revisa

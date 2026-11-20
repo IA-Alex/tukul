@@ -781,3 +781,60 @@ def show_settings_dialog(app) -> None:  # noqa: C901 (diálogo: selector + gesti
         dialog,
         lambda: canvas.configure(background=es.FONDO),
     )
+
+
+GUIA_RAPIDA = """DE UNA IDEA A UN ARTÍCULO
+
+1. Cuéntale a Tukul tu idea o el borrador que tienes. Pide ayuda para encontrar
+   un enfoque, definir la audiencia, ordenar los puntos o ajustar el tono.
+   Para empezar: «Tengo esta idea… Ayúdame a encontrar un enfoque y un esquema».
+
+2. Reúne referencias desde el menú:
+   • Buscar en Internet… busca títulos, enlaces y fragmentos con GDELT.
+   • Contexto de artículos… permite buscar en tu carpeta local o añadir archivos.
+   Añade solo lo que quieras usar. La búsqueda web no descarga los artículos
+   completos: abre los enlaces originales para leer y verificar las fuentes.
+
+3. Escribe o pega el borrador en el editor de la izquierda. Selecciona un
+   fragmento para trabajar solo esa parte, o usa Revisar artículo para revisar
+   el texto completo.
+
+4. Guarda el artículo como Markdown o guarda un proyecto para conservar también
+   la conversación.
+
+MODELO Y PRIVACIDAD
+
+Configura proveedor, endpoint, modelo y credencial en Configurar modelo…
+Buscar en la web y en archivos locales no requiere una cuenta de modelo;
+conversar sí requiere una credencial configurada. El artículo activo forma parte
+de cada consulta al modelo. Las referencias que añades se autorizan al agregarlas
+y se incluyen cuando conversas. Revisa la fuente original antes de confiar en
+ella."""
+
+
+def show_user_guide_dialog(app) -> None:
+    """Muestra una guía breve accesible desde el menú de la aplicación."""
+    dialog, frame = _abrir_dialogo(app, "Guía de usuario", modal=False)
+    dialog.geometry(es.tamano_ventana(
+        660, 540, app.winfo_screenwidth(), app.winfo_screenheight(),
+        minimo=(500, 360)))
+    dialog.minsize(500, 360)
+
+    cuerpo = ttk.Frame(frame, style="Superficie.TFrame")
+    cuerpo.pack(fill="both", expand=True)
+    texto = tk.Text(
+        cuerpo, wrap="word", background=es.SUPERFICIE_ALTA,
+        foreground=es.TEXTO, insertbackground=es.TEXTO,
+        padx=es.ESP["md"], pady=es.ESP["md"], relief="flat",
+        font=es.fuente(),
+    )
+    scroll = ttk.Scrollbar(cuerpo, orient="vertical", command=texto.yview)
+    texto.configure(yscrollcommand=scroll.set)
+    texto.pack(side="left", fill="both", expand=True)
+    scroll.pack(side="right", fill="y")
+    texto.insert("1.0", GUIA_RAPIDA)
+    texto.configure(state="disabled")
+
+    ttk.Button(frame, text="Cerrar", command=dialog.destroy).pack(
+        anchor="e", pady=(es.ESP["md"], 0))
+    app._registrar_reaplicar_tema(dialog, lambda: dialog.configure(bg=es.FONDO))
