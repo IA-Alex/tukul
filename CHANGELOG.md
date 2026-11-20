@@ -8,6 +8,7 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Cambiado
 
+- El diálogo de contexto permite consultar servidores MCP locales por `stdio`; exige confirmación de las llamadas y revisión antes de autorizar sus resultados.
 - La bienvenida y el README presentan Tukul como un taller para desarrollar ideas y convertirlas en artículos, con las acciones existentes para buscar referencias, usar artículos locales, redactar y revisar.
 - La guía rápida también se puede abrir desde el menú de la aplicación.
 

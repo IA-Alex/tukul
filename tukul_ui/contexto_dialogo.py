@@ -31,6 +31,7 @@ from tukul_core.threat_feed import ThreatFeedError, build_threat_context
 from tukul_ui import dialogs_base as db
 from tukul_ui import estilo as es
 from tukul_ui.contexto import ContextArticle
+from tukul_ui.mcp_dialog import show_mcp_dialog
 from tukul_ui.worker_threads import WorkerThreads, publicar_en_hilo_ui
 
 logger = logging.getLogger("tukul")
@@ -46,6 +47,8 @@ class ContextHost(Protocol):
 
     closing: bool
     status: Any
+    config_path: Path
+    ui_state: dict[str, Any]
     references_button: Any
     editor: Any
     context_articles: list[ContextArticle]
@@ -437,11 +440,11 @@ class ContextController:
         """Permite conservar artículos previos al cambiar el artículo activo."""
         host = self._host
         dialog, frame = db.abrir_dialogo(
-            host, "Contexto de artículos", minimo=(460, 280), tamano=(580, 360))
+            host, "Contexto de artículos", minimo=(600, 320), tamano=(760, 420))
         ttk.Label(frame, text="Artículos de contexto", style="Titulo.TLabel").pack(anchor="w")
         ttk.Label(frame, text=("El artículo de la izquierda es el activo. Añade aquí artículos previos (.md o .txt) "
                                "o un resumen de CVEs recientes: se conservan al abrir otro artículo y se autorizan al añadirlos. "
-                               "«Añadir CVEs recientes» abre una conexión saliente a NVD/EPSS/CISA KEV."),
+                               "«Añadir CVEs recientes» consulta NVD/EPSS/CISA KEV y «Consultar MCP» conecta a un servidor local."),
                   style="TenueSuperficie.TLabel", wraplength=520, justify="left").pack(
                       anchor="w", pady=(es.ESP["xs"], es.ESP["sm"]))
         # La fila de acciones se reserva ANTES de la lista expansible: con pack,
@@ -452,6 +455,8 @@ class ContextController:
         primary_actions.pack(fill="x")
         secondary_actions = ttk.Frame(actions, style="Superficie.TFrame")
         secondary_actions.pack(fill="x", pady=(es.ESP["sm"], 0))
+        source_actions = ttk.Frame(actions, style="Superficie.TFrame")
+        source_actions.pack(fill="x", pady=(es.ESP["sm"], 0))
         entries = db.crear_listbox(frame, selectmode="extended")
         entries.pack(fill="both", expand=True)
 
@@ -510,11 +515,14 @@ class ContextController:
         ttk.Button(secondary_actions, text="Cerrar", command=dialog.destroy).pack(side="right")
         ttk.Button(secondary_actions, text="Quitar seleccionadas", command=remove).pack(
             side="right", padx=(0, es.ESP["sm"]))
-        ttk.Button(secondary_actions, text="Añadir CVEs recientes…",
+        ttk.Button(source_actions, text="Añadir CVEs recientes…",
                    command=lambda: self.fetch_threat_feed(dialog, refresh)).pack(
             side="left")
-        ttk.Button(secondary_actions, text="Generar sugerencia de impacto…",
+        ttk.Button(source_actions, text="Generar sugerencia de impacto…",
                    command=lambda: host._fetch_impact_suggestion(dialog, refresh)).pack(
+            side="left", padx=(0, es.ESP["sm"]))
+        ttk.Button(source_actions, text="Consultar MCP…",
+                   command=lambda: show_mcp_dialog(host, dialog, refresh)).pack(
             side="left", padx=(0, es.ESP["sm"]))
         refresh()
         db.registrar_reaplicar_tema(host, dialog, entries)

@@ -9,7 +9,7 @@ tenía: dos fuentes de verdad que se desincronizan en silencio.
 La reparación no es fijar versiones a mano (eso desincroniza otra vez): es fijar
 la **regla** de que ambos archivos coinciden, y que la próxima divergencia falle
 aquí. `requirements-dev.lock` se genera con
-`uv export --format requirements-txt --no-emit-project --extra dev --extra keyring`,
+`uv export --format requirements-txt --no-emit-project --extra dev --extra keyring --extra mcp`,
 que lo deriva de `uv.lock` por construcción.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ REQ_LOCK = RAIZ / "requirements-dev.lock"
 # comparan las transitivas: su resolución puede variar por marcadores de
 # plataforma, y lo que importa es que las declaradas no divergan.
 DIRECTAS = (
-    "tomli-w", "keyring",
+    "tomli-w", "keyring", "mcp",
     "pytest", "pytest-cov", "pytest-timeout", "ruff", "mypy", "pip-audit",
     "bandit", "locust",
 )

@@ -45,6 +45,24 @@ Para usar artículos propios, abre **Contexto de artículos…**:
 - **Añadir artículos…** incorpora archivos `.md` o `.txt` que elijas.
 - **Buscar en memoria…** encuentra documentos en la carpeta local configurada.
 - **Añadir artículo activo** agrega el documento que tienes abierto.
+- **Consultar MCP…** conecta a un servidor MCP local, permite elegir una consulta
+  marcada como de solo lectura y muestra la respuesta para revisarla antes de
+  añadirla al contexto.
+
+El soporte MCP es opcional. Instálalo con `pip install 'tukul[mcp]'` (o
+`pip install -e '.[mcp]'` en una copia de desarrollo). En **Consultar MCP…**
+indica el ejecutable y sus argumentos como una lista JSON, por ejemplo
+`["servidor", "--opcion", "valor"]`. Tukul lanza el proceso local sin shell;
+confirma que confías en el ejecutable antes de continuar. La configuración no
+se guarda salvo que marques **Recordar ejecutable y argumentos**. No incluyas
+claves o secretos en esos argumentos. El servidor se ejecuta con los permisos
+de tu usuario y puede acceder a Internet según su configuración.
+
+Tukul solo muestra herramientas cuyo servidor declare `readOnlyHint: true`, y
+confirma cada consulta. Esa marca es una declaración del servidor, no una
+garantía de que sea inocuo. La respuesta MCP se considera material no confiable;
+solo entra al contexto si la revisas y aceptas. Cada consulta inicia y cierra el
+servidor local. Esta primera versión no admite servidores MCP remotos ni OAuth.
 
 Por defecto, la memoria local apunta a `Articulos/` junto al programa; en una
 instalación distribuida esa carpeta puede no existir. Puedes elegir la carpeta
@@ -71,6 +89,8 @@ juntos el artículo y la conversación.
 - Buscar en Internet y añadir CVE recientes requiere conexión a las fuentes
   públicas correspondientes y solo se ejecuta cuando eliges esas acciones.
 - Conversar con un modelo remoto requiere conexión al endpoint del proveedor.
+- Consultar MCP requiere el paquete opcional instalado y el ejecutable del
+  servidor configurado; el propio MCP no añade fuentes de noticias.
 - Buscar en la carpeta local no requiere conexión.
 
 La conexión de búsqueda web consulta GDELT. **Añadir CVE recientes** es una

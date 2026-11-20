@@ -29,6 +29,7 @@ Changelog = "https://github.com/IA-Alex/tukul/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 keyring = ["keyring>=24.0.0"]  # For secure credential storage
+mcp = ["mcp>=1.30.0,<2"]  # Cliente oficial para servidores MCP locales
 dev = [
     "pytest>=7.0.0",      # Test runner (la suite lo requiere; faltaba en los extras)
     "pytest-cov>=4.0.0",  # Cobertura: el pipeline la mide y la exige

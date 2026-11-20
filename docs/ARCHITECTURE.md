@@ -42,6 +42,27 @@ Actores: usuario local, proveedor LLM configurado y sistema operativo/servicios 
 | `tukul_ui.ideas.IdeasController` | Orquesta el pipeline de ideas y el diálogo de selección | ventana (`IdeasHost`), diálogo; `ContextArticle` aprobado | ninguno | `FeedOrchestrator`, `CorrelationEngine`, `IdeaGenerator`, `WorkerThreads` | fuente caída (degrada); sin ideas/correlaciones → aviso; ventana cerrada → solo log |
 | `tukul_ui.contexto` | Tipo `ContextArticle` (módulo neutral, sin la ventana) | — | ninguno | — | — |
 | `tukul_ui.contexto_dialogo.ContextController` | Diálogo de contexto y fetch de amenazas (NVD/EPSS/KEV) | ventana (`ContextHost`), diálogo; `ContextArticle` en el contexto | ninguno | `threat_feed`, `ContextArticle`, `WorkerThreads` | fuente caída → `ThreatFeedError`; ventana cerrada → no toca Tcl |
+| `tukul_core.mcp_client` | Cliente MCP opcional por stdio; enumera e invoca solo herramientas anotadas de solo lectura | comando local, argumentos JSON; metadatos y texto de herramienta | configuración opcional en `estado.json` | SDK oficial `mcp`, asyncio en worker | paquete ausente, proceso/servidor caído o tiempo límite → error visible |
+| `tukul_ui.mcp_dialog` | Conexión MCP, revisión de herramientas y aprobación de su resultado | ejecutable local, argumento JSON, selección de herramienta; `ContextArticle` aprobado | ejecutable/argumentos solo si el usuario marca recordar | `mcp_client`, `WorkerThreads`, `ContextArticle` | servidor sin anotaciones de lectura → no se ofrecen herramientas |
+
+## Cliente MCP para contexto
+
+El botón **Consultar MCP…** del diálogo de contexto inicia una conexión local
+por `stdio`, lista herramientas y filtra las que el servidor declara como
+`readOnlyHint: true`. El usuario revisa el esquema y los argumentos, confirma
+cada llamada y luego decide si añade el resultado al contexto. Una anotación de
+solo lectura es una señal del servidor, no una garantía de seguridad; por eso
+el proceso también pide consentimiento antes de invocarlo. La respuesta se
+trata como contenido no confiable y no se envía al LLM hasta que el usuario
+autoriza el contexto.
+
+Cada operación abre y cierra su propio subproceso MCP, se ejecuta en un hilo de
+trabajo y tiene un límite de 30 segundos y 30.000 caracteres de salida. El
+paquete `mcp` es un extra opcional. La configuración persistida solo contiene
+el ejecutable y sus argumentos, bajo la protección local de `estado.json`; la
+casilla para guardarla empieza desmarcada. Esta integración inicial no soporta
+HTTP remoto, OAuth, recursos MCP ni ejecución autónoma de herramientas por el
+modelo. Ver [ADR-0007](decisions/ADR-0007-cliente-mcp-para-contexto.md).
 
 ## Fuente de contexto en tiempo real e ideas (ADR-0003)
 

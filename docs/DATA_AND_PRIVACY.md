@@ -9,7 +9,7 @@
 | `SECRETS` | API key | variable de entorno, memoria de sesión o keyring del sistema | hasta que se quite de la env/sesión/keyring |
 | `TRANSIENT_DATA` | chunks, buffers, respuestas en memoria, temporales atómicos | proceso y temporales del mismo directorio | termina al completar/cancelar/cerrar; temporales se reemplazan o limpian |
 
-La app almacena localmente el artículo, hasta 30 turnos por documento en `estado.json`, recientes y geometría/zoom. Un proyecto guarda ruta relativa y hasta 30 mensajes. El autosave es un Markdown por documento bajo `~/.local/state/tukul/autosave/`; se escribe mientras hay cambios sin guardar y se borra después de guardar o cerrar explícitamente.
+La app almacena localmente el artículo, hasta 30 turnos por documento en `estado.json`, recientes y geometría/zoom. Si el usuario lo solicita, también guarda el ejecutable y los argumentos de un servidor MCP local; no incluyas credenciales en ellos. Un proyecto guarda ruta relativa y hasta 30 mensajes. El autosave es un Markdown por documento bajo `~/.local/state/tukul/autosave/`; se escribe mientras hay cambios sin guardar y se borra después de guardar o cerrar explícitamente.
 
 Los logs están en `~/.local/state/tukul/tukul.log` (512 KB + 2 backups). Registran diagnóstico estructurado, no contenido del artículo, conversación ni API keys. El estado UI tiene un límite de 2 MiB que incluye todas las conversaciones guardadas (cada documento, hasta 30 turnos, reparte un presupuesto derivado de ese tope; los mensajes que lo exceden se recortan con marca visible, nunca se pierden en silencio); la respuesta LLM y los cuerpos HTTP tienen límites internos documentados en `tukul_core/llm.py`.
 

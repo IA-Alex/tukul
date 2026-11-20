@@ -23,10 +23,19 @@ Este documento describe controles presentes, no una certificación formal. La ap
 | Proyecto malicioso escapa su carpeta | archivos locales | ruta relativa JSON | validación POSIX/Windows y resolución bajo base | symlinks y permisos del host requieren revisión operativa | tests de rutas |
 | Estado/autosave corrupto | disponibilidad/datos | JSON y backups | carga defensiva, escritura atómica, recuperación | corrupción simultánea o fallo de disco | tests de storage/UI |
 | Dependencia vulnerable | proceso | paquetes Python/actions | lock con hashes, `pip-audit`, Bandit high/high en CI | findings no bloqueantes pueden requerir revisión | workflow CI |
+| Servidor MCP local malicioso | proceso, red y datos de usuario | ejecutable/argumentos MCP | conexión por acción; diálogo advierte que el proceso tendrá permisos de usuario y acceso potencial a red; sin shell ni herencia de entorno sensible; solo se muestran herramientas con `readOnlyHint: true`; confirmación por llamada y aprobación separada del resultado | el proceso se ejecuta con los permisos del usuario; la anotación es autodeclarada y un servidor puede mentir; no hay aislamiento ni análisis del binario | revisión de `mcp_client.py` y `mcp_dialog.py` |
 
 ## Secretos y logging
 
 La prioridad de la key es variable de entorno del perfil, luego key de sesión y luego keyring. `config.toml`, `estado.json`, proyectos y logs no deben contener API keys. El log JSON rota a 512 KB con dos backups; registra metadatos técnicos, no artículos, conversaciones ni respuestas completas. Evita incluir secretos en mensajes de error y URLs.
+
+La configuración MCP solo persiste si el usuario activa la casilla correspondiente
+y se guarda dentro de `estado.json`. No debe incluir credenciales. El servidor
+local se ejecuta con los permisos del usuario; Tukul no puede aislarlo. La marca
+`readOnlyHint` no es un control técnico de permisos, así que se confirma cada
+invocación y se exige una aprobación adicional antes de pasar su salida al LLM.
+El propio servidor puede conectarse a Internet o leer archivos accesibles para
+la cuenta local.
 
 ## Ingesta y proveedor
 

@@ -54,6 +54,8 @@ Otras opciones de línea de comandos:
 
 La búsqueda web descubre fuentes, pero no descarga ni lee las páginas completas: abre el enlace original para verificarlas. Solo las referencias que añades pasan al contexto; las autorizas al agregarlas. El artículo activo se incluye en cada consulta al modelo. La conversación es por documento y se recupera al volver a abrirlo.
 
+También puedes consultar servidores MCP locales desde **Contexto de artículos… → Consultar MCP…**. Es opcional (`pip install 'tukul[mcp]'`); Tukul pide confirmación para iniciar el servidor y para cada consulta, y muestra la respuesta antes de autorizarla como contexto. Consulta la [guía de usuario](docs/USER_GUIDE.md#buscar-referencias) para configurar y usar esta conexión.
+
 ## Atajos de teclado
 
 | Atajo | Acción |
