@@ -4,7 +4,7 @@ Todas las modificaciones relevantes del proyecto. El formato sigue las
 recomendaciones de [Keep a Changelog](https://keepachangelog.com/es-ES/) y el
 proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
-## [Sin publicar]
+## [0.9.0] - 2026-11-20
 
 ### Cambiado
 

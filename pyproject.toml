@@ -1,6 +1,6 @@
 [project]
 name = "tukul"
-version = "0.8.4"
+version = "0.9.0"
 description = "Taller de escritura local para desarrollar ideas y artículos Markdown con apoyo opcional de un LLM"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,7 @@ keyring = ["keyring>=24.0.0"]  # For secure credential storage
 mcp = ["mcp>=1.30.0,<2"]  # Cliente oficial para servidores MCP locales
 dev = [
     "pytest>=7.0.0",      # Test runner (la suite lo requiere; faltaba en los extras)
+    "mcp>=1.30.0,<2",     # El contrato MCP local se prueba con un servidor stdio real
     "pytest-cov>=4.0.0",  # Cobertura: el pipeline la mide y la exige
     "pytest-timeout>=2.3.0",  # Un test colgado falla con su nombre, no cuelga el job
     "ruff>=0.1.0",        # Fast Python linter

@@ -1,96 +1,69 @@
-# Política de congelación — Tukul `0.8.4`
+# Política de congelación — Tukul 0.9.0
 
-**Estado:** CERRADO en `0.8.4` (dictamen `docs/audit/cierre-0.8.4.md`).
-**Vigente desde:** 2026-11-18. La política de `0.7.1` queda cerrada en
-`0.7.2` (dictamen `docs/audit/cierre-0.7.1.md`, CERRADO).
-**Base del contrato:** `docs/contracts/contratos-0.8.md`.
-**Sucede a:** `0.7.0`/`0.7.1`/`0.7.2`. La rama `0.7.x` no admite más parches:
-los defectos nuevos se atienden por este contrato o por uno posterior.
-`0.8.1` y `0.8.2` son parches de `0.8.0`: corrigen defectos confirmados —H-1
-(la revisión no recibía el prompt de revisión), el test de CI con ruta `.venv`,
-H-5 (el recorte global borraba turnos) y H-4 (el adaptador del eval no resolvía
-por modo)—. No añaden capacidades ni abren contrato nuevo.
-`0.8.4` es un parche de `0.8.3`: corrige defectos confirmados de las fuentes
-externas —DF-001 (una fuente lenta desaparecía sin error en el orquestador),
-DF-005 (el parser STIX podía leer la lista equivocada)— y las correcciones
-menores DF-002 (docstrings) y DF-003 (código muerto). No añade capacidades.
+**Estado:** contrato abierto; candidato local 0.9.0.
+**Base normativa:** [contracts/contratos-0.9.md](contracts/contratos-0.9.md).
+**Última Release publicada:** v0.8.3. El candidato 0.8.4 nunca obtuvo tag ni
+Release: su acta quedó preparado, pendiente de credencial válida para los evals
+y de tag. MCP y la guía de usuario añaden capacidades nuevas; el candidato se
+formaliza como 0.9.0, no como parche 0.8.4.
 
-## Qué significa «contrato nuevo»
+## Historial de contratos
 
-A diferencia de la congelación de `0.6.0`, `0.7.0` **sí incorpora funciones y
-refactorizaciones**, y `0.8.0` cambia el **diseño del prompt de sistema**. La
-congelación de `0.6.0` solo aceptaba correcciones; estas capacidades no encajan
-en ninguna categoría de corrección, así que abren contrato, no lo descongelan.
+La serie 0.7.x quedó cerrada en 0.7.2. Las versiones 0.8.1 y 0.8.2 corrigieron
+defectos confirmados de 0.8.0; 0.8.3 corrigió el arnés de eval y retiró el
+transporte Gemini sin consumidor. El candidato local 0.8.4 corrige DF-001 y
+DF-005 en fuentes externas, pero no se publicó. El detalle histórico está en
+[el acta de 0.8.4](audit/cierre-0.8.4.md).
 
-El criterio de cierre es el de `docs/contracts/contratos-0.8.md`: capacidades
-esenciales (F5–F6) verificadas —prompt por modo y defensa común— con los evals
-verdes, y correspondencia código ↔ artefacto ↔ versión (`tag = HEAD`).
+El contrato 0.8 introdujo F5–F6: prompts separados por modo y defensa común
+contra inyección. Esas capacidades se heredan y sus tres evals siguen siendo
+requisito de aceptación en 0.9.0.
 
-## Qué es una corrección (y qué no)
+## Alcance de 0.9.0
 
-### Se acepta
+El contrato nuevo incorpora F7 (orientación y guía de usuario) y F8 (consultas
+MCP locales por stdio). El contrato de cierre fija sus criterios funcionales y
+de seguridad; el ADR-0007 documenta la decisión MCP.
 
-| Categoría | Definición | Ejemplo real de esta serie |
-|---|---|---|
-| **Defecto confirmado** | El comportamiento observable no cumple lo ya prometido en `docs/` o en el CHANGELOG | `open_project` mostraba el artículo anterior |
-| **Regresión** | Algo que funcionaba antes y dejó de funcionar | El glob de firma firmaba su propio bundle |
-| **Fallo de seguridad** | Exposición, ejecución no autorizada, integridad del artefacto | Firma no verificable |
-| **Fallo de entrega** | El artefacto publicado no corresponde al código declarado | Tag ≠ HEAD |
+## Qué se acepta sobre una versión congelada
 
-Cada candidato necesita los tres: **evidencia del fallo**, **la promesa
-incumplida** (dónde se dijo que eso funcionaba) y **una prueba que falle antes y
-pase después**.
+- **Defecto confirmado:** el comportamiento observable incumple una promesa
+  documentada, con reproducción y prueba de regresión que falla antes y pasa
+  después.
+- **Regresión:** una capacidad aceptada deja de funcionar.
+- **Fallo de seguridad o integridad:** exposición, ejecución no autorizada,
+  pérdida de datos o artefacto no verificable.
+- **Fallo de entrega:** el paquete no corresponde al código o versión
+  declarados.
 
-### No se acepta
+Funciones y flags nuevos, refactorizaciones opcionales y cambios de
+dependencias sin defecto confirmado requieren un contrato nuevo. La falta de
+evidencia es No verificado, no un defecto confirmado ni una aprobación.
 
-- Funciones nuevas o flags nuevas.
-- «Ya que estamos»: refactorizar el archivo al tocar una corrección.
-- Bajar el objetivo de H2 (2.300 líneas) como excusa: es mejora, no defecto.
-- C3 (lector de pantalla) y C4 (cuotas de proveedor): están **no verificados**,
-  no **incumplidos**. Abren contrato nuevo, no bloquean `0.7.0`.
-- Cambios de dependencias no motivados por un defecto o una CVE.
+## Puerta de cierre de 0.9.0
 
-## Procedimiento de corte de `0.8.x`
+1. Declarar alcance y criterios de aceptación de F7 y F8 en
+   [contratos-0.9.md](contracts/contratos-0.9.md).
+2. pyproject.toml, uv.lock, CHANGELOG y --health declaran 0.9.0;
+   uv lock --check pasa.
+3. ./scripts/quality-gate.sh pasa con cero omitidas y cobertura mínima de 70 %.
+4. CI pasa en Python 3.11–3.13 y ejecuta la integración MCP real por stdio.
+5. Los tres evals promptfoo heredados pasan con credencial válida; un 401 queda
+   pendiente y no se declara verde.
+6. El ejecutable Linux se construye y pasa --health y el control del suelo de
+   glibc.
+7. El tag anotado v0.9.0 identifica exactamente el HEAD validado. Después se
+   verifican checksum, firma y health sobre el artefacto descargado.
 
-1. **Declarar el alcance.** Capacidades esenciales F5–F6 (prompt por modo y
-   defensa común), con criterio de aceptación verificable cada una
-   (`docs/contracts/contratos-0.8.md`).
-2. **Coherencia de versión.** `pyproject.toml`, `uv.lock` y `--health`
-   reportan la versión de la entrega (`0.8.0`); `uv lock --check` limpio.
-3. **Gate completo.** `./scripts/quality-gate.sh` en verde (0 omitidas,
-   cobertura ≥ 70 %).
-4. **Evals verdes.** Los tres `promptfooconfig*.yaml` al 100 %: la separación
-   por modo no puede ganar naturalidad a costa de la resistencia a inyección.
-   La versión de `promptfoo` está fijada en `evals/README.md` (`0.125.1`) para
-   que el arnés sea reproducible; requiere `node`/`npx` y red.
-5. **Cortar el tag.** Tag anotado de la entrega (`v0.8.0`) sobre el HEAD
-   validado; `git describe --tags` → `v0.8.0` limpio. Push/Release es acción
-   externa: se pide confirmación antes.
-6. **Verificar en destino.** `sha256sum -c`, `--health`, `cosign verify-blob`
-   sobre lo descargado, no sobre lo construido.
+No etiquetar ni publicar mientras haya condiciones pendientes. La publicación
+y el push de tags son acciones externas.
 
-## Reglas que no se negocian
+## Reglas permanentes
 
-- **Nunca se reescribe un tag publicado.** `0.6.0`, `0.6.1`, `0.7.0`,
-  `0.7.1` y `0.7.2` quedan como están, aunque tuvieran defectos: los nuevos
-  se atienden por contrato nuevo. Reescribir un tag invalidaría firmas
-  verificadas.
-- **Un release firmado no se reemplaza.** Si el artefacto está mal, se publica
-  otro y se marca el anterior como retirado, sin borrar la evidencia.
-- **Sin `|| true` en firma ni verificación.** Un fallo de firma detiene la
-  publicación; nunca se publica «con aviso».
-
-## Qué pasaría con un defecto real encontrado hoy
-
-```text
-1. Reproducir y documentar  →  docs/audit/defecto-<fecha>.md
-2. Clasificar               →  defecto confirmado / regresión
-3. Prueba de regresión      →  falla antes, pasa después
-4. Gate                     →  858+ pruebas, 0 omitidas
-5. Publicar                  →  v0.8.x firmada
-6. Verificar en destino      →  checksum + health + cosign
-```
-
-El único caso que **no** pasa por aquí es la pérdida de datos o un fallo de
-seguridad activo: ahí se corrige primero y se documenta inmediatamente después,
-sin esperar al gate completo si ello retrasa la mitigación.
+- Nunca reescribir tags publicados; no sustituir silenciosamente un Release
+  firmado.
+- No debilitar controles de seguridad para que pase un eval.
+- No elevar mejoras cosméticas a bloqueos ni ampliar el alcance de cierre.
+- La deuda que no bloquea queda clasificada, mitigada y documentada.
+- Ante pérdida de datos o seguridad activa, corregir de inmediato y documentar
+  sin esperar al gate completo.

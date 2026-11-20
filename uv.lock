@@ -2655,7 +2655,7 @@ wheels = [
 
 [[package]]
 name = "tukul"
-version = "0.8.4"
+version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "tomli-w" },
@@ -2665,6 +2665,7 @@ dependencies = [
 dev = [
     { name = "bandit" },
     { name = "locust" },
+    { name = "mcp" },
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "pytest" },
@@ -2684,6 +2685,7 @@ requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
     { name = "keyring", marker = "extra == 'keyring'", specifier = ">=24.0.0" },
     { name = "locust", marker = "extra == 'dev'", specifier = ">=2.0.0" },
+    { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.30.0,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.30.0,<2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0" },

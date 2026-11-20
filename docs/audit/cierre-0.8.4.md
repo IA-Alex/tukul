@@ -1,5 +1,10 @@
 # Corte de `0.8.4` — correcciones de la auditoría conector del 2026-11-18
 
+> **Disposición posterior:** este candidato no llegó a publicarse como `v0.8.4`;
+> las funciones nuevas añadidas después abrieron el contrato `0.9.0` en
+> [contratos-0.9.md](../contracts/contratos-0.9.md). El pendiente de evals
+> registrado aquí sigue siendo requisito heredado del contrato 0.8.
+
 Sesión del 2026-11-18. Skills: `connector-fullstack-audit` (auditoría) +
 `reparador-integral-es` (reparación). Sucede a
 [`cierre-0.8.3.md`](cierre-0.8.3.md).

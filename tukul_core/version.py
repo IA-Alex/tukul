@@ -33,14 +33,14 @@ def app_version() -> str:
 
 
 def build_commit(raiz: Path | None = None) -> str:
-    """Commit de la compilación: primero la variable de entorno, luego git.
+    """Commit de la compilación; marca como dirty si el árbol tiene cambios.
 
-    `TUKUL_COMMIT` gana porque en el binario distribuido no hay repositorio. Si
-    no hay ninguno de los dos, devuelve cadena vacía (no un marcador: el
-    llamador decide si lo muestra).
+    TUKUL_COMMIT gana porque en el binario distribuido no hay repositorio. Si
+    no hay ninguno de los dos, devuelve cadena vacía. El marcador dirty evita
+    atribuir cambios locales al HEAD sin modificadores.
 
     Es deliberadamente silencioso ante cualquier fallo: un diagnóstico de salud
-    no puede tumbar la aplicación por no encontrar `git`.
+    no puede tumbar la aplicación por no encontrar git.
     """
     del_entorno = os.environ.get("TUKUL_COMMIT", "").strip()
     if del_entorno:
@@ -56,7 +56,18 @@ def build_commit(raiz: Path | None = None) -> str:
         return ""
     if resultado.returncode != 0:
         return ""
-    return resultado.stdout.strip()[:40]
+
+    commit = resultado.stdout.strip()[:40]
+    try:
+        estado = subprocess.run(
+            ["git", "-C", str(directorio), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return commit
+    if estado.returncode == 0 and estado.stdout.strip():
+        return f"{commit}-dirty"[:40]
+    return commit
 
 
 def identidad() -> str:

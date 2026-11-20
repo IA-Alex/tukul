@@ -95,29 +95,37 @@ async def _call_tool(command: str, args: list[str], name: str,
                      arguments: dict[str, Any]) -> str:
     client_session_type, server_parameters_type, stdio_client = _sdk_types()
     server = _new_server(command, args, server_parameters_type)
+    rejection: str | None = None
+    output = ""
+
     async with stdio_client(server) as (read_stream, write_stream):
         async with client_session_type(read_stream, write_stream) as session:
             await session.initialize()
             available = await session.list_tools()
             tool = next((item for item in available.tools if item.name == name), None)
             if tool is None or not _read_only(tool):
-                raise McpClientError(
+                rejection = (
                     "La herramienta no está disponible o no está marcada como solo lectura."
                 )
-            result = await session.call_tool(name, arguments)
-            if getattr(result, "isError", False):
-                raise McpClientError("El servidor MCP indicó que la consulta falló.")
-            parts = [
-                block.text for block in (getattr(result, "content", None) or [])
-                if isinstance(getattr(block, "text", None), str)
-            ]
-            structured = getattr(result, "structuredContent", None)
-            if structured:
-                parts.append(json.dumps(structured, ensure_ascii=False, indent=2))
-            output = "\n\n".join(parts).strip()
-            if not output:
-                output = "La herramienta no devolvió texto visible."
-            return output[:MAX_RESULT_CHARS]
+            else:
+                result = await session.call_tool(name, arguments)
+                if getattr(result, "isError", False):
+                    rejection = "El servidor MCP indicó que la consulta falló."
+                else:
+                    parts = [
+                        block.text for block in (getattr(result, "content", None) or [])
+                        if isinstance(getattr(block, "text", None), str)
+                    ]
+                    structured = getattr(result, "structuredContent", None)
+                    if structured:
+                        parts.append(json.dumps(structured, ensure_ascii=False, indent=2))
+                    output = "\n\n".join(parts).strip()
+                    if not output:
+                        output = "La herramienta no devolvió texto visible."
+
+    if rejection:
+        raise McpClientError(rejection)
+    return output[:MAX_RESULT_CHARS]
 
 
 def call_read_only_tool(command: str, args: list[str], name: str,
