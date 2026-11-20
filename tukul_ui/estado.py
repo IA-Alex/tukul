@@ -48,7 +48,7 @@ class Estado:
 
 
 class EstadoUI(Enum):
-    """Los seis estados que la interfaz debe saber explicar."""
+    """Los estados que la interfaz debe saber explicar."""
 
     REPOSO = Estado(
         "reposo", "○", "En reposo",
@@ -74,6 +74,11 @@ class EstadoUI(Enum):
         "error", "✕", "No se pudo completar",
         "Revisa la conexión, el modelo o los límites del perfil",
         "estado_error",
+    )
+    INCOMPLETO = Estado(
+        "incompleto", "!", "Revisión incompleta",
+        "El modelo declaró que omitió uno o más hallazgos; revisa el motivo",
+        "estado_aviso",
     )
     CANCELADO = Estado(
         "cancelado", "⊘", "Cancelado",

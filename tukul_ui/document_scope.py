@@ -33,3 +33,19 @@ class DocumentScope:
     def owns(self, document_path: Path | None) -> bool:
         """True si este ámbito sigue correspondiendo al documento indicado."""
         return self.document_path == document_path
+
+
+@dataclass
+class ReviewTarget:
+    """Snapshot editable que liga una respuesta de revisión con su fuente.
+
+    ``start_offset`` apunta al inicio de ``reviewed_text`` dentro del
+    documento. Si se aplican sugerencias, los snapshots se actualizan en el
+    mismo diálogo para conservar offsets seguros para los hallazgos restantes.
+    """
+
+    scope: DocumentScope
+    document_path: Path | None
+    document_text: str
+    reviewed_text: str
+    start_offset: int = 0

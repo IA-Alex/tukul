@@ -30,7 +30,12 @@ from tukul_core.models import (
 from tukul_core.prompting import REVIEW_PROMPT, build_editor_prompt, build_review_prompt
 from tukul_core.prompts import prompt_sistema
 from tukul_core.real_time_feed import FeedOrchestrator  # noqa: F401
-from tukul_core.review import diagnose_findings, parse_findings, respuesta_fuera_de_rol
+from tukul_core.review import (
+    diagnose_findings,
+    omitted_reasons,
+    parse_findings,
+    respuesta_fuera_de_rol,
+)
 
 # Re-exportados para los tests y consumidores que aún los parchean/importan
 # desde `tukul_ui.app`, aunque el fetch vive ya en `tukul_ui.contexto_dialogo`.
@@ -51,7 +56,7 @@ from tukul_ui.dialogs import (
     show_user_guide_dialog,
 )
 from tukul_ui.document_manager import DocumentManager
-from tukul_ui.document_scope import DocumentScope
+from tukul_ui.document_scope import DocumentScope, ReviewTarget
 from tukul_ui.editor_session import AUTOSAVE_INTERVAL_MS, EditorSession  # noqa: F401
 from tukul_ui.estado import ESTADOS_ACTIVOS, EstadoUI
 from tukul_ui.ideas import IdeasController
@@ -314,6 +319,7 @@ class TukulApp(tk.Tk):
         self.generation_counter = 0
         # Tipos de solicitud asociados a cada request_id
         self.request_types: dict[int, str] = {}  # request_id -> "normal"|"review"
+        self.review_targets: dict[int, ReviewTarget] = {}
         # Dos canales worker → UI, con garantías distintas a propósito:
         #  - control: SIN tope y con put_nowait. Un complete/error jamás debe
         #    perderse ni bloquear al worker detrás de una ráfaga de texto.
@@ -1470,7 +1476,9 @@ class TukulApp(tk.Tk):
         # …» o el aviso de error. Con una consulta viva o un error sin resolver
         # lo que informa el estado manda; el ámbito se ve en «Revisar artículo /
         # selección» y en las métricas del pie.
-        if self.estado_actual in ESTADOS_ACTIVOS or self.estado_actual is EstadoUI.ERROR:
+        if self.estado_actual in ESTADOS_ACTIVOS or self.estado_actual in {
+            EstadoUI.ERROR, EstadoUI.INCOMPLETO,
+        }:
             self.schedule_stats()
             return
         self.status.set(f"Contexto: selección de {len(selected.split())} palabras." if selected else "Contexto: artículo completo.")
@@ -1787,11 +1795,21 @@ class TukulApp(tk.Tk):
             messagebox.showinfo("Consulta en curso", "Espera a que termine la consulta anterior."); return
         seleccion = self.editor.get("sel.first", "sel.last") if self.editor.tag_ranges("sel") else ""
         if seleccion.strip():
-            self._solicitar_revision(seleccion, "la selección")
+            inicio = len(self.editor.get("1.0", "sel.first"))
+            self._solicitar_revision(
+                seleccion, "la selección", document_text=articulo, start_offset=inicio)
         else:
-            self._solicitar_revision(articulo, "el artículo")
+            self._solicitar_revision(
+                articulo, "el artículo", document_text=articulo, start_offset=0)
 
-    def _solicitar_revision(self, texto: str, ambito: str) -> None:
+    def _solicitar_revision(
+        self,
+        texto: str,
+        ambito: str,
+        *,
+        document_text: str | None = None,
+        start_offset: int = 0,
+    ) -> None:
         """Envía el texto a revisar directamente, sin contexto local ni modales."""
         if not self.profile.enabled or not self.key:
             self.append("Tukul", "Configura un perfil LLM y una key para responder."); return
@@ -1802,6 +1820,14 @@ class TukulApp(tk.Tk):
         self.generation_counter += 1
         request_id = self.generation_counter
         self.request_types[request_id] = "review"
+        snapshot = document_text if document_text is not None else self.editor.get("1.0", "end-1c")
+        self.review_targets[request_id] = ReviewTarget(
+            scope=self.scope,
+            document_path=self.session.document_path,
+            document_text=snapshot,
+            reviewed_text=texto,
+            start_offset=start_offset,
+        )
         # Ya está en vuelo: no hay fase de preparación de contexto que anunciar.
         self.set_estado(EstadoUI.TRANSMITIENDO, f"revisando {ambito}")
 
@@ -2047,6 +2073,7 @@ class TukulApp(tk.Tk):
         self.session.request_active = False
         self._reset_request_ui()
         self.request_types.pop(request_id, None)
+        self.__dict__.get("review_targets", {}).pop(request_id, None)
         self.chunks.discard(request_id)
 
     def finish(self, request_id: int, result: str, files: list[str], usage=(None, None), request_type: str = "normal", is_error: bool = False):
@@ -2070,7 +2097,15 @@ class TukulApp(tk.Tk):
 
         # El tipo viaja con la petición: no hay estado de revisión persistente.
         if request_type == "review":
-            self._terminar_revision(result, is_error=is_error)
+            target = self.__dict__.get("review_targets", {}).pop(request_id, None)
+            if not is_error and target is not None and not self._review_target_actual(target):
+                self.set_estado(EstadoUI.INCOMPLETO, "el artículo cambió durante la revisión")
+                self._append_notice(
+                    "La revisión quedó desactualizada porque cambió el artículo. "
+                    "No se aplicaron resultados; vuelve a revisar el texto actual."
+                )
+                return
+            self._terminar_revision(result, is_error=is_error, review_target=target)
             return
 
         if is_error:
@@ -2090,7 +2125,21 @@ class TukulApp(tk.Tk):
         if streamed: self.scope.last_response=result
         else: self.append("Tukul",result)
 
-    def _terminar_revision(self, result: str, *, is_error: bool) -> None:
+    def _review_target_actual(self, target: ReviewTarget) -> bool:
+        """Comprueba que la respuesta sigue perteneciendo al texto visible."""
+        return (
+            self.scope is target.scope
+            and target.scope.owns(self.session.document_path)
+            and self.editor.get("1.0", "end-1c") == target.document_text
+        )
+
+    def _terminar_revision(
+        self,
+        result: str,
+        *,
+        is_error: bool,
+        review_target: ReviewTarget | None = None,
+    ) -> None:
         """Cierra una revisión mostrando hallazgos legibles, nunca JSON.
 
         El resultado de una revisión es un documento técnico para la máquina. No
@@ -2105,6 +2154,7 @@ class TukulApp(tk.Tk):
             return
 
         findings = self.parse_findings(result)
+        omisiones = omitted_reasons(result)
         if not findings:
             # Red de seguridad de la aplicación: aunque el SYSTEM_PROMPT pida
             # resistir las inyecciones, si el modelo obedeció y devolvió el texto
@@ -2123,6 +2173,13 @@ class TukulApp(tk.Tk):
             # hallazgos es un resultado correcto.
             causa, _ = diagnose_findings(result)
             if causa == "sin_hallazgos":
+                if omisiones:
+                    self.set_estado(EstadoUI.INCOMPLETO, f"{len(omisiones)} omisión(es)")
+                    self._append_notice(
+                        "Revisión incompleta: el modelo declaró que omitió hallazgos. "
+                        f"Motivo: {'; '.join(omisiones)}"
+                    )
+                    return
                 self.set_estado(EstadoUI.EXITO, "sin hallazgos")
                 self._append_notice("Revisión terminada: no se encontraron hallazgos que corregir.")
                 return
@@ -2135,10 +2192,17 @@ class TukulApp(tk.Tk):
             self._append_notice(f"{aviso} Prueba con un fragmento más corto o con otro modelo.")
             return
 
-        self.set_estado(EstadoUI.EXITO, f"{len(findings)} hallazgo(s)")
         plural = "hallazgos" if len(findings) != 1 else "hallazgo"
-        self._append_notice(f"Revisión terminada: {len(findings)} {plural}.")
-        self.show_findings(findings)
+        if omisiones:
+            self.set_estado(EstadoUI.INCOMPLETO, f"{len(omisiones)} omisión(es)")
+            self._append_notice(
+                f"Revisión incompleta: encontró {len(findings)} {plural} y declaró "
+                f"omitir: {'; '.join(omisiones)}"
+            )
+        else:
+            self.set_estado(EstadoUI.EXITO, f"{len(findings)} {plural}")
+            self._append_notice(f"Revisión terminada: {len(findings)} {plural}.")
+        self.show_findings(findings, review_target)
 
     def _append_notice(self, text: str) -> None:
         """Nota de sistema en el historial, sin sobrescribir lo ya emitido.
@@ -2251,6 +2315,7 @@ class TukulApp(tk.Tk):
         request_id = event[1] if len(event) > 1 and isinstance(event[1], int) else None
         if request_id is not None:
             self.request_types.pop(request_id, None)
+            self.__dict__.get("review_targets", {}).pop(request_id, None)
             self.chunks.discard(request_id)
             if self.streaming_request == request_id:
                 self.streaming_request = None
@@ -2300,11 +2365,11 @@ class TukulApp(tk.Tk):
     parse_findings = staticmethod(parse_findings)
     diagnose_findings = staticmethod(diagnose_findings)
     respuesta_fuera_de_rol = staticmethod(respuesta_fuera_de_rol)
-    def show_findings(self,findings):
+    def show_findings(self, findings, review_target: ReviewTarget | None = None):
         """Abre el diálogo de hallazgos de una revisión (una sola ventana a la vez)."""
         # Una revisión a la vez: sin esto cada «Revisar» dejaba otro Toplevel vivo.
         self._close_review_dialogs()
-        self.review_dialogs.append(show_review_dialog(self, findings))
+        self.review_dialogs.append(show_review_dialog(self, findings, review_target))
 
     def _close_review_dialogs(self) -> None:
         """Cierra los diálogos de revisión abiertos y olvida los ya destruidos."""
@@ -2538,6 +2603,7 @@ class TukulApp(tk.Tk):
         # Limpiar TODOS los buffers pendientes: una respuesta tardía no debe
         # pintarse ni reactivar una petición ya cerrada.
         self.request_types.clear()
+        self.__dict__.get("review_targets", {}).clear()
         self.chunks.clear()
         self.streaming_request = None
         self.streaming_text = ""

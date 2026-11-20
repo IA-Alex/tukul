@@ -81,14 +81,14 @@ class TestSistemaVisual(unittest.TestCase):
 class TestEstados(unittest.TestCase):
     """Cada estado se distingue sin depender del color."""
 
-    def test_los_seis_estados_existen(self):
-        self.assertEqual(len(EstadoUI), 6)
+    def test_los_siete_estados_existen(self):
+        self.assertEqual(len(EstadoUI), 7)
 
     def test_cada_estado_tiene_simbolo_texto_y_color_distintos(self):
         simbolos = {estado.simbolo for estado in EstadoUI}
         titulos = {estado.titulo for estado in EstadoUI}
-        self.assertEqual(len(simbolos), 6, "El símbolo distingue sin color")
-        self.assertEqual(len(titulos), 6)
+        self.assertEqual(len(simbolos), 7, "El símbolo distingue sin color")
+        self.assertEqual(len(titulos), 7)
 
     def test_cada_estado_explica_que_ocurre(self):
         for estado in EstadoUI:
@@ -100,6 +100,11 @@ class TestEstados(unittest.TestCase):
         descripcion = EstadoUI.ERROR.descripcion_accesible("tiempo agotado")
         self.assertIn("No se pudo completar", descripcion)
         self.assertIn("tiempo agotado", descripcion)
+
+    def test_revision_incompleta_es_un_estado_distinto_del_exito_y_del_error(self):
+        self.assertNotEqual(EstadoUI.INCOMPLETO, EstadoUI.EXITO)
+        self.assertNotEqual(EstadoUI.INCOMPLETO, EstadoUI.ERROR)
+        self.assertIn("omitió", EstadoUI.INCOMPLETO.ayuda)
 
     def test_solo_preparando_y_transmitiendo_admiten_cancelacion(self):
         self.assertEqual(ESTADOS_ACTIVOS, {EstadoUI.PREPARANDO, EstadoUI.TRANSMITIENDO})

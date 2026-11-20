@@ -11,6 +11,7 @@ from tukul_core.logging_config import setup_logging
 from tukul_core.memory import CorpusIndex, FileMemoryRepository, MemoryPolicy
 from tukul_core.models import LlmProfile
 from tukul_ui import estilo as es
+from tukul_ui.document_scope import ReviewTarget
 from tukul_ui.worker_threads import WorkerThreads, publicar_en_hilo_ui
 
 logger = setup_logging()
@@ -114,12 +115,58 @@ def _barra_acciones(cuerpo: ttk.Frame) -> ttk.Frame:
     return barra
 
 
-def _apply_suggestion(app, dialog, item: dict[str, str]) -> bool:
+def _apply_suggestion(
+    app,
+    dialog,
+    item: dict[str, str],
+    review_target: ReviewTarget | None = None,
+    occurrence_index: int = 0,
+) -> bool:
     """Sustituye el fragmento en el editor. False si no se pudo aplicar.
 
-    Solo actúa sobre coincidencias únicas: un fragmento repetido no permite saber
-    cuál pretendía corregir el modelo.
+    Con un ReviewTarget se aplica únicamente a la ocurrencia elegida dentro del
+    texto que recibió el modelo; sin él se conserva la ruta histórica segura.
     """
+    if review_target is not None:
+        if not _review_scope_valida(app, review_target.scope, dialog, review_target):
+            return False
+        original = item["original"]
+        posiciones = _ocurrencias(review_target.reviewed_text, original)
+        if not posiciones:
+            messagebox.showinfo(
+                "Fragmento no encontrado",
+                "El fragmento ya cambió o no aparece en el texto revisado.",
+                parent=dialog,
+            )
+            return False
+        if not 0 <= occurrence_index < len(posiciones):
+            return False
+        offset_local = posiciones[occurrence_index]
+        offset_documento = review_target.start_offset + offset_local
+        text = app.editor.get("1.0", "end-1c")
+        if text[offset_documento:offset_documento + len(original)] != original:
+            messagebox.showinfo(
+                "Fragmento desactualizado",
+                "El fragmento ya no coincide con el texto revisado. Vuelve a revisar el artículo.",
+                parent=dialog,
+            )
+            return False
+        app.snapshot_for_undo(text)
+        inicio = app.editor.index(f"1.0 + {offset_documento} chars")
+        fin = app.editor.index(f"{inicio} + {len(original)} chars")
+        app.editor.delete(inicio, fin)
+        app.editor.insert(inicio, item["suggestion"])
+        app.session.dirty = True
+        review_target.document_text = (
+            text[:offset_documento] + item["suggestion"] + text[offset_documento + len(original):]
+        )
+        review_target.reviewed_text = (
+            review_target.reviewed_text[:offset_local]
+            + item["suggestion"]
+            + review_target.reviewed_text[offset_local + len(original):]
+        )
+        return True
+
     text = app.editor.get("1.0", "end-1c")
     original = item["original"]
     first, last = text.find(original), text.rfind(original)
@@ -156,100 +203,199 @@ def _reaplicar_tema_revision(app, dialog: tk.Toplevel, items: tk.Listbox, box) -
                   insertbackground=es.ACENTO, selectbackground=es.SELECCION,
                   highlightbackground=es.SUPERFICIE, highlightcolor=es.FOCO)
     box.tag_configure("rotulo", foreground=es.TEXTO_TENUE)
+    app.editor.tag_configure(
+        "review_source_highlight", background=es.SELECCION, foreground=es.TEXTO,
+        underline=True,
+    )
 
 
-def show_review_dialog(app, findings: list[dict[str, str]]):
-    """Muestra los hallazgos de una revisión. Devuelve el Toplevel creado.
+class _ReviewDialogController:
+    """Controla selección, navegación y decisiones del diálogo de hallazgos."""
 
-    Los hallazgos se calcularon sobre un artículo concreto: el diálogo queda
-    anclado al ámbito de ese documento para no aplicar un fragmento sobre otro.
-    """
+    def __init__(self, app, scope, dialog, findings, target, items, box,
+                 source_label, previous, next_button, apply_button):
+        self.app = app
+        self.scope = scope
+        self.dialog = dialog
+        self.findings = findings
+        self.target = target
+        self.items = items
+        self.box = box
+        self.source_label = source_label
+        self.previous = previous
+        self.next_button = next_button
+        self.apply_button = apply_button
+        self.positions: list[int] = []
+        self.match_index = 0
+
+    def show(self, _event=None) -> None:
+        """Muestra el hallazgo seleccionado y navega a su texto fuente."""
+        if not self.items.curselection():
+            return
+        if not _review_scope_valida(self.app, self.scope, self.dialog, self.target):
+            return
+        item = self.findings[self.items.curselection()[0]]
+        self._show_detail(item)
+        self.positions = _ocurrencias(self.target.reviewed_text, item["original"])
+        self.match_index = 0
+        self._update_controls()
+        if self.positions:
+            self.update_source()
+        else:
+            self.app.editor.tag_remove("review_source_highlight", "1.0", "end")
+
+    def _show_detail(self, item) -> None:
+        self.box.config(state="normal")
+        self.box.delete("1.0", "end")
+        for label, value in (("ORIGINAL", item["original"]),
+                             ("SUGERENCIA", item["suggestion"]),
+                             ("MOTIVO", item["reason"])):
+            self.box.insert("end", f"{label}\n", "rotulo")
+            self.box.insert("end", f"{value}\n\n")
+        self.box.config(state="disabled")
+
+    def _update_controls(self) -> None:
+        enabled = "normal" if self.positions else "disabled"
+        multiple = "normal" if len(self.positions) > 1 else "disabled"
+        self.apply_button.configure(state=enabled)
+        self.previous.configure(state=multiple)
+        self.next_button.configure(state=multiple)
+        if not self.positions:
+            self.source_label.configure(
+                text="No se encontró el fragmento en el texto revisado; no se puede aplicar automáticamente."
+            )
+        else:
+            self.source_label.configure(
+                text=f"Coincidencia {self.match_index + 1} de {len(self.positions)} en el artículo"
+            )
+
+    def update_source(self) -> None:
+        if not self.positions:
+            return
+        if not _review_scope_valida(self.app, self.scope, self.dialog, self.target):
+            return
+        item = self.findings[self.items.curselection()[0]]
+        offset = self.target.start_offset + self.positions[self.match_index]
+        start = self.app.editor.index(f"1.0 + {offset} chars")
+        end = self.app.editor.index(f"{start} + {len(item['original'])} chars")
+        self.app.editor.tag_remove("review_source_highlight", "1.0", "end")
+        self.app.editor.tag_configure(
+            "review_source_highlight", background=es.SELECCION, foreground=es.TEXTO,
+            underline=True,
+        )
+        self.app.editor.tag_add("review_source_highlight", start, end)
+        self.app.editor.see(start)
+        self._update_controls()
+
+    def move(self, delta: int) -> None:
+        if not self.positions:
+            return
+        self.match_index = (self.match_index + delta) % len(self.positions)
+        self.update_source()
+
+    def decide(self, apply: bool) -> None:
+        """Aplica o ignora el hallazgo y avanza al siguiente."""
+        if not self.items.curselection():
+            return
+        if not _review_scope_valida(self.app, self.scope, self.dialog, self.target):
+            return
+        index = self.items.curselection()[0]
+        if apply and not self.positions:
+            return
+        if apply and not _apply_suggestion(
+            self.app, self.dialog, self.findings[index], self.target, self.match_index,
+        ):
+            return
+        self.findings.pop(index)
+        self.items.delete(index)
+        if self.findings:
+            self.items.select_set(min(index, len(self.findings) - 1))
+            self.show()
+        else:
+            self.dialog.destroy()
+
+    def clear_highlight(self, event=None) -> None:
+        if event is not None and event.widget is not self.dialog:
+            return
+        try:
+            self.app.editor.tag_remove("review_source_highlight", "1.0", "end")
+        except tk.TclError:
+            pass
+
+
+def show_review_dialog(
+    app,
+    findings: list[dict[str, str]],
+    review_target: ReviewTarget | None = None,
+):
+    """Muestra hallazgos anclados al documento y al texto que se revisó."""
     scope = app.scope
-    # No modal: hay que poder leer el artículo mientras se decide sobre él.
-    dialog, cuerpo = _abrir_dialogo(app, "Revisión del artículo", modal=False)
-    # Tamaño preferido, pero recortado a la pantalla: en un 1366x768 el alto
-    # fijo dejaba los botones de acción fuera de alcance.
+    if review_target is None:
+        snapshot = app.editor.get("1.0", "end-1c")
+        review_target = ReviewTarget(
+            scope=scope,
+            document_path=app.session.document_path,
+            document_text=snapshot,
+            reviewed_text=snapshot,
+        )
+    dialog, body_frame = _abrir_dialogo(app, "Revisión del artículo", modal=False)
     dialog.geometry(es.tamano_ventana(760, 520, app.winfo_screenwidth(),
                                       app.winfo_screenheight(), minimo=(620, 380)))
     dialog.minsize(620, 380)
-
-    ttk.Label(cuerpo, text="Elige un hallazgo y decide: aplicar la sugerencia o ignorarla.",
+    ttk.Label(body_frame, text="Elige un hallazgo y decide: aplicar la sugerencia o ignorarla.",
               style="Tenue.TLabel").pack(anchor="w", pady=(0, es.ESP["md"]))
-
-    actions = _barra_acciones(cuerpo)
-    body = ttk.PanedWindow(cuerpo, orient="horizontal")
-    body.pack(fill="both", expand=True)
-    left = ttk.Frame(body)
-    body.add(left, weight=1)
-    right = ttk.Frame(body)
-    body.add(right, weight=2)
+    actions = _barra_acciones(body_frame)
+    panes = ttk.PanedWindow(body_frame, orient="horizontal")
+    panes.pack(fill="both", expand=True)
+    left = ttk.Frame(panes)
+    panes.add(left, weight=1)
+    right = ttk.Frame(panes)
+    panes.add(right, weight=2)
     items = tk.Listbox(left, exportselection=False, background=es.SUPERFICIE_ALTA,
                        foreground=es.TEXTO, selectbackground=es.SELECCION,
                        selectforeground=es.TEXTO, relief="flat", highlightthickness=1,
                        highlightbackground=es.BORDE_CONTROL, highlightcolor=es.FOCO,
                        borderwidth=0, font=es.fuente(), activestyle="none")
-    # Un artículo largo produce decenas de hallazgos; sin barra, las filas fuera
-    # de vista solo se alcanzaban con el teclado y nada indicaba que hubiera más.
-    items_scroll = ttk.Scrollbar(left, orient="vertical", command=items.yview)
-    items.configure(yscrollcommand=items_scroll.set)
-    items_scroll.pack(side="right", fill="y")
+    scrollbar = ttk.Scrollbar(left, orient="vertical", command=items.yview)
+    items.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
     items.pack(side="left", fill="both", expand=True, padx=(0, es.ESP["sm"]))
-    for item in findings:
-        items.insert("end", _resumen_hallazgo(item))
+    for finding in findings:
+        items.insert("end", _resumen_hallazgo(finding))
     box = app._text(right, wrap="word", padx=es.ESP["md"], pady=es.ESP["sm"],
                     state="disabled")
     box.pack(fill="both", expand=True)
     box.tag_configure("rotulo", foreground=es.TEXTO_TENUE,
                       font=es.fuente(es.TIPO_SM, negrita=True))
-
-    app._registrar_reaplicar_tema(
-        dialog, lambda: _reaplicar_tema_revision(app, dialog, items, box))
-
-    def show(_event=None) -> None:
-        """Muestra en el panel derecho el detalle del hallazgo seleccionado."""
-        if not items.curselection():
-            return
-        item = findings[items.curselection()[0]]
-        box.config(state="normal")
-        box.delete("1.0", "end")
-        # Solo lo accionable: qué dice ahora, por qué cambiarlo y qué quedaría.
-        for rotulo, valor in (("ORIGINAL", item["original"]),
-                              ("SUGERENCIA", item["suggestion"]),
-                              ("MOTIVO", item["reason"])):
-            box.insert("end", f"{rotulo}\n", "rotulo")
-            box.insert("end", f"{valor}\n\n")
-        box.config(state="disabled")
-
-    items.bind("<<ListboxSelect>>", show)
-    items.select_set(0)
-    items.focus_set()
-    show()
-
-    def decide(apply: bool) -> None:
-        """Aplica o ignora el hallazgo seleccionado y avanza al siguiente."""
-        if not items.curselection():
-            return
-        if apply and not _review_scope_valida(app, scope, dialog):
-            return
-        index = items.curselection()[0]
-        if apply and not _apply_suggestion(app, dialog, findings[index]):
-            return
-        findings.pop(index)
-        items.delete(index)
-        if findings:
-            items.select_set(min(index, len(findings) - 1))
-            show()
-        else:
-            dialog.destroy()
-
-    # Una sola acción primaria: aplicar la sugerencia elegida.
-    ttk.Button(actions, text="Aplicar", style="Primaria.TButton",
-               command=lambda: decide(True)).pack(side="right")
-    ttk.Button(actions, text="Ignorar", command=lambda: decide(False)).pack(
+    navigation = ttk.Frame(right)
+    navigation.pack(fill="x", pady=(es.ESP["sm"], 0))
+    source_label = ttk.Label(navigation, text="")
+    source_label.pack(side="left", expand=True, fill="x")
+    previous = ttk.Button(navigation, text="Coincidencia anterior", state="disabled")
+    previous.pack(side="right", padx=(es.ESP["xs"], 0))
+    next_button = ttk.Button(navigation, text="Coincidencia siguiente", state="disabled")
+    next_button.pack(side="right")
+    apply_button = ttk.Button(actions, text="Aplicar", style="Primaria.TButton")
+    apply_button.pack(side="right")
+    controller = _ReviewDialogController(
+        app, scope, dialog, findings, review_target, items, box, source_label,
+        previous, next_button, apply_button,
+    )
+    items.bind("<<ListboxSelect>>", controller.show)
+    previous.configure(command=lambda: controller.move(-1))
+    next_button.configure(command=lambda: controller.move(1))
+    apply_button.configure(command=lambda: controller.decide(True))
+    ttk.Button(actions, text="Ignorar", command=lambda: controller.decide(False)).pack(
         side="right", padx=(0, es.ESP["sm"]))
     ttk.Button(actions, text="Deshacer último", command=app.undo_review).pack(side="left")
     ttk.Button(actions, text="Cerrar", command=dialog.destroy).pack(
         side="left", padx=(es.ESP["sm"], 0))
+    dialog.bind("<Destroy>", controller.clear_highlight, add="+")
+    app._registrar_reaplicar_tema(
+        dialog, lambda: _reaplicar_tema_revision(app, dialog, items, box))
+    items.select_set(0)
+    items.focus_set()
+    controller.show()
     return dialog
 
 
@@ -261,22 +407,51 @@ def _resumen_hallazgo(item: dict[str, str]) -> str:
     return f"{item['category'].title()} · {item['severity']} — «{extract}»"
 
 
-def _review_scope_valida(app, scope, dialog) -> bool:
+def _review_scope_valida(
+    app,
+    scope,
+    dialog,
+    review_target: ReviewTarget | None = None,
+) -> bool:
     """Comprueba que el diálogo sigue mostrando hallazgos del artículo abierto.
 
     Un diálogo que sobrevivió a un cambio de documento aplicaría la sugerencia
     de un artículo sobre otro, dejándolo sucio y erróneo. Devuelve True si es
     seguro aplicar y False (tras avisar y cerrar) si la revisión caducó.
     """
-    if app.scope is scope and scope.owns(app.session.document_path):
+    if (
+        app.scope is scope
+        and scope.owns(app.session.document_path)
+        and (review_target is None or review_target.scope is scope)
+        and (review_target is None or app.editor.get("1.0", "end-1c") == review_target.document_text)
+    ):
         return True
+    otro_articulo = app.scope is not scope or not scope.owns(app.session.document_path)
     messagebox.showinfo(
         "Revisión caducada",
-        "Estos hallazgos son de otro artículo. Vuelve a revisar el actual.",
+        (
+            "Estos hallazgos pertenecen a otro artículo. Vuelve a revisar el actual."
+            if otro_articulo
+            else "El artículo cambió desde esta revisión. Vuelve a revisarlo antes de aplicar sugerencias."
+        ),
         parent=dialog,
     )
     dialog.destroy()
     return False
+
+
+def _ocurrencias(texto: str, fragmento: str) -> list[int]:
+    """Offsets de todas las coincidencias, incluidas las que se solapan."""
+    if not fragmento:
+        return []
+    resultado: list[int] = []
+    inicio = 0
+    while True:
+        posicion = texto.find(fragmento, inicio)
+        if posicion < 0:
+            return resultado
+        resultado.append(posicion)
+        inicio = posicion + 1
 
 
 def _bloque_credencial(frame, fila: int, key, remember) -> None:

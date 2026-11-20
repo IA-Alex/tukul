@@ -28,7 +28,7 @@ from tukul_core.llm import LLMClient, LlmError, validate_endpoint
 from tukul_core.models import ArticleSession, LlmProfile
 from tukul_ui.app import TukulApp
 from tukul_ui.chunk_buffer import ChunkBuffer
-from tukul_ui.document_scope import DocumentScope
+from tukul_ui.document_scope import DocumentScope, ReviewTarget
 from tukul_ui.estado import EstadoUI
 
 
@@ -172,6 +172,111 @@ class TestDialogoDeRevisionAnclado(unittest.TestCase):
 
         self.assertIn("POCO SÓLIDA", self.app.editor.get("1.0", "end-1c"))
         self.assertTrue(self.app.session.dirty)
+
+    def test_seleccion_resalta_y_aplica_el_fragmento_de_esa_seleccion(self):
+        articulo = "La palabra rara. La palabra rara."
+        path = self.root / "seleccion.md"
+        path.write_text(articulo, encoding="utf-8")
+        self.app.load_document(path)
+        self._settle()
+        inicio = articulo.rfind("palabra rara")
+        target = ReviewTarget(
+            scope=self.app.scope,
+            document_path=self.app.session.document_path,
+            document_text=articulo,
+            reviewed_text="palabra rara",
+            start_offset=inicio,
+        )
+        finding = {
+            "category": "gramática", "severity": "media", "original": "palabra rara",
+            "suggestion": "palabra clara", "reason": "prueba de posición",
+        }
+
+        self.app.show_findings([finding], target)
+        self._settle()
+        rango = self.app.editor.tag_ranges("review_source_highlight")
+        self.assertEqual(len(rango), 2)
+        self.assertEqual(self.app.editor.get("1.0", rango[0]), articulo[:inicio])
+        self.assertEqual(self.app.editor.get(*rango), "palabra rara")
+
+        with patch("tukul_ui.dialogs.messagebox.showinfo"):
+            self._pulsar(self.app.review_dialogs[0], "Aplicar")
+        self._settle()
+        esperado = articulo[:inicio] + "palabra clara" + articulo[inicio + len("palabra rara"):]
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), esperado)
+
+    def test_documento_completo_permite_elegir_una_coincidencia_repetida(self):
+        articulo = "La palabra rara. La palabra rara."
+        path = self.root / "repetido.md"
+        path.write_text(articulo, encoding="utf-8")
+        self.app.load_document(path)
+        self._settle()
+        target = ReviewTarget(
+            scope=self.app.scope,
+            document_path=self.app.session.document_path,
+            document_text=articulo,
+            reviewed_text=articulo,
+        )
+        finding = {
+            "category": "gramática", "severity": "media", "original": "palabra rara",
+            "suggestion": "palabra clara", "reason": "prueba de coincidencias",
+        }
+
+        self.app.show_findings([finding], target)
+        self._settle()
+        dialog = self.app.review_dialogs[0]
+        self.assertEqual(
+            self.app.editor.get("1.0", self.app.editor.tag_ranges("review_source_highlight")[0]),
+            "La ",
+        )
+        self.assertTrue(self._pulsar(dialog, "Coincidencia siguiente"))
+        self._settle()
+        segundo_inicio = articulo.rfind("palabra rara")
+        self.assertEqual(
+            self.app.editor.get("1.0", self.app.editor.tag_ranges("review_source_highlight")[0]),
+            articulo[:segundo_inicio],
+        )
+
+        with patch("tukul_ui.dialogs.messagebox.showinfo"):
+            self._pulsar(dialog, "Aplicar")
+        self._settle()
+        esperado = articulo[:segundo_inicio] + "palabra clara" + articulo[
+            segundo_inicio + len("palabra rara"):]
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), esperado)
+
+    def test_no_aplica_si_el_mismo_articulo_cambia_mientras_el_dialogo_esta_abierto(self):
+        articulo = "La introducción es floja."
+        path = self.root / "cambiado.md"
+        path.write_text(articulo, encoding="utf-8")
+        self.app.load_document(path)
+        self._settle()
+        self.app.show_findings([dict(self.hallazgo)])
+        self._settle()
+        dialog = self.app.review_dialogs[0]
+        self.app.editor.insert("end-1c", " Edición manual.")
+        contenido = self.app.editor.get("1.0", "end-1c")
+
+        with patch("tukul_ui.dialogs.messagebox.showinfo") as aviso:
+            self._pulsar(dialog, "Aplicar")
+        self._settle()
+
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), contenido)
+        self.assertTrue(aviso.called)
+        self.assertFalse(dialog.winfo_exists())
+
+    def test_hallazgo_sin_coincidencia_no_se_puede_aplicar(self):
+        articulo = "Este artículo no contiene ese fragmento."
+        path = self.root / "sin-coincidencia.md"
+        path.write_text(articulo, encoding="utf-8")
+        self.app.load_document(path)
+        self._settle()
+        self.app.show_findings([dict(self.hallazgo)])
+        self._settle()
+        dialog = self.app.review_dialogs[0]
+
+        self.assertEqual(self.app.editor.tag_ranges("review_source_highlight"), ())
+        self._pulsar(dialog, "Aplicar")
+        self.assertEqual(self.app.editor.get("1.0", "end-1c"), articulo)
 
 @unittest.skipUnless(HAS_DISPLAY, "requiere un servidor X")
 class TestAmbitoDelDocumento(unittest.TestCase):

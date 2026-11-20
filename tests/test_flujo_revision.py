@@ -215,6 +215,54 @@ class TestFlujoDeRevision(unittest.TestCase):
         self.assertEqual([m.content for m in self.app.session.conversation], [],
                          "El JSON tampoco se guarda como contexto de la conversación")
 
+    def test_una_revision_con_omisiones_se_marca_incompleta_aunque_no_haya_hallazgos(self):
+        respuesta = json.dumps(
+            {"findings": [], "omitted": ["petición del usuario"]}, ensure_ascii=False)
+        self.app._terminar_revision(respuesta, is_error=False)
+
+        historial = self._historial()
+        self.assertIn("Revisión incompleta", historial)
+        self.assertIn("petición del usuario", historial)
+        self.assertNotIn("no se encontraron hallazgos", historial)
+        self.assertIs(self.app.estado_actual, EstadoUI.INCOMPLETO)
+        self.assertEqual(self.app.review_dialogs, [])
+
+    def test_una_revision_parcial_muestra_hallazgos_y_avisa_de_omisiones(self):
+        respuesta = json.dumps({
+            "findings": [{
+                "category": "ortografía", "severity": "baja", "original": "erro",
+                "suggestion": "error", "reason": "falta una letra",
+            }],
+            "omitted": ["petición del usuario"],
+        }, ensure_ascii=False)
+        self.app._terminar_revision(respuesta, is_error=False)
+
+        self.assertIn("Revisión incompleta", self._historial())
+        self.assertIs(self.app.estado_actual, EstadoUI.INCOMPLETO)
+        self.assertEqual(len(self.app.review_dialogs), 1)
+
+    def test_respuesta_de_revision_se_descarta_si_el_articulo_cambia_en_vuelo(self):
+        with patch.object(self.app.llm, "stream_response", return_value=None):
+            self.app.review()
+            _esperar_llamada(self.app, self.app.llm.stream_response)
+            self._asentar()
+        request_id = self.app.generation_counter
+        respuesta = json.dumps({"findings": [{
+            "category": "ortografía", "severity": "baja", "original": "floja",
+            "suggestion": "poco sólida", "reason": "registro coloquial",
+        }]}, ensure_ascii=False)
+        self.app.editor.insert("end-1c", " Cambio mientras revisaba.")
+        self.app.chunks.append(request_id, respuesta)
+        self.app.control_queue.put_nowait(
+            ("complete", request_id, respuesta, [], (None, None), "review"))
+        self.app.process_ui_events()
+        self._asentar()
+
+        self.assertIs(self.app.estado_actual, EstadoUI.INCOMPLETO)
+        self.assertIn("cambió el artículo", self._historial())
+        self.assertEqual(self.app.review_dialogs, [])
+        self.assertNotIn(request_id, self.app.review_targets)
+
     # --- 6. error legible y UI utilizable ------------------------------
     def test_un_error_de_revision_es_legible_y_devuelve_la_ui(self):
         with patch.object(self.app.llm, "stream_response", return_value=None):
