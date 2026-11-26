@@ -719,6 +719,40 @@ class TestFeedOrchestrator:
         mensaje = str(excinfo.value)
         assert "lenta" in mensaje and "Timeout" in mensaje
 
+    def test_un_hilo_que_termina_tarde_no_contamina_el_resultado(
+        self, tmp_path, monkeypatch
+    ):
+        """Un adaptador que revive tras el timeout no debe escribir estado ya devuelto.
+
+        El `join(timeout=...)` no detiene el hilo: si la fuente responde más
+        tarde, sin el guardado escribiría en `results` (ya devuelto al
+        llamador) y en el caché de disco, contaminando una ejecución posterior.
+        """
+        liberar = threading.Event()
+
+        class _Tarde(_AdaptadorDoble):
+            def fetch(self, hours):
+                liberar.wait(timeout=5)  # termina DESPUÉS del timeout
+                return [_entrada("lenta:1", "lenta")]
+
+        monkeypatch.setattr(orchestrator_module, "REGISTRY",
+                            {"lenta": lambda: _Tarde("lenta")})
+        monkeypatch.setattr(orchestrator_module, "FETCH_THREAD_TIMEOUT_SECONDS", 0.1)
+
+        o = FeedOrchestrator(tmp_path / "c.json")
+        with pytest.raises(RuntimeError):
+            o.fetch_all(sources=["lenta"])
+        # El hilo reanuda su `fetch` y trata de publicar su resultado tarde.
+        liberar.set()
+        # Esperar a que el hilo daemon intente escribir (best-effort).
+        limite = time.monotonic() + 2
+        while time.monotonic() < limite:
+            if o._cache.get("lenta") is not None:
+                break
+            time.sleep(0.01)
+        # La fuente abandonada no repobló el caché con su resultado tardío.
+        assert o._cache.get("lenta") is None
+
     def test_usa_el_cache_y_no_reconsulta(self, tmp_path, monkeypatch):
         """Con caché vigente no se vuelve a llamar al adaptador."""
         llamadas = {"n": 0}

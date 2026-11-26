@@ -50,10 +50,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[keyring]"
-          pip install pyinstaller
+          # PyInstaller fijado a una rama mayor verificada con Python 3.12 (el
+          # intérprete de este job): sin pin, cada build podía usar una versión
+          # distinta (o una comprometida) y el binario publicado dejaba de ser
+          # reproducible. Es la única dependencia de build fuera de los lockfiles.
+          # TODO(mantenedor): fijar a la versión exacta usada en el último
+          # release verde (copy-paste desde el log de `pip install`) para
+          # reproducibilidad bit a bit.
+          pip install "pyinstaller>=6.10,<7"
 
+      # `--strip` elimina símbolos de depuración del binario empaquetado; sin él
+      # el onefile publica información interna innecesaria. El resto de flags de
+      # endurecimiento del SO (PIE/NX/RELRO) los aporta el toolchain de la imagen.
       - name: Build standalone executable
-        run: pyinstaller --onefile --name tukul --noconfirm tukul.py
+        run: pyinstaller --onefile --strip --name tukul --noconfirm tukul.py
 
       # Humo mínimo: el binario debe arrancar y correr el diagnóstico sin
       # ventana. No prueba la GUI, pero confirma que el empaquetado no dejó nada

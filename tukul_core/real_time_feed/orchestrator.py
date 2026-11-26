@@ -154,25 +154,37 @@ class FeedOrchestrator:
         results: dict[str, list] = {}
         errors: dict[str, str] = {}
         lock = threading.Lock()
+        # Fuentes abandonadas por exceder el timeout. Un hilo daemon que termina
+        # DESPUÉS del `join(timeout=...)` sigue vivo: sin este guardado, escribiría
+        # en `results` (ya devuelto) y en el caché (disco) compitiendo con el
+        # resultado que el llamador ya recibió. El guardado lo convierte en un
+        # no-op una vez que su resultado se dio por perdido.
+        abandonadas: set[str] = set()
 
         def _fetch_one(sid: str) -> None:
             adapter_cls = REGISTRY.get(sid)
             if adapter_cls is None:
                 with lock:
-                    errors[sid] = f"Adaptador no encontrado: {sid}"
+                    if sid not in abandonadas:
+                        errors[sid] = f"Adaptador no encontrado: {sid}"
                 return
             try:
                 self._log(f"  {sid}: consultando...")
                 adapter = adapter_cls()
                 raw = adapter.fetch(hours)
                 entries = adapter.normalize(raw)
+                # El caché se escribe solo si la fuente no fue abandonada: un
+                # hilo que revive tarde no debe repoblar el disco ni `results`.
                 with lock:
+                    if sid in abandonadas:
+                        return
                     results[sid] = entries
                 self._cache.set(sid, entries)
                 self._log(f"  {sid}: {len(entries)} entradas")
             except Exception as error:
                 with lock:
-                    errors[sid] = str(error)
+                    if sid not in abandonadas:
+                        errors[sid] = str(error)
                 logger.warning("FeedOrchestrator: %s falló: %s", sid, error)
 
         threads = [
@@ -181,28 +193,43 @@ class FeedOrchestrator:
         ]
         for _, t in threads:
             t.start()
-        for sid, t in threads:
-            t.join(timeout=FETCH_THREAD_TIMEOUT_SECONDS)
-            if t.is_alive():
-                # Una fuente que no termina dentro del presupuesto se registra
-                # como error en vez de desaparecer: sin esto no quedaba ni en
-                # `results` ni en `errors`, así que el fallo se reportaba como
-                # «no devolvió nada» y su causa se perdía.
-                with lock:
-                    errors[sid] = (
-                        f"Timeout de {FETCH_THREAD_TIMEOUT_SECONDS} s "
-                        "esperando a la fuente."
-                    )
-                logger.warning(
-                    "FeedOrchestrator: %s excedió el timeout de %s s",
-                    sid,
-                    FETCH_THREAD_TIMEOUT_SECONDS,
-                )
+        self._join_y_marcar_timeouts(threads, abandonadas, errors, lock)
 
         if not results and errors:
             detail = "; ".join(f"{k}: {v}" for k, v in errors.items())
             raise RuntimeError(f"Ninguna fuente respondió. {detail}")
         return results
+
+    @staticmethod
+    def _join_y_marcar_timeouts(
+        threads: list[tuple[str, threading.Thread]],
+        abandonadas: set[str],
+        errors: dict[str, str],
+        lock: threading.Lock,
+    ) -> None:
+        """Espera cada hilo hasta el presupuesto y marca los que no terminan.
+
+        Una fuente que no termina dentro del presupuesto se registra como error
+        en vez de desaparecer: sin esto no quedaba ni en `results` ni en
+        `errors`, así que el fallo se reportaba como «no devolvió nada» y su
+        causa se perdía. Además se marca como abandonada para que su hilo, si
+        revive más tarde, no escriba estado ya devuelto al llamador.
+        """
+        for sid, t in threads:
+            t.join(timeout=FETCH_THREAD_TIMEOUT_SECONDS)
+            if not t.is_alive():
+                continue
+            with lock:
+                abandonadas.add(sid)
+                errors[sid] = (
+                    f"Timeout de {FETCH_THREAD_TIMEOUT_SECONDS} s "
+                    "esperando a la fuente."
+                )
+            logger.warning(
+                "FeedOrchestrator: %s excedió el timeout de %s s",
+                sid,
+                FETCH_THREAD_TIMEOUT_SECONDS,
+            )
 
     def _log(self, message: str) -> None:
         if self._on_progress is not None:

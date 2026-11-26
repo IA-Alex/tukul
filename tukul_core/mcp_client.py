@@ -9,6 +9,11 @@ from typing import Any
 
 MAX_RESULT_CHARS = 30_000
 MCP_TIMEOUT_SECONDS = 30
+# Tope del `structuredContent` ANTES de serializarlo. El resultado final ya se
+# recorta a MAX_RESULT_CHARS, pero hacerlo después de `json.dumps` obliga a
+# materializar en memoria una estructura arbitrariamente grande que un servidor
+# MCP puede devolver; el corte tiene que ocurrir antes de serializar.
+MAX_STRUCTURED_CHARS = 120_000
 
 
 class McpClientError(RuntimeError):
@@ -91,6 +96,30 @@ def list_read_only_tools(command: str, args: list[str]) -> list[McpTool]:
         raise McpClientError(f"No se pudo conectar con el servidor MCP: {error}") from error
 
 
+def _serialize_structured(structured: Any) -> str:
+    """Serializa `structuredContent` con techo, sin materializar todo en memoria.
+
+    El resultado final se recorta a `MAX_RESULT_CHARS`, pero un servidor MCP
+    puede devolver un `structuredContent` enorme: serializarlo entero con
+    `json.dumps` antes de recortar permitía agotar la memoria del proceso. Se
+    serializa de forma INCREMENTAL y se corta en cuanto el texto acumulado
+    supera `MAX_STRUCTURED_CHARS`, sin construir la cadena completa. Luego se
+    recorta a ese tope, con marca de truncado.
+    """
+    encoder = json.JSONEncoder(ensure_ascii=False, indent=2)
+    piezas: list[str] = []
+    total = 0
+    for fragmento in encoder.iterencode(structured):
+        piezas.append(fragmento)
+        total += len(fragmento)
+        if total > MAX_STRUCTURED_CHARS:
+            break
+    texto = "".join(piezas)
+    if total > MAX_STRUCTURED_CHARS:
+        return texto[:MAX_STRUCTURED_CHARS] + "\n…(salida estructurada truncada)"
+    return texto
+
+
 async def _call_tool(command: str, args: list[str], name: str,
                      arguments: dict[str, Any]) -> str:
     client_session_type, server_parameters_type, stdio_client = _sdk_types()
@@ -118,7 +147,7 @@ async def _call_tool(command: str, args: list[str], name: str,
                     ]
                     structured = getattr(result, "structuredContent", None)
                     if structured:
-                        parts.append(json.dumps(structured, ensure_ascii=False, indent=2))
+                        parts.append(_serialize_structured(structured))
                     output = "\n\n".join(parts).strip()
                     if not output:
                         output = "La herramienta no devolvió texto visible."

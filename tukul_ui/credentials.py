@@ -12,12 +12,15 @@ lanzador de hilos. Todo lo demás vive aquí.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from collections.abc import Callable
 from typing import Any
 
 from tukul_core import storage
+
+logger = logging.getLogger("tukul")
 
 
 class CredentialStore:
@@ -89,8 +92,20 @@ class CredentialStore:
                 # barra; si no, el usuario leería «Configura una key», pista falsa.
                 self._avisar_llavero_ausente(perfil)
                 valor = ""
-            except Exception:
-                # Un llavero ajeno (D-Bus, backend del SO) no debe romper la UI.
+            except Exception as error:
+                # Un llavero ajeno (D-Bus, backend del SO) no debe romper la UI,
+                # pero tampoco puede degradar a «sin key» en silencio: antes un
+                # fallo distinto de «no existe entrada» se confundía con «no hay
+                # key» y enviaba al usuario a «Configura una key», pista falsa.
+                # Se registra el fallo (sin volcar el valor) y se avisa igual que
+                # cuando el llavero no responde.
+                logger.warning(
+                    "Lectura del llavero para '%s' falló (%s); se trata como "
+                    "llavero no disponible.",
+                    perfil,
+                    type(error).__name__,
+                )
+                self._avisar_llavero_ausente(perfil)
                 valor = ""
             # Marcar antes de publicar: quien espera esa misma señal no debe
             # encontrar todavía su entrada en `_en_curso` ni un instante.

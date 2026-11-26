@@ -10,7 +10,9 @@ import pytest
 
 from tukul_core.mcp_client import (
     MAX_RESULT_CHARS,
+    MAX_STRUCTURED_CHARS,
     McpClientError,
+    _serialize_structured,
     call_read_only_tool,
     list_read_only_tools,
 )
@@ -128,3 +130,25 @@ def test_stdio_real_informa_error_de_herramienta(servidor_mcp):
 
     with pytest.raises(McpClientError, match="indicó que la consulta falló"):
         call_read_only_tool(command, args, "lookup", {"value": "__error__"})
+
+
+def test_structured_content_se_acota_antes_de_serializar():
+    """Un `structuredContent` enorme se recorta sin materializar todo el texto.
+
+    El resultado final ya se recortaba a MAX_RESULT_CHARS, pero el `json.dumps`
+    previo construía la cadena completa: un servidor MCP podía agotar la memoria
+    del proceso antes del recorte. La serialización es incremental y se corta.
+    """
+    enorme = {"items": ["x" * 1000] * ((MAX_STRUCTURED_CHARS // 1000) + 50)}
+
+    texto = _serialize_structured(enorme)
+
+    assert len(texto) <= MAX_STRUCTURED_CHARS + len("\n…(salida estructurada truncada)")
+    assert texto.endswith("salida estructurada truncada)")
+
+
+def test_structured_content_pequeno_no_se_trunca():
+    """Un `structuredContent` normal se serializa íntegro y sin marca de corte."""
+    texto = _serialize_structured({"status": "ok", "n": 3})
+
+    assert "status" in texto and "truncada" not in texto
