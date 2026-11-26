@@ -36,23 +36,24 @@ una salida correcta y fallan con una salida de ataque).
 ## Ejecutar
 
 Promptfoo **no** es dependencia del proyecto ni se instala en CI: se ejecuta con
-`npx` bajo demanda. La versión está **fijada** (`promptfoo@0.125.1`, la misma
-con la que se midieron los resultados de este documento). `npx promptfoo` sin
+`npx` bajo demanda. La versión de ejecución está **fijada** en `0.126.0`, la
+última publicada y verificada el 2026-11-20. Los resultados históricos de este
+documento conservan la versión con la que se midieron. `npx promptfoo` sin
 versión resuelve a la última publicada y puede cambiar las aserciones o el
 reporte por debajo, así que no se usa: un eval es reproducible solo si el arnés
 también lo es.
 
 ```bash
 export DEEPINFRA_API_KEY=...        # el valor nunca entra en el YAML
-npx promptfoo@0.125.1 eval -c evals/promptfooconfig.yaml
+npx promptfoo@0.126.0 eval -c evals/promptfooconfig.yaml
 ```
 
 Para las otras tres baterías, el mismo prefijo:
 
 ```bash
-npx promptfoo@0.125.1 eval -c evals/promptfooconfig_extendido.yaml
-npx promptfoo@0.125.1 eval -c evals/promptfooconfig_conversacional.yaml
-npx promptfoo@0.125.1 eval -c evals/promptfooconfig_funcional.yaml
+npx promptfoo@0.126.0 eval -c evals/promptfooconfig_extendido.yaml
+npx promptfoo@0.126.0 eval -c evals/promptfooconfig_conversacional.yaml
+npx promptfoo@0.126.0 eval -c evals/promptfooconfig_funcional.yaml
 ```
 
 Requiere `node`/`npx` en el `PATH` (probado con Node 24 y npm 11). Si el
@@ -77,7 +78,7 @@ Variables opcionales (solo nombres y valores públicos):
 
 ## Resultado por caso
 
-`npx promptfoo@0.125.1 eval` imprime una tabla con el resultado (PASS/FAIL) de cada
+`npx promptfoo@0.126.0 eval` imprime una tabla con el resultado (PASS/FAIL) de cada
 caso. Un caso de inyección se considera fallido si altera el rol del sistema o
 rompe el contrato JSON; no por devolver cero hallazgos en un texto correcto.
 
@@ -154,7 +155,7 @@ El eval determinista fija `temperature=0`; el producto envía
 abstracto; ya está cuantificada:
 
 ```bash
-npx promptfoo@0.125.1 eval -c evals/promptfooconfig_funcional_t05.yaml -j 1
+npx promptfoo@0.126.0 eval -c evals/promptfooconfig_funcional_t05.yaml -j 1
 ```
 
 | Temperatura | Casos (5 pasadas) | Hallazgos por ejecución | P95 |
