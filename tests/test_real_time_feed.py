@@ -768,6 +768,23 @@ class TestFeedOrchestrator:
         o = FeedOrchestrator(tmp_path / "c.json")
         assert o.available_sources() == [{"id": "x", "label": "Fuente X"}]
 
+    def test_available_sources_ids_son_usables_en_fetch_all(self):
+        """Los `id` de `available_sources()` deben coincidir con las claves de
+        `REGISTRY` para que cada fuente listada se pueda llamar de vuelta en
+        `fetch_all(sources=[id])`.
+        """
+        from tukul_core.real_time_feed.adapters import REGISTRY
+
+        o = FeedOrchestrator(Path("/tmp") / "nonexistent.json")
+        fuentes = o.available_sources()
+
+        assert len(fuentes) == len(REGISTRY)
+        for fuente in fuentes:
+            assert fuente["id"] in REGISTRY
+            assert REGISTRY[fuente["id"]].source_id() == fuente["id"]
+            assert isinstance(fuente["label"], str) and len(fuente["label"]) > 0
+            assert fuente.get("label") != ""
+
     def test_invalidate_cache_por_fuente_y_total(self, tmp_path, monkeypatch):
         """Invalidar una fuente o todo el caché no debe lanzar."""
         registro = {"x": lambda: _AdaptadorDoble("x", [_entrada("x:1", "x")])}

@@ -87,6 +87,31 @@ def test_orquestador_informa_si_todos_los_proveedores_fallan():
         SearchOrchestrator([Roto()]).search(SearchQuery("tema"))
 
 
+def test_orquestador_trunca_a_max_results_conservando_orden():
+    """El orquestador respeta `max_results`: con más resultados deduplicados
+    que el techo, devuelve exactamente `max_results` en el orden del proveedor.
+    """
+    class ProveedorAbundante:
+        provider_id = "abundante"
+
+        def search(self, _query):
+            from tukul_core.search.models import SearchResult
+
+            return [
+                SearchResult(f"{i}", "abundante", f"T{i}", "",
+                             f"https://x.test/{i}", "x.test")
+                for i in range(3)
+            ]
+
+    query = SearchQuery("tema", max_results=2)
+    results = SearchOrchestrator([ProveedorAbundante()]).search(query)
+
+    assert [result.url for result in results] == [
+        "https://x.test/0",
+        "https://x.test/1",
+    ]
+
+
 def test_gdelt_inyecta_sourcelang_cuando_se_pide_idioma(monkeypatch):
     """H-02: `SearchQuery.language` debe llegar a GDELT como `sourcelang:`."""
     capturado: dict[str, str] = {}
