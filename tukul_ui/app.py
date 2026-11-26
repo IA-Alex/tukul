@@ -1878,7 +1878,12 @@ class TukulApp(tk.Tk):
                     f"Selecciona un fragmento más corto y vuelve a revisar.")
                 return
         except Exception as error:
-            logger.error("No se pudo preparar la revisión: %s", error, exc_info=True)
+            # El mensaje de la excepción puede arrastrar fragmentos del artículo
+            # que se iba a revisar: se registra solo el tipo, no el texto.
+            logger.error(
+                "No se pudo preparar la revisión (%s).",
+                type(error).__name__, exc_info=True,
+            )
             self._abort_request(request_id)
             self.set_estado(EstadoUI.ERROR, "no se pudo preparar la revisión")
             self.show_error("Error interno", "No se pudo preparar la revisión. Inténtalo de nuevo.")
@@ -1999,12 +2004,18 @@ class TukulApp(tk.Tk):
                 )
                 return
         except Exception as e:
-            # Validación fail-closed: si hay error, rechazar la solicitud
-            logger.error("Error crítico validando tamaño del prompt: %s", e, exc_info=True)
+            # Validación fail-closed: si hay error, rechazar la solicitud.
+            # Se registra SOLO el tipo de excepción, nunca el mensaje: en este
+            # punto el texto de la excepción puede arrastrar fragmentos del
+            # artículo o del prompt, que son contenido privado del autor.
+            logger.error(
+                "Error crítico validando tamaño del prompt (%s).",
+                type(e).__name__, exc_info=True,
+            )
             self._abort_request(request_id)
             self.show_error(
                 "Error interno",
-                f"No se pudo validar el tamaño de la solicitud: {e}\n\nIntenta de nuevo."
+                "No se pudo validar el tamaño de la solicitud. Intenta de nuevo."
             )
             return
 

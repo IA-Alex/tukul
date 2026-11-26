@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Callable, Iterable
 
 from tukul_core.llm import LLMClient, LlmError
 from tukul_core.models import ChatMessage, LlmProfile
 from tukul_core.prompting import build_editor_prompt
+
+logger = logging.getLogger("tukul")
 
 
 class LLMSessionManager:
@@ -56,7 +59,13 @@ class LLMSessionManager:
             try:
                 prompt = build_editor_prompt(article, packet, conversation)
             except (ValueError, TypeError, OSError) as error:
-                on_error(f"Error al preparar prompt: {error}")
+                # El mensaje del error puede arrastrar el artículo o el contexto
+                # (contenido privado): se registra solo el tipo y al usuario le
+                # llega un texto fijo que no es un volcado de la excepción.
+                logger.warning(
+                    "Error al preparar el prompt (%s).", type(error).__name__
+                )
+                on_error("No pude preparar la solicitud para el modelo.")
                 return
 
             # Stream con captura amplia de excepciones
@@ -83,14 +92,23 @@ class LLMSessionManager:
                 on_error(str(error))
                 return
             except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
-                on_error(
-                    f"Error de conexión o parsing: {error.__class__.__name__}: {error}"
+                # El texto crudo de estas excepciones puede incluir la URL del
+                # endpoint o fragmentos del cuerpo recibido; se registra el
+                # tipo y al usuario le llega un mensaje fijo.
+                logger.warning(
+                    "Fallo de conexión o parsing en el streaming (%s).",
+                    type(error).__name__,
                 )
+                on_error("Hubo un problema de conexión con el proveedor.")
                 return
 
         except Exception as error:
-            # Catch-all para errores inesperados
-            on_error(f"Error interno inesperado: {error}")
+            # Catch-all para errores inesperados: nunca se propaga el texto crudo.
+            logger.error(
+                "Error inesperado en el streaming (%s).",
+                type(error).__name__, exc_info=True,
+            )
+            on_error("Error interno inesperado.")
 
     def _collect_stream(
         self,

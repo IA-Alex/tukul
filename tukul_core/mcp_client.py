@@ -5,7 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from .logging_config import setup_logging
+
+logger = setup_logging()
 
 MAX_RESULT_CHARS = 30_000
 MCP_TIMEOUT_SECONDS = 30
@@ -47,6 +52,15 @@ def _new_server(command: str, args: list[str], server_parameters: Any) -> Any:
         raise McpClientError("Indica un ejecutable MCP válido.")
     if any(not isinstance(arg, str) or "\x00" in arg for arg in args):
         raise McpClientError("Los argumentos deben ser una lista de textos válidos.")
+    # Traza de auditoría: qué ejecutable MCP se va a lanzar y con cuántos
+    # argumentos. Sin ningún registro, una ejecución inesperada de un MCP hostil
+    # era indetectable a posteriori. Se registra solo el NOMBRE del ejecutable
+    # (no la ruta completa ni los argumentos): estos últimos pueden contener
+    # credenciales que el usuario haya escrito, y el log no debe guardarlas.
+    logger.info(
+        "Iniciando servidor MCP '%s' con %d argumento(s).",
+        Path(command.strip()).name, len(args),
+    )
     return server_parameters(command=command.strip(), args=args)
 
 

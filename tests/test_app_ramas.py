@@ -623,11 +623,20 @@ class TestLlaveroNoDisponible(_BaseApp):
     """Un llavero ausente o caído no cuenta como «falta la key»."""
 
     def _precargar(self, *parches):
-        """Lanza la lectura del llavero y espera a que el hilo termine (con tope)."""
+        """Lanza la lectura del llavero y espera a que el hilo termine (con tope).
+
+        NO se usa `_esperar_key`: esa ruta cortocircuita con `if self.key:` y el
+        `setUp` define la variable de entorno de la clave, así que devolvería el
+        valor del entorno sin esperar a la lectura del llavero. La espera se hace
+        sobre el propio `Event` que `CredentialStore` asocia a la lectura en
+        curso, que es la señal real de «el worker terminó».
+        """
         self.app._keys_llavero.clear()
         with parches[0], parches[1]:
             self.app._precargar_key(self.app.active_profile)
-            self.app._esperar_key(timeout=2.0)
+            listo = self.app._llaves_en_curso.get(self.app.active_profile)
+            if listo is not None:
+                self.assertTrue(listo.wait(5.0), "La lectura del llavero no terminó")
 
     def test_backend_ausente_cachea_vacio_sin_llamar_al_llavero(self):
         with patch.object(storage, "credential_backend_disponible", return_value=False), \

@@ -13,6 +13,7 @@ con `b""` como un cuerpo real.
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -124,6 +125,27 @@ class TestCuerpoIlegibleFalla:
     def test_cuerpo_vacio_falla(self):
         with pytest.raises(StixStreamError):
             list(iter_stix_objects(_respuesta(b""), 10_000))
+
+    def test_cuerpo_grande_sin_objects_no_se_materializa(self):
+        """Un cuerpo sin `objects` que supera la cabecera se rechaza sin parsear.
+
+        El fallback `_es_json_valido` usa `json.loads`: si el búfer acumulado
+        pudiera crecer hasta `max_bytes` (64 MB), un cuerpo hostil sin `objects`
+        haría que el parseo materializara ese árbol entero. El techo de cabecera
+        rechaza el caso antes de construir nada. Se parchea el techo a un valor
+        diminuto para no ejercitar el escaneo O(n²) de la fase 1 con megabytes.
+        """
+        import tukul_core.real_time_feed.adapters._stix_stream as stix
+
+        cuerpo = b'{"foo": "' + b"x" * 64 + b'"}'
+        with patch.object(stix, "MAX_HEADER_BYTES", 8):
+            with pytest.raises(StixStreamError):
+                list(iter_stix_objects(_respuesta(cuerpo), len(cuerpo) + 100))
+
+    def test_json_valido_pequeno_sin_objects_sigue_devolviendo_vacio(self):
+        """El techo de cabecera no cambia el contrato del bundle vacío legítimo."""
+        cuerpo = b'{"type": "bundle", "id": "bundle--x"}'
+        assert list(iter_stix_objects(_respuesta(cuerpo), 10_000)) == []
 
 
 class TestTechoDeBytes:

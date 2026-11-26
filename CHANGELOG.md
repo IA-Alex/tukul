@@ -8,6 +8,28 @@ proyecto se versiona según [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Corregido
 
+- **Endurecimiento tras la auditoría red team de escritorio.** Se cierran los
+  hallazgos de defensa en profundidad sin residuos: (1) los errores al preparar
+  el prompt o el stream ya no vuelcan la excepción cruda al log ni al diálogo,
+  porque podía arrastrar el artículo o fragmentos del cuerpo recibido, solo se
+  registra el tipo; (2) `_stix_stream` acota con `MAX_HEADER_BYTES` el búfer que
+  materializa `json.loads` en el fallback de «bundle sin `objects`», para que un
+  cuerpo hostil no agote memoria; (3) `arxiv._arxiv_url_https` solo publica
+  enlaces con host `arxiv.org`/subdominio, no cualquier `atom:id` con esquema;
+  (4) `threat_feed._texto_de_fuente` colapsa a una línea el texto de fuentes
+  externas (NVD/KEV/arXiv/MITRE) para que no pueda falsificar la estructura del
+  paquete de contexto; (5) el cliente MCP registra en el log el ejecutable que
+  lanza y el número de argumentos (sin los argumentos, que pueden traer claves);
+  (6) PyInstaller se fija a la versión exacta `6.22.2` en el workflow de release.
+  Regresión: `test_cuerpo_grande_sin_objects_no_se_materializa`,
+  `test_arxiv_url_https_rechaza_hosts_ajenos`, `TestTextoSaneadoDeFuentes` y los
+  tests de `llm_session_manager` sobre el mensaje de error.
+- **Test de credenciales determinista.** `test_app_ramas.TestLlaveroNoDisponible`
+  esperaba la lectura del llavero con `_esperar_key`, que cortocircuitaba porque
+  el `setUp` define la variable de entorno de la clave; ahora espera sobre el
+  `Event` real del `CredentialStore`. El fallo era una carrera temporal
+  (`KeyError`), no un defecto del producto.
+
 - **Un stream SSE con frames ilegibles ya no queda truncado en silencio.** El
   proveedor puede cambiar el esquema a mitad de respuesta (o emitir un frame que
   no sea un objeto JSON como `[1,2,3]`, `"hola"` o `null`): antes esos frames se

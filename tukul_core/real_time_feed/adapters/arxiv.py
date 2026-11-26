@@ -213,12 +213,21 @@ def _arxiv_url_https(paper_id: str) -> str:
     arXiv publica el id como `http://arxiv.org/abs/…`. Se fuerza HTTPS (y se
     aceptan también entradas ya en https o sin esquema). Si el id no es una URL
     reconocible, se devuelve tal cual: no se inventa un enlace.
+
+    Las URLs con esquema (`http`/`https`) solo se publican si apuntan a
+    `arxiv.org` o un subdominio suyo: un `atom:id` hostil podría traer
+    `http://otro-host/…` y el enlace acabaría en el contexto del artículo. Como
+    no hay caso legítimo en que arXiv publique un id ajeno, cualquier host
+    distinto se degrada a cadena vacía en vez de propagarse.
     """
     if not paper_id:
         return paper_id
-    if paper_id.startswith("http://"):
-        return "https://" + paper_id[len("http://"):]
-    if paper_id.startswith("https://"):
+    if paper_id.startswith(("http://", "https://")):
+        host = (urllib.parse.urlsplit(paper_id).hostname or "").lower()
+        if host != "arxiv.org" and not host.endswith(".arxiv.org"):
+            return ""
+        if paper_id.startswith("http://"):
+            return "https://" + paper_id[len("http://"):]
         return paper_id
     if paper_id.startswith("arxiv.org/"):
         return "https://" + paper_id

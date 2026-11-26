@@ -31,6 +31,15 @@ from typing import Any
 MARKER = b'"objects"'
 READ_CHUNK_BYTES = 64 * 1024
 
+# Techo del búfer que `_es_json_valido` puede materializar con `json.loads`.
+# Un bundle legítimo declara `objects` en los primeros KB, así que solo se llega
+# al fallback de «JSON válido sin lista» con un cuerpo pequeño (`{}`,
+# `{"foo": 1}`, …). Un cuerpo hostil sin `objects` acumularía hasta `max_bytes`
+# (64 MB) en el búfer y luego lo materializaría entero en el parseo; con este
+# techo se descarta como ilegible sin construir el árbol. El valor deja margen
+# de sobra sobre cualquier cabecera real de bundle.
+MAX_HEADER_BYTES = 1 * 1024 * 1024
+
 # Estados del reconocimiento de la clave raíz `"objects"`.
 _CORCHETE = 0  # ya está el `[` que abre la lista
 _INCOMPLETO = 1  # la secuencia clave:`objects`:[ aún no está completa
@@ -86,8 +95,11 @@ def iter_stix_objects(response: Any, max_bytes: int) -> Iterator[dict]:
             # cuerpo ilegible. El primero debe degradar a vacío —así lo hacía el
             # `data.get("objects", [])` anterior y lo fija
             # `test_un_json_no_objeto_no_rompe_el_tipo_de_objects`—; el segundo
-            # sí es un error real.
-            if _es_json_valido(buffer):
+            # sí es un error real. Un búfer por encima de `MAX_HEADER_BYTES` no
+            # puede ser ninguna de las dos formas legítimas (una cabecera con
+            # `objects` habría salido del bucle mucho antes), así que se rechaza
+            # sin materializarlo con `json.loads`.
+            if len(buffer) <= MAX_HEADER_BYTES and _es_json_valido(buffer):
                 return
             raise StixStreamError("El bundle STIX no contiene una lista 'objects'.")
 
@@ -199,7 +211,12 @@ def _corchete_tras_llave(buffer: bytearray, desde: int) -> tuple[int, int]:
 
 
 def _es_json_valido(buffer: bytearray | bytes) -> bool:
-    """Indica si el búfer contiene un documento JSON completo y bien formado."""
+    """Indica si el búfer contiene un documento JSON completo y bien formado.
+
+    Materializa el búfer con `json.loads`, así que el llamador debe acotar su
+    tamaño ANTES de invocarlo: aquí solo se llega con la cabecera de un cuerpo
+    que se agotó sin declarar `objects` (ver `MAX_HEADER_BYTES`).
+    """
     import json
 
     if not buffer:

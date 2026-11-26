@@ -61,7 +61,9 @@ class StreamResponseTests(unittest.TestCase):
             self._run()
 
         self.assertEqual(len(self.errores), 1)
-        self.assertIn("Error al preparar prompt", self.errores[0])
+        # El mensaje de la excepción no se propaga: puede arrastrar el artículo.
+        self.assertNotIn("artículo demasiado grande", self.errores[0])
+        self.assertIn("No pude preparar la solicitud", self.errores[0])
         self.assertEqual(self.completados, [])
 
     def test_respuesta_vacia_se_reporta_como_error(self):
@@ -123,7 +125,14 @@ class StreamResponseTests(unittest.TestCase):
 
         self.assertEqual(self.errores, ["La API key fue rechazada."])
 
-    def test_error_de_red_o_parsing_incluye_la_clase_de_excepcion(self):
+    def test_error_de_red_o_parsing_reporta_sin_filtrar_la_excepcion(self):
+        """Un fallo de parsing se reporta, pero sin volcar el texto crudo.
+
+        El mensaje de `JSONDecodeError`/`OSError` puede incluir la URL del
+        endpoint o fragmentos del cuerpo recibido; se registra el tipo y al
+        usuario le llega un mensaje fijo. El contrato es «se reporta y no
+        tumba el hilo», no «se muestra la clase de excepción».
+        """
         def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):
             raise json.JSONDecodeError("bad json", "doc", 0)
             yield  # pragma: no cover
@@ -132,7 +141,8 @@ class StreamResponseTests(unittest.TestCase):
             self._run()
 
         self.assertEqual(len(self.errores), 1)
-        self.assertIn("JSONDecodeError", self.errores[0])
+        self.assertNotIn("JSONDecodeError", self.errores[0])
+        self.assertIn("problema de conexión", self.errores[0])
 
     def test_excepcion_inesperada_no_tumba_el_hilo_worker(self):
         def flujo(self, profile, api_key, prompt, rid=None, cancel_event=None, modo=None):

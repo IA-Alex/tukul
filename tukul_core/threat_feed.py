@@ -223,6 +223,26 @@ _SOURCE_LABELS = {
 }
 
 
+def _texto_de_fuente(valor: object, limite: int = 0) -> str:
+    """Normaliza texto de una fuente externa antes de interpolarlo en el packet.
+
+    Los campos de NVD/KEV/arXiv/MITRE son dato no confiable: una fuente hostil
+    podría colar saltos de línea, retornos de carro o caracteres de control para
+    falsificar la estructura del bloque (fingir un `CVE-…` nuevo, cerrar una
+    sección o inyectar cabeceras como «Fuentes consultadas:»). Se colapsan los
+    espacios en blanco a un único espacio y se descartan los caracteres de
+    control; el resultado es SIEMPRE una línea, así que no puede alterar el
+    esqueleto del paquete. El techo opcional recorta textos largos.
+    """
+    if not isinstance(valor, str):
+        valor = str(valor)
+    # Se descartan los caracteres de control (incluye \r, \n, \t y NUL) y se
+    # colapsan los espacios repetidos; el resto del texto se conserva.
+    limpio = "".join(" " if ch.isspace() or ord(ch) < 0x20 else ch for ch in valor)
+    limpio = " ".join(limpio.split())
+    return limpio[:limite] if limite else limpio
+
+
 def _format_entry(entry: ThreatFeedEntry, epss_ok: bool, kev_ok: bool) -> str:
     if entry.cvss_score is None:
         cvss_line = "no disponible"
@@ -244,10 +264,10 @@ def _format_entry(entry: ThreatFeedEntry, epss_ok: bool, kev_ok: bool) -> str:
         kev_line = "fuente no disponible"
     else:
         kev_line = "sí" if entry.is_kev else "no"
-    description = entry.description.strip() or "(sin descripción)"
+    description = _texto_de_fuente(entry.description).strip() or "(sin descripción)"
     desc_block = "\n".join(f"    {line}" for line in description.splitlines())
     if entry.references:
-        refs_block = "\n".join(f"    - {ref}" for ref in entry.references)
+        refs_block = "\n".join(f"    - {_texto_de_fuente(ref)}" for ref in entry.references)
     else:
         refs_block = "    (ninguna)"
     return (
@@ -370,11 +390,11 @@ def _append_mitre(packet: str, files: list[str], big_sep: str,
             return packet, files
         tech_blocks: list[str] = []
         for tech in mitre_techniques:
-            name = tech.get("name", "")
-            tech_id = tech.get("id", "")
-            description = tech.get("description", "")
+            name = _texto_de_fuente(tech.get("name", ""))
+            tech_id = _texto_de_fuente(tech.get("id", ""))
+            description = _texto_de_fuente(tech.get("description", ""))
             kill_chain = [
-                p.get("phase_name", "")
+                _texto_de_fuente(p.get("phase_name", ""))
                 for p in tech.get("kill_chain_phases", [])
                 if p.get("kill_chain_name") == "mitre-attack"
             ]
@@ -403,9 +423,9 @@ def _append_arxiv(packet: str, files: list[str], big_sep: str,
             return packet, files
         paper_blocks: list[str] = []
         for paper in arxiv_papers:
-            title = paper.get("title", "")
-            paper_id = paper.get("id", "")
-            resumen = paper.get("summary", "")
+            title = _texto_de_fuente(paper.get("title", ""))
+            paper_id = _texto_de_fuente(paper.get("id", ""))
+            resumen = _texto_de_fuente(paper.get("summary", ""))
             summary_text = (resumen[:200] + "…") if len(resumen) > 200 else resumen
             paper_blocks.append(f"  • {title}\n    ID: {paper_id}\n    {summary_text}")
         packet += (

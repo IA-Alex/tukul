@@ -502,6 +502,20 @@ class TestArxivAdapterFetch:
         assert _arxiv_url_https("https://arxiv.org/abs/9") == "https://arxiv.org/abs/9"
         assert _arxiv_url_https("arxiv.org/abs/2") == "https://arxiv.org/abs/2"
 
+    def test_arxiv_url_https_rechaza_hosts_ajenos(self):
+        """Un `atom:id` con esquema pero host ajeno no se propaga al contexto.
+
+        Antes bastaba con que empezara por `http://`/`https://`: un id hostil
+        como `http://mal.example/…` viajaba tal cual como enlace del paquete de
+        contexto. Solo arXiv (o un subdominio suyo) es legítimo aquí.
+        """
+        from tukul_core.real_time_feed.adapters.arxiv import _arxiv_url_https
+
+        assert _arxiv_url_https("http://mal.example/abs/1") == ""
+        assert _arxiv_url_https("https://evil.test/x") == ""
+        # Un subdominio legítimo de arXiv sí se conserva.
+        assert _arxiv_url_https("https://export.arxiv.org/abs/3") == "https://export.arxiv.org/abs/3"
+
     def test_sleep_aplica_backoff_con_jitter_acotado(self):
         """El backoff nunca supera `BACKOFF_MAX * 1.25`, aun con jitter máximo."""
         from tukul_core.real_time_feed.adapters.arxiv import BACKOFF_MAX
