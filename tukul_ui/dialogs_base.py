@@ -54,7 +54,80 @@ def abrir_dialogo(
     dialogo.bind("<Escape>", lambda _e: dialogo.destroy())
     cuerpo = ttk.Frame(dialogo, style=estilo_cuerpo, padding=es.ESP["lg"])
     cuerpo.pack(fill="both", expand=True)
+    # Foco inicial: un modal debe nacer con el foco DENTRO, o el grab_set deja
+    # al usuario sin punto de partida para el teclado. Se difiere a idle porque
+    # los controles aún no existen; el llamador puede imponer su propio foco
+    # (`focus_set()`) y este ayudante lo respeta (solo actúa si nada dentro del
+    # diálogo tiene el foco todavía).
+    dialogo.after_idle(lambda: enfocar_primer_control(dialogo))
     return dialogo, cuerpo
+
+
+def enfocar_primer_control(dialogo: tk.Toplevel) -> None:
+    """Da el foco al primer control enfocable del diálogo si aún no lo tiene.
+
+    Recorre en profundidad buscando un widget que acepte foco (ttk.Entry,
+    ttk.Button, ttk.Combobox, tk.Text, tk.Listbox…). Si el foco YA está dentro
+    del diálogo —porque el llamador lo fijó explícitamente—, no hace nada: el
+    foco pedido por el código manda sobre este valor por defecto. Cualquier
+    fallo de Tk (diálogo destruido antes del idle) se ignora.
+    """
+    try:
+        if not dialogo.winfo_exists():
+            return
+        actual = dialogo.focus_get()
+        if actual is not None and str(actual).startswith(str(dialogo)):
+            return  # El llamador ya eligió el foco: se respeta.
+        primero = _primer_enfocable(dialogo)
+        if primero is not None:
+            primero.focus_set()
+    except tk.TclError:
+        return
+
+
+def _primer_enfocable(widget: tk.Misc) -> tk.Misc | None:
+    """Primer descendiente que puede tomar el foco, en orden de creación.
+
+    Solo se consideran controles reales (entradas, botones, listas, áreas de
+    texto), no contenedores de maquetación: un `ttk.Frame` no declara
+    `takefocus="0"` por defecto, pero tampoco es un destino de teclado útil, y
+    enfocarlo dejaba el diálogo sin punto de partida visible.
+    """
+    for hijo in widget.winfo_children():
+        try:
+            if _es_control_enfocable(hijo) and hijo.winfo_viewable():
+                return hijo
+        except tk.TclError:
+            pass
+        encontrado = _primer_enfocable(hijo)
+        if encontrado is not None:
+            return encontrado
+    return None
+
+
+#: Widgets que sí son un destino de teclado. El resto (Frame, Labelframe,
+#: Separator, Label…) se usa para maquetar y no debe recibir el foco.
+_CONTROLES_ENFOCABLES = (
+    "TEntry", "TCombobox", "TSpinbox", "TButton", "TCheckbutton", "TRadiobutton",
+    "TMenubutton", "Text", "Listbox", "Button", "Checkbutton", "Radiobutton",
+    "Scale", "Scrollbar", "Canvas",
+)
+
+
+def _es_control_enfocable(widget: tk.Misc) -> bool:
+    """¿Es un control real y acepta el foco?"""
+    try:
+        if widget.cget("takefocus") in ("0", 0, False):
+            return False
+    except (tk.TclError, TypeError):
+        pass
+    for clase in _CONTROLES_ENFOCABLES:
+        try:
+            if widget.winfo_class() == clase:
+                return True
+        except tk.TclError:
+            return False
+    return False
 
 
 def crear_listbox(parent: tk.Misc, **extra) -> tk.Listbox:

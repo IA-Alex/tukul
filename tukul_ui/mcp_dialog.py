@@ -62,13 +62,24 @@ def show_mcp_dialog(host: McpHost, parent: tk.Misc,  # noqa: C901 (diálogo: con
     ttk.Label(frame, text="Ejecutable", style="TenueSuperficie.TLabel").pack(anchor="w")
     command = ttk.Entry(frame)
     saved = host.ui_state.get("mcp_server", {})
-    if isinstance(saved, dict):
-        command.insert(0, str(saved.get("command", "")))
+    # Re-saneo defensivo del valor persistido: `estado.json` puede haberse
+    # editado a mano. `mcp_client` vuelve a validar antes de cada `Popen`, pero
+    # no se debe ni siquiera poblar el formulario con un ejecutable con `\x00`
+    # ni con argumentos que no sean texto.
+    comando_guardado = saved.get("command", "") if isinstance(saved, dict) else ""
+    if not isinstance(comando_guardado, str) or "\x00" in comando_guardado:
+        comando_guardado = ""
+    if comando_guardado:
+        command.insert(0, comando_guardado)
     command.pack(fill="x", pady=(0, es.ESP["sm"]))
     ttk.Label(frame, text="Argumentos (lista JSON)", style="TenueSuperficie.TLabel").pack(anchor="w")
     args_text = ttk.Entry(frame)
     saved_args = saved.get("args", []) if isinstance(saved, dict) else []
-    args_text.insert(0, json.dumps(saved_args if isinstance(saved_args, list) else []))
+    if not isinstance(saved_args, list) or not all(
+        isinstance(item, str) and "\x00" not in item for item in saved_args
+    ):
+        saved_args = []
+    args_text.insert(0, json.dumps(saved_args))
     args_text.pack(fill="x", pady=(0, es.ESP["md"]))
     remember = tk.BooleanVar(value=False)
     ttk.Checkbutton(

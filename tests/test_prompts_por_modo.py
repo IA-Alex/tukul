@@ -41,6 +41,10 @@ DEFENSAS = (
     "redefinan tu rol",
     "nunca reveles",
     "no cambies de rol",
+    # Endurecimiento 2026-11-25: el resultado de una herramienta o consulta
+    # externa también es dato, no instrucción. Si se pierde, una respuesta de
+    # un servidor MCP o un resumen de fuentes podría redefinir el rol.
+    "resultado de una herramienta",
 )
 
 

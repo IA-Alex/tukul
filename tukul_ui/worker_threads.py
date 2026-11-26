@@ -103,15 +103,27 @@ class WorkerThreads:
     def esperar(timeout: float) -> list[threading.Thread]:
         """Espera hasta `timeout` TOTAL y devuelve los que siguen vivos.
 
-        El tope es global, no por hilo: una petición realmente colgada no puede
-        alargar el cierre proporcionalmente al número de workers.
+        El tope es global (una petición realmente colgada no puede alargar el
+        cierre proporcionalmente al número de workers), pero el presupuesto se
+        reparte entre los vivos en vez de agotarse en los primeros: con el
+        reparto secuencial anterior, el primer worker podía consumir todo el
+        plazo y los siguientes recibían `join(timeout=0)` — no se les daba
+        oportunidad alguna y llegaban a la destrucción de Tk todavía vivos.
+        Cada hilo recibe `restante / pendientes`, así todos tienen una ventana
+        de gracia y el total sigue sin superar `timeout`.
         """
         limite = time.monotonic() + max(0.0, timeout)
-        for hilo in WorkerThreads.vivos():
+        while True:
+            vivos = WorkerThreads.vivos()
+            if not vivos:
+                break
             restante = limite - time.monotonic()
             if restante <= 0:
                 break
-            hilo.join(timeout=restante)
+            # Reparto equitativo del tiempo que queda entre los que siguen vivos.
+            objetivo = max(0.0, restante) / len(vivos)
+            for hilo in vivos:
+                hilo.join(timeout=objetivo)
         return WorkerThreads.vivos()
 
     @staticmethod

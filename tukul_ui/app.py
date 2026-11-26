@@ -311,6 +311,10 @@ class TukulApp(tk.Tk):
         # Estado visible del rótulo de sincronía del documento (clean/dirty/saved):
         # se repinta al cambiar de tema conservando el estado real del documento.
         self._sync_estado = "clean"
+        # Turnos insertados en el historial visible. Se lleva en un contador
+        # para no recorrer `tag_ranges("separacion")` en cada `append` (ver
+        # `_recortar_historial`); `_clear_history_widget` lo pone a cero.
+        self._historial_turnos = 0
         # Diálogos abiertos que deben repintarse al cambiar de tema: pares
         # (ventana ancla, cómo reaplicar). Se podan solos al destruirse.
         self._reaplicar_tema_hooks: list[tuple[tk.Misc, Callable[[], None]]] = []
@@ -1186,6 +1190,7 @@ class TukulApp(tk.Tk):
         self.history.insert("end", "\n", "separacion")
         self.history.see("end")
         self.history.config(state="disabled")
+        self._historial_turnos += 1
         if who=="Tukul" and es_respuesta: self.scope.last_response=text
         self._actualizar_boton_limpiar()
         self._recortar_historial()
@@ -1193,23 +1198,39 @@ class TukulApp(tk.Tk):
     def _recortar_historial(self) -> None:
         """Limita el historial visible a los últimos `MAX_HISTORIAL_TURNOS`.
 
-        El widget crecía sin techo en sesiones largas. Se cuentan los separadores
-        (uno por turno) y se borra desde `1.0` hasta el inicio del primer turno
-        que se conserva: así nunca se parte un bloque a la mitad. Se hace solo
-        al cerrar un turno (`append`), no en cada chunk de streaming.
+        El widget crecía sin techo en sesiones largas. Cada turno inserta un
+        separador, así que el número de turnos se lleva en un contador
+        (`_historial_turnos`) en vez de recontar `tag_ranges("separacion")` en
+        cada `append`: ese recorrido es O(total de turnos) y se ejecutaba una
+        vez por turno (coste cuadrático acumulado con el tope de 200). El
+        contador se sincroniza con el widget en el único punto que borra
+        (`_clear_history_widget`) y en el recorte de abajo, y si alguna vez
+        diverge se recalcula una sola vez desde los separadores reales.
+
+        Se borra desde `1.0` hasta el inicio del primer turno que se conserva:
+        así nunca se parte un bloque a la mitad. Solo se recorre el widget
+        cuando de verdad toca recortar, no en cada turno.
         """
         try:
+            if self._historial_turnos <= MAX_HISTORIAL_TURNOS:
+                return
             separadores = self.history.tag_ranges("separacion")
         except tk.TclError:
             return
         turnos = len(separadores) // 2  # cada turno inserta 1 separador
+        # El contador es la fuente barata; el recuento real solo corrige si
+        # divergió (p. ej. un turno borrado por fuera o una restauración).
+        turnos = max(turnos, self._historial_turnos)
         if turnos <= MAX_HISTORIAL_TURNOS:
+            self._historial_turnos = turnos
             return
-        # Índice inicial del primer turno que se conserva.
-        corte = separadores[(turnos - MAX_HISTORIAL_TURNOS) * 2 - 2]
+        # Índice inicial del primer turno que se conserva. `*2` avanza por la
+        # lista plana de rangos (inicio, fin) que devuelve `tag_ranges`.
+        corte = separadores[(turnos - MAX_HISTORIAL_TURNOS) * 2]
         self.history.config(state="normal")
         self.history.delete("1.0", corte)
         self.history.config(state="disabled")
+        self._historial_turnos = MAX_HISTORIAL_TURNOS
 
     def clear_history(self) -> None:
         """Limpia historial de conversación."""
@@ -1602,6 +1623,7 @@ class TukulApp(tk.Tk):
         self.history.config(state="normal")
         self.history.delete("1.0", "end")
         self.history.config(state="disabled")
+        self._historial_turnos = 0
         self._actualizar_boton_limpiar()
     def _actualizar_boton_limpiar(self) -> None:
         """Habilita «Limpiar» solo cuando hay conversación que borrar.
@@ -1658,9 +1680,17 @@ class TukulApp(tk.Tk):
             return
     def _enviar_desde_input(self) -> None:
         """Extrae el mensaje del input respetando el placeholder y lo envía."""
-        if self._placeholder_activo:
-            return
         message = self.input.get("1.0", "end-1c").strip()
+        # El placeholder no es un mensaje del usuario. No basta con la bandera
+        # `_placeholder_activo`: el orden de <FocusOut>/<Return> puede reinsertar
+        # el placeholder —o dejarlo con la bandera ya apagada— justo antes de un
+        # segundo Enter, y entonces se enviaba como si fuera texto real. Se
+        # comprueba contra el CONTENIDO, que es la verdad visible, y solo se
+        # descarta cuando el campo contiene exactamente el placeholder, en
+        # cualquiera de los dos estados de la bandera. Si el usuario escribió
+        # algo más, ese algo se envía.
+        if message == self._placeholder_texto.strip():
+            return
         if not message or self.session.request_active:
             return
         # Sin perfil/key no se puede responder, pero el mensaje NUNCA se

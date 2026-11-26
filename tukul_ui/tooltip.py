@@ -60,6 +60,14 @@ class ToolTip:
             return
         ToolTip._ocultar_global()
         self._ventana = tk.Toplevel(self.widget)
+        # `-type tooltip` evita que la pista entre en la barra de tareas o robe
+        # el foco en WM que lo respetan (X11). Es best-effort: si el servidor no
+        # soporta el atributo, se conserva el comportamiento actual
+        # (`overrideredirect`) y el tooltip no depende de ello para funcionar.
+        try:
+            self._ventana.wm_attributes("-type", "tooltip")
+        except tk.TclError:
+            pass
         self._ventana.wm_overrideredirect(True)
         tk.Label(
             self._ventana,
